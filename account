@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>掌柜账本 · 餐厅进销存</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#FAF6EE;
+    --paper:#FFFFFF;
+    --ink:#2B2620;
+    --muted:#8A8272;
+    --border:#E6DECE;
+    --green:#1F6F5C;
+    --green-dim:#E4EEEA;
+    --rust:#AE4A31;
+    --rust-dim:#F5E6E0;
+    --gold:#C9932E;
+    --shadow: 0 1px 2px rgba(43,38,32,0.06), 0 4px 14px rgba(43,38,32,0.05);
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:'Inter',system-ui,sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    padding-bottom:76px;
+  }
+  h1,h2,h3,.serif{font-family:'Fraunces',serif;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  header.top{
+    position:sticky; top:0; z-index:20;
+    background:var(--ink); color:#F5EFE2;
+    padding:14px 18px 16px;
+  }
+  header.top .row{display:flex; align-items:baseline; justify-content:space-between;}
+  header.top h1{font-size:19px; font-weight:600; margin:0; letter-spacing:.2px;}
+  header.top .tag{font-size:11px; color:#C9BFA8; letter-spacing:.5px;}
+  .cash-strip{
+    margin-top:10px; display:flex; gap:10px; overflow-x:auto; padding-bottom:2px;
+  }
+  .cash-chip{
+    flex:0 0 auto; background:rgba(255,255,255,0.07); border:1px dashed rgba(255,255,255,0.25);
+    border-radius:10px; padding:8px 12px; min-width:110px;
+  }
+  .cash-chip .lbl{font-size:10.5px; color:#C9BFA8; text-transform:uppercase; letter-spacing:.5px;}
+  .cash-chip .val{font-family:'IBM Plex Mono',monospace; font-size:15px; font-weight:600; margin-top:2px;}
+  .val.pos{color:#8FD9BE;} .val.neg{color:#F0A98E;}
+
+  main{padding:16px 14px 8px; max-width:760px; margin:0 auto;}
+  .tab-panel{display:none; animation:fade .18s ease;}
+  .tab-panel.active{display:block;}
+  @keyframes fade{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:translateY(0);}}
+
+  .card{
+    background:var(--paper); border:1px solid var(--border); border-radius:14px;
+    padding:16px; margin-bottom:14px; box-shadow:var(--shadow);
+  }
+  .card h3{margin:0 0 12px; font-size:15.5px; font-weight:600; display:flex; align-items:center; gap:8px;}
+  .card h3 .n{color:var(--muted); font-weight:500; font-size:12px;}
+
+  label{display:block; font-size:12px; color:var(--muted); margin:10px 0 4px;}
+  label:first-of-type{margin-top:0;}
+  input, select{
+    width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px;
+    font-size:14.5px; font-family:inherit; background:#FFFDF9; color:var(--ink);
+  }
+  input:focus, select:focus{outline:none; border-color:var(--green);}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .grid3{display:grid; grid-template-columns:1.3fr 0.8fr 0.8fr; gap:8px;}
+
+  button{
+    font-family:inherit; cursor:pointer; border:none; border-radius:8px;
+    font-size:14px; font-weight:600; padding:10px 14px;
+  }
+  .btn-main{background:var(--green); color:#fff; width:100%; margin-top:12px;}
+  .btn-main:active{opacity:.85;}
+  .btn-ghost{background:transparent; border:1px solid var(--border); color:var(--ink);}
+  .btn-line{background:none; border:none; color:var(--green); font-size:13px; padding:4px 0; text-align:left;}
+  .btn-danger-text{background:none; border:none; color:var(--rust); font-size:12.5px; padding:2px 4px;}
+  .btn-small{padding:6px 10px; font-size:12.5px;}
+
+  .item-row{display:grid; grid-template-columns:1.4fr 0.7fr 0.55fr 0.9fr auto; gap:6px; margin-bottom:6px; align-items:center;}
+  .item-row input{padding:8px;}
+  .rm{color:var(--rust); font-size:18px; background:none; border:none; padding:0 4px;}
+
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  th{text-align:left; color:var(--muted); font-weight:500; font-size:11.5px; text-transform:uppercase; letter-spacing:.3px; padding:6px 4px; border-bottom:1px solid var(--border);}
+  td{padding:8px 4px; border-bottom:1px solid #F0EAdd; vertical-align:top;}
+  tr:last-child td{border-bottom:none;}
+  .num{font-family:'IBM Plex Mono',monospace; text-align:right; white-space:nowrap;}
+  .muted{color:var(--muted);}
+  .pill{display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600;}
+  .pill.owe{background:var(--rust-dim); color:var(--rust);}
+  .pill.clear{background:var(--green-dim); color:var(--green);}
+
+  .empty{text-align:center; color:var(--muted); font-size:13px; padding:24px 10px; border:1px dashed var(--border); border-radius:10px;}
+
+  .receipt-divider{border:none; border-top:1px dashed var(--border); margin:10px 0;}
+
+  nav.bottom{
+    position:fixed; bottom:0; left:0; right:0; z-index:30;
+    background:var(--paper); border-top:1px solid var(--border);
+    display:flex; padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+    box-shadow:0 -2px 10px rgba(0,0,0,0.05);
+  }
+  nav.bottom button{
+    flex:1; background:none; display:flex; flex-direction:column; align-items:center; gap:2px;
+    color:var(--muted); font-size:10.5px; font-weight:600; padding:6px 2px; border-radius:10px;
+  }
+  nav.bottom button .ic{font-size:19px;}
+  nav.bottom button.active{color:var(--green); background:var(--green-dim);}
+
+  .subtle-form summary{cursor:pointer; color:var(--green); font-size:13px; font-weight:600; padding:4px 0;}
+
+  @media (min-width:820px){
+    body{padding-bottom:0;}
+    .layout{display:flex; max-width:1080px; margin:0 auto;}
+    nav.bottom{
+      position:sticky; top:0; height:100vh; width:150px; flex-direction:column; border-top:none; border-right:1px solid var(--border);
+      padding:18px 8px; box-shadow:none;
+    }
+    nav.bottom button{flex-direction:row; justify-content:flex-start; gap:8px; padding:10px 10px; margin-bottom:4px;}
+    main{flex:1; padding:22px 26px;}
+    header.top{display:none;}
+    .header-desktop{max-width:none; margin:0; padding:18px 26px 0;}
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="row">
+    <h1>掌柜账本</h1>
+    <span class="tag">餐厅进销存</span>
+  </div>
+  <div class="cash-strip" id="cashStrip"></div>
+</header>
+
+<div class="layout">
+<nav class="bottom" id="bottomNav">
+  <button data-tab="overview" class="active"><span class="ic">📊</span>总览</button>
+  <button data-tab="purchase"><span class="ic">🛒</span>采购</button>
+  <button data-tab="cost"><span class="ic">🧮</span>成本</button>
+  <button data-tab="sales"><span class="ic">💰</span>销售</button>
+  <button data-tab="cash"><span class="ic">📒</span>收支</button>
+</nav>
+
+<main>
+
+  <section class="tab-panel active" id="tab-overview"></section>
+  <section class="tab-panel" id="tab-purchase"></section>
+  <section class="tab-panel" id="tab-cost"></section>
+  <section class="tab-panel" id="tab-sales"></section>
+  <section class="tab-panel" id="tab-cash"></section>
+
+</main>
+</div>
+
+<script>
+/* ---------------- 数据层 ---------------- */
+const STORAGE_KEY = 'restaurant_ledger_v1';
+let state = {
+  initialCash: 0,
+  suppliers: [],
+  purchases: [],
+  payments: [],
+  products: [],
+  sales: [],
+  cashflow: []
+};
+let loaded = false;
+
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function fmt(n){
+  n = Number(n)||0;
+  return 'RM ' + n.toLocaleString('en-MY',{minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function fmtPlain(n){ return (Number(n)||0).toLocaleString('en-MY',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+
+function loadState(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){
+      const parsed = JSON.parse(raw);
+      state = Object.assign(state, parsed);
+    }
+  }catch(e){ /* 首次使用，无数据，或读取失败 */ }
+  loaded = true;
+  renderAll();
+}
+function saveState(){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }catch(e){
+    console.error('保存失败', e);
+    alert('保存失败，可能是浏览器存储空间不足或处于隐私模式。');
+  }
+}
+
+/* 导出 / 导入：数据存在这台设备的浏览器里，换设备/换浏览器需要手动导出再导入 */
+function exportData(){
+  const blob = new Blob([JSON.stringify(state, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `账本备份_${todayStr()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+function importData(fileInput){
+  const file = fileInput.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    try{
+      const parsed = JSON.parse(e.target.result);
+      if(!confirm('导入会覆盖当前这台设备上的所有数据，确定继续吗？')) return;
+      state = Object.assign({initialCash:0, suppliers:[], purchases:[], payments:[], products:[], sales:[], cashflow:[]}, parsed);
+      saveState();
+      renderAll();
+      alert('导入成功');
+    }catch(err){
+      alert('文件格式不对，导入失败');
+    }
+  };
+  reader.readAsText(file);
+  fileInput.value = '';
+}
+function mutate(fn){
+  fn();
+  saveState();
+  renderAll();
+}
+
+/* ---------------- 计算辅助 ---------------- */
+function supplierName(id){ const s = state.suppliers.find(x=>x.id===id); return s? s.name : '未知供应商'; }
+function productCost(p){ return (p.costItems||[]).reduce((a,c)=>a+Number(c.cost||0),0); }
+function supplierTotals(id){
+  const bought = state.purchases.filter(p=>p.supplierId===id).reduce((a,p)=>a+Number(p.totalAmount||0),0);
+  const paid = state.payments.filter(p=>p.supplierId===id).reduce((a,p)=>a+Number(p.amount||0),0);
+  return {bought, paid, owe: bought - paid};
+}
+function cashBalance(){
+  const inSum = state.cashflow.filter(c=>c.type==='in').reduce((a,c)=>a+Number(c.amount||0),0);
+  const outSum = state.cashflow.filter(c=>c.type==='out').reduce((a,c)=>a+Number(c.amount||0),0);
+  return Number(state.initialCash||0) + inSum - outSum;
+}
+function monthKey(d){ return (d||'').slice(0,7); }
+function todayKey(){ return todayStr(); }
+
+/* ---------------- 顶部现金条 ---------------- */
+function renderCashStrip(){
+  const bal = cashBalance();
+  const totalOwe = state.suppliers.reduce((a,s)=>a+supplierTotals(s.id).owe,0);
+  const todaySales = state.sales.filter(s=>s.date===todayKey()).reduce((a,s)=>a+Number(s.amount||0),0);
+  const mk = monthKey(todayKey());
+  const monthProfit = state.sales.filter(s=>monthKey(s.date)===mk)
+    .reduce((a,s)=>a + (Number(s.amount||0) - Number(s.cost||0)*Number(s.qty||1)/Number(s.qty||1)*1),0);
+  document.getElementById('cashStrip').innerHTML = `
+    <div class="cash-chip"><div class="lbl">现金结余</div><div class="val ${bal>=0?'pos':'neg'}">${fmtPlain(bal)}</div></div>
+    <div class="cash-chip"><div class="lbl">今日销售</div><div class="val pos">${fmtPlain(todaySales)}</div></div>
+    <div class="cash-chip"><div class="lbl">供应商欠款</div><div class="val ${totalOwe>0?'neg':'pos'}">${fmtPlain(totalOwe)}</div></div>
+  `;
+}
+
+/* ================= 总览 Tab ================= */
+function renderOverview(){
+  const el = document.getElementById('tab-overview');
+  const bal = cashBalance();
+  const mk = monthKey(todayKey());
+  const monthSales = state.sales.filter(s=>monthKey(s.date)===mk);
+  const monthRevenue = monthSales.reduce((a,s)=>a+Number(s.amount||0),0);
+  const monthCost = monthSales.reduce((a,s)=>a+Number(s.cost||0),0);
+  const monthProfit = monthRevenue - monthCost;
+  const marginPct = monthRevenue>0 ? (monthProfit/monthRevenue*100).toFixed(1) : '0.0';
+
+  const oweList = state.suppliers.map(s=>({s, t:supplierTotals(s.id)})).filter(x=>x.t.owe>0.001)
+    .sort((a,b)=>b.t.owe-a.t.owe).slice(0,5);
+
+  // 最近记录（销售+收支+付款 合并按时间倒序取8条）
+  const recent = [
+    ...state.sales.map(s=>({date:s.date, text:`销售 · ${s.productName}`, amount:s.amount, sign:1})),
+    ...state.payments.map(p=>({date:p.date, text:`付款 · ${supplierName(p.supplierId)}`, amount:p.amount, sign:-1})),
+    ...state.cashflow.filter(c=>!c.auto).map(c=>({date:c.date, text:`${c.type==='in'?'收入':'支出'} · ${c.category}`, amount:c.amount, sign:c.type==='in'?1:-1}))
+  ].sort((a,b)=> (b.date||'').localeCompare(a.date||'')).slice(0,8);
+
+  el.innerHTML = `
+    <div class="card">
+      <h3>本期期初现金</h3>
+      <label>期初现金余额（设置一次即可，之后自动累计）</label>
+      <input type="number" step="0.01" id="initCashInput" value="${state.initialCash||0}">
+      <button class="btn-main" onclick="setInitialCash()">保存期初余额</button>
+    </div>
+
+    <div class="card">
+      <h3>数据备份 <span class="n">跨设备同步</span></h3>
+      <div class="muted" style="font-size:12.5px; line-height:1.6; margin-bottom:10px;">
+        这个网页版数据只保存在<b>当前这台设备的浏览器里</b>，手机和电脑不会自动同步。
+        建议记完账后导出一份备份，需要在另一台设备上查看/继续记账时，用导入把最新备份载入即可。
+      </div>
+      <div class="grid2">
+        <button class="btn-ghost" onclick="exportData()">⬇ 导出备份</button>
+        <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
+          ⬆ 导入备份
+          <input type="file" accept=".json" style="display:none" onchange="importData(this)">
+        </label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>本月经营概况 <span class="n">${mk}</span></h3>
+      <table>
+        <tr><td>销售总额</td><td class="num">${fmt(monthRevenue)}</td></tr>
+        <tr><td>食材成本</td><td class="num">${fmt(monthCost)}</td></tr>
+        <tr><td><b>毛利润</b></td><td class="num"><b>${fmt(monthProfit)}</b></td></tr>
+        <tr><td>毛利率</td><td class="num">${marginPct}%</td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>欠供应商货款 <span class="n">前 5</span></h3>
+      ${oweList.length? `<table>
+        <tr><th>供应商</th><th class="num">欠款</th></tr>
+        ${oweList.map(x=>`<tr><td>${x.s.name}</td><td class="num" style="color:var(--rust)">${fmt(x.t.owe)}</td></tr>`).join('')}
+      </table>` : `<div class="empty">目前没有欠款，很干净 👍</div>`}
+    </div>
+
+    <div class="card">
+      <h3>最近动态</h3>
+      ${recent.length? `<table>
+        ${recent.map(r=>`<tr><td class="muted" style="width:70px">${r.date||''}</td><td>${r.text}</td><td class="num" style="color:${r.sign>0?'var(--green)':'var(--rust)'}">${r.sign>0?'+':'-'}${fmtPlain(r.amount)}</td></tr>`).join('')}
+      </table>` : `<div class="empty">还没有任何记录，从"采购"或"销售"页开始记吧</div>`}
+    </div>
+  `;
+}
+function setInitialCash(){
+  const v = Number(document.getElementById('initCashInput').value)||0;
+  mutate(()=>{ state.initialCash = v; });
+}
+
+/* ================= 采购 Tab（含供应商）================= */
+let tempPurchaseItems = [{id:uid(), name:'', qty:'', unit:'', total:''}];
+
+function renderPurchase(){
+  const el = document.getElementById('tab-purchase');
+  el.innerHTML = `
+    <div class="card">
+      <h3>供应商 <span class="n">${state.suppliers.length} 家</span></h3>
+      <div class="grid2">
+        <div><label>供应商名称</label><input id="supName" placeholder="例：新鲜蔬果行"></div>
+        <div><label>联系电话（选填）</label><input id="supPhone" placeholder="012-3456789"></div>
+      </div>
+      <button class="btn-main" onclick="addSupplier()">+ 添加供应商</button>
+      <hr class="receipt-divider">
+      ${state.suppliers.length? `<table>
+        <tr><th>名称</th><th class="num">已购</th><th class="num">已付</th><th>欠款</th><th></th></tr>
+        ${state.suppliers.map(s=>{
+          const t = supplierTotals(s.id);
+          return `<tr>
+            <td>${s.name}${s.phone?`<div class="muted" style="font-size:11px">${s.phone}</div>`:''}</td>
+            <td class="num">${fmtPlain(t.bought)}</td>
+            <td class="num">${fmtPlain(t.paid)}</td>
+            <td>${t.owe>0.001? `<span class="pill owe">欠 ${fmtPlain(t.owe)}</span>` : `<span class="pill clear">已结清</span>`}</td>
+            <td><button class="btn-danger-text" onclick="deleteSupplier('${s.id}')">删除</button></td>
+          </tr>`;
+        }).join('')}
+      </table>` : `<div class="empty">还没有供应商，先在上面添加一个</div>`}
+    </div>
+
+    <div class="card">
+      <h3>新增采购单</h3>
+      <div class="grid2">
+        <div><label>供应商</label>
+          <select id="purSupplier">
+            <option value="">选择供应商</option>
+            ${state.suppliers.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
+          </select>
+        </div>
+        <div><label>采购日期</label><input type="date" id="purDate" value="${todayStr()}"></div>
+      </div>
+      <label style="margin-top:14px">品项明细（同一供应商可一次拿多个不同产品）</label>
+      <div id="purItemsWrap"></div>
+      <button class="btn-line" onclick="addPurchaseItemRow()">+ 添加一项</button>
+      <div style="margin-top:8px; font-size:13px; color:var(--muted)">本单总金额：<b class="mono" id="purTotalPreview">RM 0.00</b></div>
+      <button class="btn-main" onclick="submitPurchase()">保存采购单</button>
+    </div>
+
+    <div class="card">
+      <h3>供应商付款</h3>
+      <div class="grid2">
+        <div><label>供应商</label>
+          <select id="paySupplier">
+            <option value="">选择供应商</option>
+            ${state.suppliers.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
+          </select>
+        </div>
+        <div><label>付款日期</label><input type="date" id="payDate" value="${todayStr()}"></div>
+      </div>
+      <label>付款金额</label><input type="number" step="0.01" id="payAmount" placeholder="0.00">
+      <label>备注（选填）</label><input id="payNote" placeholder="例：结清上月货款">
+      <button class="btn-main" onclick="submitPayment()">记录付款</button>
+    </div>
+
+    <div class="card">
+      <h3>采购历史</h3>
+      ${state.purchases.length? `<table>
+        <tr><th>日期</th><th>供应商</th><th>品项</th><th class="num">金额</th><th></th></tr>
+        ${state.purchases.slice().reverse().map(p=>`
+          <tr>
+            <td class="muted">${p.date}</td>
+            <td>${supplierName(p.supplierId)}</td>
+            <td class="muted" style="font-size:12px">${p.items.map(i=>i.name+' ×'+i.qty+(i.unit||'')).join('，')}</td>
+            <td class="num">${fmtPlain(p.totalAmount)}</td>
+            <td><button class="btn-danger-text" onclick="deletePurchase('${p.id}')">删</button></td>
+          </tr>`).join('')}
+      </table>` : `<div class="empty">还没有采购记录</div>`}
+    </div>
+  `;
+  renderPurchaseItemRows();
+}
+
+function renderPurchaseItemRows(){
+  const wrap = document.getElementById('purItemsWrap');
+  wrap.innerHTML = tempPurchaseItems.map((row,idx)=>`
+    <div class="item-row">
+      <input placeholder="品名" value="${row.name}" oninput="updatePurItem('${row.id}','name',this.value)">
+      <input placeholder="数量" type="number" value="${row.qty}" oninput="updatePurItem('${row.id}','qty',this.value)">
+      <input placeholder="单位" value="${row.unit}" oninput="updatePurItem('${row.id}','unit',this.value)">
+      <input placeholder="总价RM" type="number" step="0.01" value="${row.total}" oninput="updatePurItem('${row.id}','total',this.value)">
+      ${tempPurchaseItems.length>1?`<button class="rm" onclick="removePurItem('${row.id}')">×</button>`:'<span></span>'}
+    </div>
+  `).join('');
+  const total = tempPurchaseItems.reduce((a,r)=>a+Number(r.total||0),0);
+  document.getElementById('purTotalPreview').textContent = fmt(total);
+}
+function updatePurItem(id, field, val){
+  const row = tempPurchaseItems.find(r=>r.id===id);
+  if(row){ row[field]=val; }
+  const total = tempPurchaseItems.reduce((a,r)=>a+Number(r.total||0),0);
+  document.getElementById('purTotalPreview').textContent = fmt(total);
+}
+function addPurchaseItemRow(){
+  tempPurchaseItems.push({id:uid(), name:'', qty:'', unit:'', total:''});
+  renderPurchaseItemRows();
+}
+function removePurItem(id){
+  tempPurchaseItems = tempPurchaseItems.filter(r=>r.id!==id);
+  if(tempPurchaseItems.length===0) tempPurchaseItems=[{id:uid(),name:'',qty:'',unit:'',total:''}];
+  renderPurchaseItemRows();
+}
+
+function addSupplier(){
+  const name = document.getElementById('supName').value.trim();
+  if(!name){ alert('请输入供应商名称'); return; }
+  const phone = document.getElementById('supPhone').value.trim();
+  mutate(()=>{ state.suppliers.push({id:uid(), name, phone}); });
+}
+function deleteSupplier(id){
+  const t = supplierTotals(id);
+  if(!confirm(`确定删除该供应商吗？相关采购与付款记录不会自动删除。`)) return;
+  mutate(()=>{ state.suppliers = state.suppliers.filter(s=>s.id!==id); });
+}
+function submitPurchase(){
+  const supplierId = document.getElementById('purSupplier').value;
+  const date = document.getElementById('purDate').value || todayStr();
+  if(!supplierId){ alert('请选择供应商'); return; }
+  const items = tempPurchaseItems.filter(r=>r.name && r.total!=='').map(r=>({
+    id:uid(), name:r.name, qty:Number(r.qty||0), unit:r.unit, totalCost:Number(r.total||0)
+  }));
+  if(items.length===0){ alert('请至少填写一项品名和总价'); return; }
+  const totalAmount = items.reduce((a,i)=>a+i.totalCost,0);
+  mutate(()=>{
+    state.purchases.push({id:uid(), date, supplierId, items, totalAmount});
+  });
+  tempPurchaseItems = [{id:uid(), name:'', qty:'', unit:'', total:''}];
+  renderPurchase();
+}
+function deletePurchase(id){
+  if(!confirm('确定删除这张采购单？')) return;
+  mutate(()=>{ state.purchases = state.purchases.filter(p=>p.id!==id); });
+}
+function submitPayment(){
+  const supplierId = document.getElementById('paySupplier').value;
+  const date = document.getElementById('payDate').value || todayStr();
+  const amount = Number(document.getElementById('payAmount').value)||0;
+  const note = document.getElementById('payNote').value.trim();
+  if(!supplierId){ alert('请选择供应商'); return; }
+  if(amount<=0){ alert('请输入付款金额'); return; }
+  mutate(()=>{
+    const pid = uid();
+    state.payments.push({id:pid, date, supplierId, amount, note});
+    state.cashflow.push({id:uid(), date, type:'out', category:'供应商付款', amount, note:`${supplierName(supplierId)}${note?' · '+note:''}`, auto:true});
+  });
+  renderPurchase();
+}
+
+/* ================= 产品成本 Tab ================= */
+let tempCostItems = [{id:uid(), name:'', cost:''}];
+
+function renderCost(){
+  const el = document.getElementById('tab-cost');
+  el.innerHTML = `
+    <div class="card">
+      <h3>新增菜品 / 产品</h3>
+      <div class="grid2">
+        <div><label>产品名称</label><input id="prodName" placeholder="例：招牌炒河粉"></div>
+        <div><label>售价</label><input id="prodPrice" type="number" step="0.01" placeholder="0.00"></div>
+      </div>
+      <label style="margin-top:14px">食材成本项（没有秤也没关系，按你估算的份量花费直接填金额）</label>
+      <div id="costItemsWrap"></div>
+      <button class="btn-line" onclick="addCostItemRow()">+ 添加一项食材成本</button>
+      <div style="margin-top:8px; font-size:13px; color:var(--muted)">
+        总成本：<b class="mono" id="costTotalPreview">RM 0.00</b>
+      </div>
+      <button class="btn-main" onclick="submitProduct()">保存产品</button>
+    </div>
+
+    <div class="card">
+      <h3>产品成本一览 <span class="n">${state.products.length} 项</span></h3>
+      ${state.products.length? state.products.map(p=>{
+        const cost = productCost(p);
+        const profit = Number(p.price||0) - cost;
+        const pct = p.price>0? (profit/p.price*100).toFixed(1) : '0.0';
+        return `
+        <div style="border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:10px;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <b>${p.name}</b>
+            <button class="btn-danger-text" onclick="deleteProduct('${p.id}')">删除产品</button>
+          </div>
+          <table style="margin-top:6px">
+            ${(p.costItems||[]).map(ci=>`<tr><td class="muted">${ci.name}</td><td class="num">${fmtPlain(ci.cost)}</td>
+              <td style="width:24px"><button class="btn-danger-text" onclick="deleteCostItem('${p.id}','${ci.id}')">×</button></td></tr>`).join('')}
+          </table>
+          <div class="grid2" style="margin-top:8px">
+            <input placeholder="追加食材，如：葱花" id="addCi_${p.id}_name">
+            <input placeholder="金额" type="number" step="0.01" id="addCi_${p.id}_cost">
+          </div>
+          <button class="btn-line" onclick="appendCostItem('${p.id}')">+ 追加食材成本</button>
+          <hr class="receipt-divider">
+          <table>
+            <tr><td>售价</td><td class="num">${fmt(p.price)}</td></tr>
+            <tr><td>食材成本</td><td class="num">${fmt(cost)}</td></tr>
+            <tr><td><b>毛利</b></td><td class="num" style="color:${profit>=0?'var(--green)':'var(--rust)'}"><b>${fmt(profit)}</b></td></tr>
+            <tr><td>毛利率</td><td class="num">${pct}%</td></tr>
+          </table>
+        </div>`;
+      }).join('') : `<div class="empty">还没有产品，先在上面新增一个吧</div>`}
+    </div>
+  `;
+  renderCostItemRows();
+}
+function renderCostItemRows(){
+  const wrap = document.getElementById('costItemsWrap');
+  if(!wrap) return;
+  wrap.innerHTML = tempCostItems.map(row=>`
+    <div class="grid3" style="margin-bottom:6px">
+      <input placeholder="食材名称，如：鸡胸肉" value="${row.name}" oninput="updateCostItem('${row.id}','name',this.value)">
+      <input placeholder="成本RM" type="number" step="0.01" value="${row.cost}" oninput="updateCostItem('${row.id}','cost',this.value)">
+      ${tempCostItems.length>1?`<button class="rm" onclick="removeCostItem('${row.id}')">×</button>`:'<span></span>'}
+    </div>
+  `).join('');
+  const total = tempCostItems.reduce((a,r)=>a+Number(r.cost||0),0);
+  const preview = document.getElementById('costTotalPreview');
+  if(preview) preview.textContent = fmt(total);
+}
+function updateCostItem(id,field,val){
+  const row = tempCostItems.find(r=>r.id===id);
+  if(row) row[field]=val;
+  const total = tempCostItems.reduce((a,r)=>a+Number(r.cost||0),0);
+  document.getElementById('costTotalPreview').textContent = fmt(total);
+}
+function addCostItemRow(){ tempCostItems.push({id:uid(), name:'', cost:''}); renderCostItemRows(); }
+function removeCostItem(id){
+  tempCostItems = tempCostItems.filter(r=>r.id!==id);
+  if(tempCostItems.length===0) tempCostItems=[{id:uid(),name:'',cost:''}];
+  renderCostItemRows();
+}
+function submitProduct(){
+  const name = document.getElementById('prodName').value.trim();
+  const price = Number(document.getElementById('prodPrice').value)||0;
+  if(!name){ alert('请输入产品名称'); return; }
+  const costItems = tempCostItems.filter(r=>r.name && r.cost!=='').map(r=>({id:uid(), name:r.name, cost:Number(r.cost||0)}));
+  mutate(()=>{ state.products.push({id:uid(), name, price, costItems}); });
+  tempCostItems = [{id:uid(), name:'', cost:''}];
+  renderCost();
+}
+function deleteProduct(id){
+  if(!confirm('确定删除该产品？')) return;
+  mutate(()=>{ state.products = state.products.filter(p=>p.id!==id); });
+}
+function deleteCostItem(prodId, ciId){
+  mutate(()=>{
+    const p = state.products.find(x=>x.id===prodId);
+    if(p) p.costItems = p.costItems.filter(c=>c.id!==ciId);
+  });
+}
+function appendCostItem(prodId){
+  const nameEl = document.getElementById(`addCi_${prodId}_name`);
+  const costEl = document.getElementById(`addCi_${prodId}_cost`);
+  const name = nameEl.value.trim();
+  const cost = Number(costEl.value)||0;
+  if(!name){ alert('请输入食材名称'); return; }
+  mutate(()=>{
+    const p = state.products.find(x=>x.id===prodId);
+    if(p) p.costItems.push({id:uid(), name, cost});
+  });
+}
+
+/* ================= 销售 Tab ================= */
+function renderSales(){
+  const el = document.getElementById('tab-sales');
+  const mk = monthKey(todayKey());
+  const monthSales = state.sales.filter(s=>monthKey(s.date)===mk);
+  const totalRevenue = monthSales.reduce((a,s)=>a+Number(s.amount||0),0);
+  const totalCost = monthSales.reduce((a,s)=>a+Number(s.cost||0),0);
+
+  el.innerHTML = `
+    <div class="card">
+      <h3>记一笔销售</h3>
+      <label>产品</label>
+      <select id="saleProduct" onchange="onSaleProductChange()">
+        <option value="">选择产品</option>
+        ${state.products.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
+      </select>
+      <div class="grid2" style="margin-top:10px">
+        <div><label>数量</label><input type="number" id="saleQty" value="1" min="1"></div>
+        <div><label>单价（可改，例如打折）</label><input type="number" step="0.01" id="salePrice"></div>
+      </div>
+      <label>日期</label><input type="date" id="saleDate" value="${todayStr()}">
+      <div style="margin-top:8px; font-size:13px; color:var(--muted)">本笔小计：<b class="mono" id="saleAmountPreview">RM 0.00</b></div>
+      <button class="btn-main" onclick="submitSale()">保存销售记录</button>
+    </div>
+
+    <div class="card">
+      <h3>本月销售汇总 <span class="n">${mk}</span></h3>
+      <table>
+        <tr><td>销售额</td><td class="num">${fmt(totalRevenue)}</td></tr>
+        <tr><td>成本</td><td class="num">${fmt(totalCost)}</td></tr>
+        <tr><td><b>毛利</b></td><td class="num"><b>${fmt(totalRevenue-totalCost)}</b></td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>销售记录</h3>
+      ${state.sales.length? `<table>
+        <tr><th>日期</th><th>产品</th><th class="num">数量</th><th class="num">金额</th><th></th></tr>
+        ${state.sales.slice().reverse().map(s=>`
+          <tr>
+            <td class="muted">${s.date}</td>
+            <td>${s.productName}</td>
+            <td class="num">${s.qty}</td>
+            <td class="num">${fmtPlain(s.amount)}</td>
+            <td><button class="btn-danger-text" onclick="deleteSale('${s.id}')">删</button></td>
+          </tr>`).join('')}
+      </table>` : `<div class="empty">还没有销售记录</div>`}
+    </div>
+  `;
+  wireSalePreview();
+}
+function onSaleProductChange(){
+  const pid = document.getElementById('saleProduct').value;
+  const p = state.products.find(x=>x.id===pid);
+  document.getElementById('salePrice').value = p? p.price : '';
+  updateSalePreview();
+}
+function wireSalePreview(){
+  document.getElementById('saleQty').addEventListener('input', updateSalePreview);
+  document.getElementById('salePrice').addEventListener('input', updateSalePreview);
+}
+function updateSalePreview(){
+  const qty = Number(document.getElementById('saleQty').value)||0;
+  const price = Number(document.getElementById('salePrice').value)||0;
+  document.getElementById('saleAmountPreview').textContent = fmt(qty*price);
+}
+function submitSale(){
+  const pid = document.getElementById('saleProduct').value;
+  const p = state.products.find(x=>x.id===pid);
+  if(!p){ alert('请选择产品'); return; }
+  const qty = Number(document.getElementById('saleQty').value)||0;
+  const price = Number(document.getElementById('salePrice').value)||0;
+  const date = document.getElementById('saleDate').value || todayStr();
+  if(qty<=0){ alert('请输入数量'); return; }
+  const amount = qty*price;
+  const unitCost = productCost(p);
+  mutate(()=>{
+    const sid = uid();
+    state.sales.push({id:sid, date, productId:pid, productName:p.name, qty, price, amount, cost: unitCost*qty});
+    state.cashflow.push({id:uid(), date, type:'in', category:'销售', amount, note:`${p.name} ×${qty}`, auto:true});
+  });
+  renderSales();
+}
+function deleteSale(id){
+  if(!confirm('确定删除这笔销售记录？（关联的现金流水也会删除）')) return;
+  mutate(()=>{
+    state.sales = state.sales.filter(s=>s.id!==id);
+    state.cashflow = state.cashflow.filter(c=>!(c.auto && c.category==='销售' && c._saleId===id));
+  });
+}
+
+/* ================= 收支 Tab ================= */
+function renderCash(){
+  const el = document.getElementById('tab-cash');
+  const bal = cashBalance();
+  el.innerHTML = `
+    <div class="card">
+      <h3>手动记一笔收支</h3>
+      <div class="grid2">
+        <div><label>类型</label>
+          <select id="cfType">
+            <option value="out">支出</option>
+            <option value="in">收入</option>
+          </select>
+        </div>
+        <div><label>日期</label><input type="date" id="cfDate" value="${todayStr()}"></div>
+      </div>
+      <label>分类</label>
+      <select id="cfCategory">
+        <option>房租</option><option>水电</option><option>人工</option>
+        <option>杂项支出</option><option>提款</option><option>其他收入</option><option>其他</option>
+      </select>
+      <label>金额</label><input type="number" step="0.01" id="cfAmount">
+      <label>备注（选填）</label><input id="cfNote">
+      <button class="btn-main" onclick="submitCashflow()">保存记录</button>
+    </div>
+
+    <div class="card">
+      <h3>现金结余</h3>
+      <table>
+        <tr><td>期初余额</td><td class="num">${fmt(state.initialCash)}</td></tr>
+        <tr><td>累计收入</td><td class="num">${fmt(state.cashflow.filter(c=>c.type==='in').reduce((a,c)=>a+Number(c.amount||0),0))}</td></tr>
+        <tr><td>累计支出</td><td class="num">${fmt(state.cashflow.filter(c=>c.type==='out').reduce((a,c)=>a+Number(c.amount||0),0))}</td></tr>
+        <tr><td><b>当前结余</b></td><td class="num"><b>${fmt(bal)}</b></td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>收支流水</h3>
+      ${state.cashflow.length? `<table>
+        <tr><th>日期</th><th>类别</th><th class="num">金额</th><th></th></tr>
+        ${state.cashflow.slice().reverse().map(c=>`
+          <tr>
+            <td class="muted">${c.date}</td>
+            <td>${c.category}${c.note?`<div class="muted" style="font-size:11px">${c.note}</div>`:''}</td>
+            <td class="num" style="color:${c.type==='in'?'var(--green)':'var(--rust)'}">${c.type==='in'?'+':'-'}${fmtPlain(c.amount)}</td>
+            <td>${c.auto? '' : `<button class="btn-danger-text" onclick="deleteCashflow('${c.id}')">删</button>`}</td>
+          </tr>`).join('')}
+      </table>` : `<div class="empty">还没有收支记录</div>`}
+    </div>
+  `;
+}
+function submitCashflow(){
+  const type = document.getElementById('cfType').value;
+  const category = document.getElementById('cfCategory').value;
+  const amount = Number(document.getElementById('cfAmount').value)||0;
+  const note = document.getElementById('cfNote').value.trim();
+  const date = document.getElementById('cfDate').value || todayStr();
+  if(amount<=0){ alert('请输入金额'); return; }
+  mutate(()=>{ state.cashflow.push({id:uid(), date, type, category, amount, note, auto:false}); });
+  renderCash();
+}
+function deleteCashflow(id){
+  if(!confirm('确定删除这条流水？')) return;
+  mutate(()=>{ state.cashflow = state.cashflow.filter(c=>c.id!==id); });
+}
+
+/* ---------------- 总渲染 & Tab 切换 ---------------- */
+function renderAll(){
+  if(!loaded) return;
+  renderCashStrip();
+  renderOverview();
+  renderPurchase();
+  renderCost();
+  renderSales();
+  renderCash();
+}
+document.getElementById('bottomNav').addEventListener('click', (e)=>{
+  const btn = e.target.closest('button[data-tab]');
+  if(!btn) return;
+  document.querySelectorAll('nav.bottom button').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('tab-'+btn.dataset.tab).classList.add('active');
+});
+
+loadState();
+</script>
+</body>
+</html>
