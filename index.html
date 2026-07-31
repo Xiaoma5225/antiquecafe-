@@ -346,6 +346,7 @@ function loadLocalThenApp(){
     }
   }catch(e){ /* 首次使用，无数据，或读取失败 */ }
   loaded = true;
+  if(reconcileCashflow()) saveState();
   renderAll();
 }
 function doLogin(){
@@ -371,6 +372,7 @@ function initCloudSync(user){
         const remote = snap.data();
         if(!state.updatedAt || (remote.updatedAt||0) >= (state.updatedAt||0)){
           state = Object.assign(state, remote);
+          if(reconcileCashflow()) saveState();
           renderAll();
         }
         setSyncStatus('云同步：已连接 ✓');
@@ -443,8 +445,18 @@ function importData(fileInput){
   reader.readAsText(file);
   fileInput.value = '';
 }
+/* 每笔销售会自动生成一条对应的收支流水（auto:true, type:'in', _saleId 指向那笔销售）。
+   如果销售记录被删掉了（或者是旧数据里没连上 _saleId 的），这条流水就会变成孤儿，
+   这里统一清掉：只保留那些还能对应到目前还存在的销售的自动流水。 */
+function reconcileCashflow(){
+  const saleIds = new Set(state.sales.map(s=>s.id));
+  const before = state.cashflow.length;
+  state.cashflow = state.cashflow.filter(c=> !(c.auto && c.type==='in' && !saleIds.has(c._saleId)) );
+  return state.cashflow.length !== before;
+}
 function mutate(fn){
   fn();
+  reconcileCashflow();
   saveState();
   renderAll();
 }
