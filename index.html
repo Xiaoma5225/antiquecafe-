@@ -240,6 +240,7 @@ const STORAGE_KEY = 'restaurant_ledger_v1';
 const PURCHASE_CATEGORIES = ['食材','厨房固定用品','厨房消耗品','修理','水费','电费','执照','工钱','营销','员工福利','租金','其他'];
 const INCOME_CATEGORIES = ['Cash','TNG','FoodPanda','其他'];
 const EXPENSE_CATEGORIES = ['房租','水电','人工','杂项支出','提款','其他'];
+const PAY_METHODS = ['现金','信用卡','银行转账'];
 let state = {
   initialCash: 0,
   suppliers: [],
@@ -573,6 +574,7 @@ function setRecentActivityFilter(val){
 /* ================= 采购 Tab（含供应商）================= */
 let tempPurchaseItems = [{id:uid(), name:'', category:'食材', qty:'', unit:'', unitPrice:'', total:''}];
 let purHistoryFilterDate = '';
+let payPayMethod = PAY_METHODS[0];
 
 function renderPurchase(){
   const el = document.getElementById('tab-purchase');
@@ -661,6 +663,10 @@ function renderPurchase(){
         <div><label>付款日期</label><input type="date" id="payDate" value="${todayStr()}"></div>
       </div>
       <label>付款金额</label><input type="number" step="0.01" id="payAmount" placeholder="0.00">
+      <label>付款方式</label>
+      <div class="btn-group" id="payMethodGroup">
+        ${PAY_METHODS.map(m=>`<button type="button" class="btn-toggle ${payPayMethod===m?'active':''}" data-val="${m}" onclick="setPayPayMethod('${m}')">${m}</button>`).join('')}
+      </div>
       <label>备注（选填）</label><input id="payNote" placeholder="例：结清上月货款">
       <button class="btn-main" onclick="submitPayment()">记录付款</button>
     </div>
@@ -803,12 +809,18 @@ function submitPayment(){
   if(!match){ alert('找不到这个供应商，请先在上面"供应商"里添加，或从建议列表里选一个已有的'); return; }
   const supplierId = match.id;
   if(amount<=0){ alert('请输入付款金额'); return; }
+  const payMethod = payPayMethod;
   mutate(()=>{
     const pid = uid();
-    state.payments.push({id:pid, date, supplierId, amount, note});
-    state.cashflow.push({id:uid(), date, type:'out', category:'供应商付款', amount, note:`${supplierName(supplierId)}${note?' · '+note:''}`, auto:true});
+    state.payments.push({id:pid, date, supplierId, amount, note, payMethod});
+    state.cashflow.push({id:uid(), date, type:'out', category:'供应商付款', amount, payMethod, note:`${supplierName(supplierId)}${note?' · '+note:''}`, auto:true});
   });
+  payPayMethod = PAY_METHODS[0];
   renderPurchase();
+}
+function setPayPayMethod(val){
+  payPayMethod = val;
+  document.querySelectorAll('#payMethodGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
 }
 
 /* ================= 产品成本 Tab ================= */
@@ -1072,6 +1084,7 @@ function deleteSale(id){
 const CF_TYPES = [{v:'out', label:'支出'}, {v:'in', label:'收入'}];
 let cfType = 'out';
 let cfCategory = EXPENSE_CATEGORIES[0];
+let cfPayMethod = PAY_METHODS[0];
 
 function renderCash(){
   const el = document.getElementById('tab-cash');
@@ -1086,6 +1099,7 @@ function renderCash(){
       <label>日期</label><input type="date" id="cfDate" value="${todayStr()}">
       <label>分类</label>
       <div class="btn-group" id="cfCategoryGroup"></div>
+      <div id="cfPayMethodWrap"></div>
       <label>金额</label><input type="number" step="0.01" id="cfAmount">
       <label>备注（选填）</label><input id="cfNote">
       <button class="btn-main" onclick="submitCashflow()">保存记录</button>
@@ -1108,7 +1122,7 @@ function renderCash(){
         ${state.cashflow.slice().reverse().map(c=>`
           <tr>
             <td class="muted">${c.date}</td>
-            <td>${c.category}${c.note?`<div class="muted" style="font-size:11px">${c.note}</div>`:''}</td>
+            <td>${c.category}${c.payMethod?` <span class="muted" style="font-size:11px">· ${c.payMethod}</span>`:''}${c.note?`<div class="muted" style="font-size:11px">${c.note}</div>`:''}</td>
             <td class="num" style="color:${c.type==='in'?'var(--green)':'var(--rust)'}">${c.type==='in'?'+':'-'}${fmtPlain(c.amount)}</td>
             <td>${c.auto? '' : `<button class="btn-danger-text" onclick="deleteCashflow('${c.id}')">删</button>`}</td>
           </tr>`).join('')}
@@ -1116,6 +1130,7 @@ function renderCash(){
     </div>
   `;
   renderCfCategoryGroup();
+  renderCfPayMethodGroup();
 }
 function renderCfCategoryGroup(){
   const cats = cfType==='in' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
@@ -1124,23 +1139,39 @@ function renderCfCategoryGroup(){
   if(!wrap) return;
   wrap.innerHTML = cats.map(c=>`<button type="button" class="btn-toggle ${cfCategory===c?'active':''}" data-val="${c}" onclick="setCfCategory('${c}')">${c}</button>`).join('');
 }
+function renderCfPayMethodGroup(){
+  const wrap = document.getElementById('cfPayMethodWrap');
+  if(!wrap) return;
+  if(cfType==='out'){
+    wrap.innerHTML = `<label>付款方式</label><div class="btn-group" id="cfPayMethodGroup">${PAY_METHODS.map(m=>`<button type="button" class="btn-toggle ${cfPayMethod===m?'active':''}" data-val="${m}" onclick="setCfPayMethod('${m}')">${m}</button>`).join('')}</div>`;
+  }else{
+    wrap.innerHTML = '';
+  }
+}
 function setCfType(val){
   cfType = val;
   document.querySelectorAll('#cfTypeGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
   renderCfCategoryGroup();
+  renderCfPayMethodGroup();
 }
 function setCfCategory(val){
   cfCategory = val;
   document.querySelectorAll('#cfCategoryGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
 }
+function setCfPayMethod(val){
+  cfPayMethod = val;
+  document.querySelectorAll('#cfPayMethodGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
+}
 function submitCashflow(){
   const type = cfType;
   const category = cfCategory;
+  const payMethod = type==='out' ? cfPayMethod : undefined;
   const amount = Number(document.getElementById('cfAmount').value)||0;
   const note = document.getElementById('cfNote').value.trim();
   const date = document.getElementById('cfDate').value || todayStr();
   if(amount<=0){ alert('请输入金额'); return; }
-  mutate(()=>{ state.cashflow.push({id:uid(), date, type, category, amount, note, auto:false}); });
+  mutate(()=>{ state.cashflow.push({id:uid(), date, type, category, amount, payMethod, note, auto:false}); });
+  cfPayMethod = PAY_METHODS[0];
   cfType = 'out';
   cfCategory = EXPENSE_CATEGORIES[0];
   renderCash();
