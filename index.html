@@ -480,6 +480,33 @@ function cashBalance(){
   const outSum = state.cashflow.filter(c=>c.type==='out').reduce((a,c)=>a+Number(c.amount||0),0);
   return Number(state.initialCash||0) + inSum - outSum;
 }
+/* 现金 vs 银行：收入方式为 Cash 算现金，其余（TNG/FoodPanda/其他）算银行；
+   支出付款方式为「现金」（或没填，视为现金）算现金，「信用卡/银行转账」算银行 */
+function isCashEntry(c){
+  if(c.type==='in') return c.category==='Cash';
+  return !c.payMethod || c.payMethod==='现金';
+}
+function splitBalances(dateLimit){
+  let cash = Number(state.initialCash||0);
+  let bank = 0;
+  state.cashflow.forEach(c=>{
+    if(dateLimit && c.date > dateLimit) return;
+    const amt = Number(c.amount||0);
+    const toCash = isCashEntry(c);
+    if(c.type==='in'){
+      if(toCash) cash += amt; else bank += amt;
+    }else{
+      if(toCash) cash -= amt; else bank -= amt;
+    }
+  });
+  return {cash, bank};
+}
+function lastMonthEndDateStr(){
+  const now = new Date();
+  const firstOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const lastOfPrevMonth = new Date(firstOfThisMonth.getTime() - 86400000);
+  return lastOfPrevMonth.toISOString().slice(0,10);
+}
 function monthKey(d){ return (d||'').slice(0,7); }
 function todayKey(){ return todayStr(); }
 
@@ -1100,6 +1127,9 @@ let cfPayMethod = PAY_METHODS[0];
 function renderCash(){
   const el = document.getElementById('tab-cash');
   const bal = cashBalance();
+  const now = splitBalances(null);
+  const lastMonthEnd = lastMonthEndDateStr();
+  const lastMonth = splitBalances(lastMonthEnd);
   el.innerHTML = `
     <div class="card">
       <h3>手动记一笔收支</h3>
@@ -1123,6 +1153,12 @@ function renderCash(){
         <tr><td>累计收入</td><td class="num">${fmt(state.cashflow.filter(c=>c.type==='in').reduce((a,c)=>a+Number(c.amount||0),0))}</td></tr>
         <tr><td>累计支出</td><td class="num">${fmt(state.cashflow.filter(c=>c.type==='out').reduce((a,c)=>a+Number(c.amount||0),0))}</td></tr>
         <tr><td><b>当前结余</b></td><td class="num"><b>${fmt(bal)}</b></td></tr>
+      </table>
+      <hr class="receipt-divider">
+      <table>
+        <tr><td>现金余额</td><td class="num">${fmt(now.cash)}</td></tr>
+        <tr><td>银行余额</td><td class="num">${fmt(now.bank)}</td></tr>
+        <tr><td class="muted">上月现金余额 <span class="muted" style="font-size:11px">（截至 ${lastMonthEnd}）</span></td><td class="num">${fmt(lastMonth.cash)}</td></tr>
       </table>
     </div>
 
