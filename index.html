@@ -548,6 +548,13 @@ function renderPurchase(){
       </div>
       <button class="btn-main" onclick="addSupplier()">+ 添加供应商</button>
       <hr class="receipt-divider">
+      <details class="subtle-form">
+        <summary>批量添加供应商（一次贴一整份名单）</summary>
+        <label style="margin-top:8px">每行一个名字，前面的编号会自动去掉，已存在的名字会自动跳过</label>
+        <textarea id="bulkSupplierText" rows="6" style="width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px; font-family:inherit; font-size:13.5px;" placeholder="99 SPEED MART SDN BHD&#10;AH LOCK TRADING&#10;..."></textarea>
+        <button class="btn-main" onclick="bulkAddSuppliers()">批量添加</button>
+      </details>
+      <hr class="receipt-divider">
       ${state.suppliers.length? `<table>
         <tr><th>名称</th><th class="num">已购</th><th class="num">已付</th><th>欠款</th><th></th></tr>
         ${state.suppliers.map(s=>{
@@ -674,6 +681,28 @@ function addSupplier(){
   if(!name){ alert('请输入供应商名称'); return; }
   const phone = document.getElementById('supPhone').value.trim();
   mutate(()=>{ state.suppliers.push({id:uid(), name, phone}); });
+}
+function bulkAddSuppliers(){
+  const raw = document.getElementById('bulkSupplierText').value;
+  if(!raw || !raw.trim()){ alert('请先贴上供应商名单'); return; }
+  const lines = raw.split('\n');
+  const existingNames = new Set(state.suppliers.map(s=>s.name.trim().toLowerCase()));
+  const toAdd = [];
+  const seenInBatch = new Set();
+  lines.forEach(line=>{
+    let name = line.replace(/^\s*\d+[\.\)\t\s]+/, '').trim();
+    if(!name) return;
+    const key = name.toLowerCase();
+    if(existingNames.has(key) || seenInBatch.has(key)) return;
+    seenInBatch.add(key);
+    toAdd.push(name);
+  });
+  if(toAdd.length===0){ alert('没有找到新的供应商名字（可能都已经存在了）'); return; }
+  mutate(()=>{
+    toAdd.forEach(name=>{ state.suppliers.push({id:uid(), name, phone:''}); });
+  });
+  document.getElementById('bulkSupplierText').value = '';
+  alert(`已添加 ${toAdd.length} 家新供应商`);
 }
 function deleteSupplier(id){
   const t = supplierTotals(id);
