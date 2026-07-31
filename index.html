@@ -221,6 +221,8 @@
 /* ---------------- 数据层 ---------------- */
 const STORAGE_KEY = 'restaurant_ledger_v1';
 const PURCHASE_CATEGORIES = ['食材','厨房固定用品','厨房消耗品','修理','水费','电费','执照','工钱','营销','员工福利','租金','其他'];
+const INCOME_CATEGORIES = ['Cash','TNG','FoodPanda','其他'];
+const EXPENSE_CATEGORIES = ['房租','水电','人工','杂项支出','提款','其他'];
 let state = {
   initialCash: 0,
   suppliers: [],
@@ -911,6 +913,10 @@ function renderSales(){
         <div><label>单价（可改，例如打折）</label><input type="number" step="0.01" id="salePrice"></div>
       </div>
       <label>日期</label><input type="date" id="saleDate" value="${todayStr()}">
+      <label>收款方式</label>
+      <select id="salePayMethod">
+        ${INCOME_CATEGORIES.map(c=>`<option value="${c}">${c}</option>`).join('')}
+      </select>
       <div style="margin-top:8px; font-size:13px; color:var(--muted)">本笔小计：<b class="mono" id="saleAmountPreview">RM 0.00</b></div>
       <button class="btn-main" onclick="submitSale()">保存销售记录</button>
     </div>
@@ -927,12 +933,13 @@ function renderSales(){
     <div class="card">
       <h3>销售记录</h3>
       ${state.sales.length? `<table>
-        <tr><th>日期</th><th>产品</th><th class="num">数量</th><th class="num">金额</th><th></th></tr>
+        <tr><th>日期</th><th>产品</th><th class="num">数量</th><th>收款</th><th class="num">金额</th><th></th></tr>
         ${state.sales.slice().reverse().map(s=>`
           <tr>
             <td class="muted">${s.date}</td>
             <td>${s.productName}</td>
             <td class="num">${s.qty}</td>
+            <td class="muted" style="font-size:12px">${s.payMethod||''}</td>
             <td class="num">${fmtPlain(s.amount)}</td>
             <td><button class="btn-danger-text" onclick="deleteSale('${s.id}')">删</button></td>
           </tr>`).join('')}
@@ -966,10 +973,11 @@ function submitSale(){
   if(qty<=0){ alert('请输入数量'); return; }
   const amount = qty*price;
   const unitCost = productCost(p);
+  const payMethod = document.getElementById('salePayMethod').value || '其他';
   mutate(()=>{
     const sid = uid();
-    state.sales.push({id:sid, date, productId:p.id, productName:p.name, qty, price, amount, cost: unitCost*qty});
-    state.cashflow.push({id:uid(), date, type:'in', category:'销售', amount, note:`${p.name} ×${qty}`, auto:true});
+    state.sales.push({id:sid, date, productId:p.id, productName:p.name, qty, price, amount, cost: unitCost*qty, payMethod});
+    state.cashflow.push({id:uid(), date, type:'in', category:payMethod, amount, note:`${p.name} ×${qty}`, auto:true, _saleId:sid});
   });
   renderSales();
 }
@@ -977,7 +985,7 @@ function deleteSale(id){
   if(!confirm('确定删除这笔销售记录？（关联的现金流水也会删除）')) return;
   mutate(()=>{
     state.sales = state.sales.filter(s=>s.id!==id);
-    state.cashflow = state.cashflow.filter(c=>!(c.auto && c.category==='销售' && c._saleId===id));
+    state.cashflow = state.cashflow.filter(c=>!(c.auto && c._saleId===id));
   });
 }
 
@@ -990,7 +998,7 @@ function renderCash(){
       <h3>手动记一笔收支</h3>
       <div class="grid2">
         <div><label>类型</label>
-          <select id="cfType">
+          <select id="cfType" onchange="onCfTypeChange()">
             <option value="out">支出</option>
             <option value="in">收入</option>
           </select>
@@ -999,8 +1007,7 @@ function renderCash(){
       </div>
       <label>分类</label>
       <select id="cfCategory">
-        <option>房租</option><option>水电</option><option>人工</option>
-        <option>杂项支出</option><option>提款</option><option>其他收入</option><option>其他</option>
+        ${EXPENSE_CATEGORIES.map(c=>`<option>${c}</option>`).join('')}
       </select>
       <label>金额</label><input type="number" step="0.01" id="cfAmount">
       <label>备注（选填）</label><input id="cfNote">
@@ -1031,6 +1038,12 @@ function renderCash(){
       </table>` : `<div class="empty">还没有收支记录</div>`}
     </div>
   `;
+}
+function onCfTypeChange(){
+  const type = document.getElementById('cfType').value;
+  const cats = type==='in' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  const sel = document.getElementById('cfCategory');
+  sel.innerHTML = cats.map(c=>`<option>${c}</option>`).join('');
 }
 function submitCashflow(){
   const type = document.getElementById('cfType').value;
