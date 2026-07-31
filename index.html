@@ -367,6 +367,15 @@ function mutate(fn){
 
 /* ---------------- 计算辅助 ---------------- */
 function supplierName(id){ const s = state.suppliers.find(x=>x.id===id); return s? s.name : '未知供应商'; }
+function findOrCreateSupplierId(typedName){
+  const name = (typedName||'').trim();
+  if(!name) return null;
+  const existing = state.suppliers.find(s=>s.name.toLowerCase()===name.toLowerCase());
+  if(existing) return existing.id;
+  const s = {id:uid(), name, phone:''};
+  state.suppliers.push(s);
+  return s.id;
+}
 function productCost(p){ return (p.costItems||[]).reduce((a,c)=>a+Number(c.cost||0),0); }
 function supplierTotals(id){
   const bought = state.purchases.filter(p=>p.supplierId===id).reduce((a,p)=>a+Number(p.totalAmount||0),0);
@@ -510,12 +519,12 @@ function renderPurchase(){
 
     <div class="card">
       <h3>新增采购单</h3>
+      <datalist id="supplierNames">
+        ${state.suppliers.map(s=>`<option value="${s.name}">`).join('')}
+      </datalist>
       <div class="grid2">
         <div><label>供应商</label>
-          <select id="purSupplier">
-            <option value="">选择供应商</option>
-            ${state.suppliers.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
-          </select>
+          <input list="supplierNames" id="purSupplier" placeholder="输入或选择供应商" autocomplete="off">
         </div>
         <div><label>采购日期</label><input type="date" id="purDate" value="${todayStr()}"></div>
       </div>
@@ -530,10 +539,7 @@ function renderPurchase(){
       <h3>供应商付款</h3>
       <div class="grid2">
         <div><label>供应商</label>
-          <select id="paySupplier">
-            <option value="">选择供应商</option>
-            ${state.suppliers.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
-          </select>
+          <input list="supplierNames" id="paySupplier" placeholder="输入或选择供应商" autocomplete="off">
         </div>
         <div><label>付款日期</label><input type="date" id="payDate" value="${todayStr()}"></div>
       </div>
@@ -602,15 +608,16 @@ function deleteSupplier(id){
   mutate(()=>{ state.suppliers = state.suppliers.filter(s=>s.id!==id); });
 }
 function submitPurchase(){
-  const supplierId = document.getElementById('purSupplier').value;
+  const typedName = document.getElementById('purSupplier').value;
   const date = document.getElementById('purDate').value || todayStr();
-  if(!supplierId){ alert('请选择供应商'); return; }
+  if(!typedName || !typedName.trim()){ alert('请输入或选择供应商'); return; }
   const items = tempPurchaseItems.filter(r=>r.name && r.total!=='').map(r=>({
     id:uid(), name:r.name, qty:Number(r.qty||0), unit:r.unit, totalCost:Number(r.total||0)
   }));
   if(items.length===0){ alert('请至少填写一项品名和总价'); return; }
   const totalAmount = items.reduce((a,i)=>a+i.totalCost,0);
   mutate(()=>{
+    const supplierId = findOrCreateSupplierId(typedName);
     state.purchases.push({id:uid(), date, supplierId, items, totalAmount});
   });
   tempPurchaseItems = [{id:uid(), name:'', qty:'', unit:'', total:''}];
@@ -621,11 +628,14 @@ function deletePurchase(id){
   mutate(()=>{ state.purchases = state.purchases.filter(p=>p.id!==id); });
 }
 function submitPayment(){
-  const supplierId = document.getElementById('paySupplier').value;
+  const typedName = document.getElementById('paySupplier').value.trim();
   const date = document.getElementById('payDate').value || todayStr();
   const amount = Number(document.getElementById('payAmount').value)||0;
   const note = document.getElementById('payNote').value.trim();
-  if(!supplierId){ alert('请选择供应商'); return; }
+  if(!typedName){ alert('请输入或选择供应商'); return; }
+  const match = state.suppliers.find(s=>s.name.toLowerCase()===typedName.toLowerCase());
+  if(!match){ alert('找不到这个供应商，请先在上面"供应商"里添加，或从建议列表里选一个已有的'); return; }
+  const supplierId = match.id;
   if(amount<=0){ alert('请输入付款金额'); return; }
   mutate(()=>{
     const pid = uid();
@@ -759,10 +769,10 @@ function renderSales(){
     <div class="card">
       <h3>记一笔销售</h3>
       <label>产品</label>
-      <select id="saleProduct" onchange="onSaleProductChange()">
-        <option value="">选择产品</option>
-        ${state.products.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')}
-      </select>
+      <datalist id="productNames">
+        ${state.products.map(p=>`<option value="${p.name}">`).join('')}
+      </datalist>
+      <input list="productNames" id="saleProduct" placeholder="输入或选择产品" autocomplete="off" oninput="onSaleProductChange()">
       <div class="grid2" style="margin-top:10px">
         <div><label>数量</label><input type="number" id="saleQty" value="1" min="1"></div>
         <div><label>单价（可改，例如打折）</label><input type="number" step="0.01" id="salePrice"></div>
@@ -799,9 +809,9 @@ function renderSales(){
   wireSalePreview();
 }
 function onSaleProductChange(){
-  const pid = document.getElementById('saleProduct').value;
-  const p = state.products.find(x=>x.id===pid);
-  document.getElementById('salePrice').value = p? p.price : '';
+  const typedName = document.getElementById('saleProduct').value.trim();
+  const p = state.products.find(x=>x.name.toLowerCase()===typedName.toLowerCase());
+  if(p) document.getElementById('salePrice').value = p.price;
   updateSalePreview();
 }
 function wireSalePreview(){
@@ -814,9 +824,9 @@ function updateSalePreview(){
   document.getElementById('saleAmountPreview').textContent = fmt(qty*price);
 }
 function submitSale(){
-  const pid = document.getElementById('saleProduct').value;
-  const p = state.products.find(x=>x.id===pid);
-  if(!p){ alert('请选择产品'); return; }
+  const typedName = document.getElementById('saleProduct').value.trim();
+  const p = state.products.find(x=>x.name.toLowerCase()===typedName.toLowerCase());
+  if(!p){ alert('找不到这个产品，请从建议列表里选一个，或先去"成本"页新增这个产品'); return; }
   const qty = Number(document.getElementById('saleQty').value)||0;
   const price = Number(document.getElementById('salePrice').value)||0;
   const date = document.getElementById('saleDate').value || todayStr();
@@ -825,7 +835,7 @@ function submitSale(){
   const unitCost = productCost(p);
   mutate(()=>{
     const sid = uid();
-    state.sales.push({id:sid, date, productId:pid, productName:p.name, qty, price, amount, cost: unitCost*qty});
+    state.sales.push({id:sid, date, productId:p.id, productName:p.name, qty, price, amount, cost: unitCost*qty});
     state.cashflow.push({id:uid(), date, type:'in', category:'销售', amount, note:`${p.name} ×${qty}`, auto:true});
   });
   renderSales();
