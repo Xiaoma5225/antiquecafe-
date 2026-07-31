@@ -254,7 +254,8 @@ let state = {
   payments: [],
   products: [],
   sales: [],
-  cashflow: []
+  cashflow: [],
+  customExpenseCategories: []
 };
 let loaded = false;
 let recentActivityFilterDate = '';
@@ -431,7 +432,7 @@ function importData(fileInput){
     try{
       const parsed = JSON.parse(e.target.result);
       if(!confirm('导入会覆盖当前这台设备上的所有数据，确定继续吗？')) return;
-      state = Object.assign({initialCash:0, suppliers:[], purchases:[], payments:[], products:[], sales:[], cashflow:[]}, parsed);
+      state = Object.assign({initialCash:0, suppliers:[], purchases:[], payments:[], products:[], sales:[], cashflow:[], customExpenseCategories:[]}, parsed);
       saveState();
       renderAll();
       alert('导入成功');
@@ -1204,11 +1205,42 @@ function renderCash(){
   renderCfPayMethodGroup();
 }
 function renderCfCategoryGroup(){
-  const cats = cfType==='in' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  const custom = state.customExpenseCategories || [];
+  const cats = cfType==='in' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES.concat(custom);
   if(!cats.includes(cfCategory)) cfCategory = cats[0];
   const wrap = document.getElementById('cfCategoryGroup');
   if(!wrap) return;
-  wrap.innerHTML = cats.map(c=>`<button type="button" class="btn-toggle ${cfCategory===c?'active':''}" data-val="${c}" onclick="setCfCategory('${c}')">${c}</button>`).join('');
+  wrap.innerHTML = cats.map(c=>{
+    const isCustom = cfType==='out' && custom.includes(c);
+    return `<button type="button" class="btn-toggle ${cfCategory===c?'active':''}" data-val="${c}" onclick="setCfCategory('${c}')">${c}${isCustom?` <span onclick="event.stopPropagation(); removeCfCategory('${c}')" style="opacity:.65; margin-left:2px;">×</span>`:''}</button>`;
+  }).join('') + (cfType==='out' ? `<button type="button" class="btn-toggle" style="border-style:dashed;" onclick="addCfCategory()">+ 自定义分类</button>` : '');
+}
+function addCfCategory(){
+  const name = prompt('输入新的支出分类名称：');
+  if(name===null) return;
+  const trimmed = name.trim();
+  if(!trimmed){ alert('分类名称不能为空'); return; }
+  const custom = state.customExpenseCategories || [];
+  if(EXPENSE_CATEGORIES.includes(trimmed) || custom.includes(trimmed)){
+    cfCategory = trimmed;
+    renderCfCategoryGroup();
+    return;
+  }
+  mutate(()=>{
+    if(!state.customExpenseCategories) state.customExpenseCategories = [];
+    state.customExpenseCategories.push(trimmed);
+  });
+  cfType = 'out';
+  cfCategory = trimmed;
+  renderCash();
+}
+function removeCfCategory(name){
+  if(!confirm(`确定删除自定义分类「${name}」吗？已经用这个分类记过的流水不会被删除。`)) return;
+  mutate(()=>{
+    state.customExpenseCategories = (state.customExpenseCategories||[]).filter(c=>c!==name);
+  });
+  cfCategory = EXPENSE_CATEGORIES[0];
+  renderCash();
 }
 function renderCfPayMethodGroup(){
   const wrap = document.getElementById('cfPayMethodWrap');
