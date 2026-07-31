@@ -230,6 +230,12 @@
         <input type="file" accept=".json" style="display:none" onchange="importData(this)">
       </label>
     </div>
+    <hr class="receipt-divider">
+    <div class="muted" style="font-size:11.5px; margin-bottom:8px;">清空之前批量导入的数据（供应商、成本项不受影响）</div>
+    <div class="grid2">
+      <button class="btn-ghost" onclick="clearAllPurchases()">🗑 清空采购单</button>
+      <button class="btn-ghost" onclick="clearAllSales()">🗑 清空销售记录</button>
+    </div>
   </div>
 </div>
 </div>
@@ -440,6 +446,24 @@ function mutate(fn){
   fn();
   saveState();
   renderAll();
+}
+function clearAllPurchases(){
+  if(!state.purchases.length){ alert('目前没有采购记录'); return; }
+  if(!confirm(`确定清空全部 ${state.purchases.length} 张采购单吗？此操作无法撤销（供应商本身不会被删除）。`)) return;
+  mutate(()=>{ state.purchases = []; });
+  toggleBackupPanel();
+  alert('已清空所有采购单');
+}
+function clearAllSales(){
+  if(!state.sales.length){ alert('目前没有销售记录'); return; }
+  if(!confirm(`确定清空全部 ${state.sales.length} 笔销售记录吗？关联的收支流水也会一并删除。此操作无法撤销。`)) return;
+  mutate(()=>{
+    const saleIds = new Set(state.sales.map(s=>s.id));
+    state.sales = [];
+    state.cashflow = state.cashflow.filter(c=>!(c.auto && saleIds.has(c._saleId)));
+  });
+  toggleBackupPanel();
+  alert('已清空所有销售记录');
 }
 
 /* ---------------- 计算辅助 ---------------- */
