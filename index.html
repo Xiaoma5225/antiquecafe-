@@ -459,6 +459,22 @@ function supplierTotals(id){
   const paid = state.payments.filter(p=>p.supplierId===id).reduce((a,p)=>a+Number(p.amount||0),0);
   return {bought, paid, owe: bought - paid};
 }
+function supplierCardHtml(s,t){
+  return `<div class="supplier-card">
+    <div class="row">
+      <div>
+        <b>${s.name}</b>
+        ${s.phone?`<div class="muted" style="font-size:11px">${s.phone}</div>`:''}
+      </div>
+      <button class="btn-danger-text" onclick="deleteSupplier('${s.id}')">删除</button>
+    </div>
+    ${t.bought>0 ? vizBar([{value:t.paid,color:'var(--green)'},{value:Math.max(t.owe,0),color:'var(--rust)'}], t.bought) : ''}
+    <div class="row" style="font-size:12px">
+      <span class="muted">已购 ${fmtPlain(t.bought)} · 已付 ${fmtPlain(t.paid)}</span>
+      ${t.owe>0.001? `<span class="pill owe">欠 ${fmtPlain(t.owe)}</span>` : `<span class="pill clear">已结清</span>`}
+    </div>
+  </div>`;
+}
 function cashBalance(){
   const inSum = state.cashflow.filter(c=>c.type==='in').reduce((a,c)=>a+Number(c.amount||0),0);
   const outSum = state.cashflow.filter(c=>c.type==='out').reduce((a,c)=>a+Number(c.amount||0),0);
@@ -616,23 +632,18 @@ function renderPurchase(){
       <hr class="receipt-divider">
       ${state.suppliers.length? `
         ${vizLegend([{color:'var(--green)',label:'已付'},{color:'var(--rust)',label:'欠款'}])}
-        ${state.suppliers.map(s=>{
-          const t = supplierTotals(s.id);
-          return `<div class="supplier-card">
-            <div class="row">
-              <div>
-                <b>${s.name}</b>
-                ${s.phone?`<div class="muted" style="font-size:11px">${s.phone}</div>`:''}
-              </div>
-              <button class="btn-danger-text" onclick="deleteSupplier('${s.id}')">删除</button>
-            </div>
-            ${t.bought>0 ? vizBar([{value:t.paid,color:'var(--green)'},{value:Math.max(t.owe,0),color:'var(--rust)'}], t.bought) : ''}
-            <div class="row" style="font-size:12px">
-              <span class="muted">已购 ${fmtPlain(t.bought)} · 已付 ${fmtPlain(t.paid)}</span>
-              ${t.owe>0.001? `<span class="pill owe">欠 ${fmtPlain(t.owe)}</span>` : `<span class="pill clear">已结清</span>`}
-            </div>
-          </div>`;
-        }).join('')}
+        ${(()=>{
+          const ranked = state.suppliers.map(s=>({s, t:supplierTotals(s.id)})).sort((a,b)=>b.t.bought-a.t.bought);
+          const top = ranked.slice(0,3);
+          const rest = ranked.slice(3);
+          return `
+            ${top.map(x=>supplierCardHtml(x.s,x.t)).join('')}
+            ${rest.length? `<details class="subtle-form">
+              <summary>还有 ${rest.length} 家供应商 ▾</summary>
+              <div style="margin-top:8px">${rest.map(x=>supplierCardHtml(x.s,x.t)).join('')}</div>
+            </details>` : ''}
+          `;
+        })()}
       ` : `<div class="empty">还没有供应商，先在上面添加一个</div>`}
     </div>
 
