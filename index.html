@@ -6,6 +6,9 @@
 <title>掌柜账本 · 餐厅进销存</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --bg:#FAF6EE;
@@ -136,8 +139,20 @@
     <span class="tag">餐厅进销存</span>
   </div>
   <div class="cash-strip" id="cashStrip"></div>
+  <div id="syncStatus" style="font-size:10.5px; color:#C9BFA8; margin-top:6px;">检查同步状态…</div>
 </header>
 
+<div id="loginScreen" style="display:none; max-width:360px; margin:60px auto; padding:0 20px;">
+  <div class="card">
+    <h3>登录</h3>
+    <label>邮箱</label><input type="email" id="loginEmail" autocomplete="username">
+    <label>密码</label><input type="password" id="loginPassword" autocomplete="current-password">
+    <div id="loginError" style="color:var(--rust); font-size:12.5px; margin-top:8px;"></div>
+    <button class="btn-main" onclick="doLogin()">登录</button>
+  </div>
+</div>
+
+<div id="appBody" style="display:none;">
 <div class="layout">
 <nav class="bottom" id="bottomNav">
   <button data-tab="overview" class="active"><span class="ic">📊</span>总览</button>
@@ -156,6 +171,7 @@
   <section class="tab-panel" id="tab-cash"></section>
 
 </main>
+</div>
 </div>
 
 <script>
@@ -180,7 +196,69 @@ function fmt(n){
 }
 function fmtPlain(n){ return (Number(n)||0).toLocaleString('en-MY',{minimumFractionDigits:2, maximumFractionDigits:2}); }
 
+/* ============ 跨设备云同步 + 密码登录（Firebase）============
+   1. 去 https://console.firebase.google.com 建一个免费项目
+   2. 开启 Firestore Database（测试模式）
+   3. Authentication → Sign-in method → 启用「电子邮件/密码」
+      然后到 Authentication → Users，点「Add user」，用你自己的邮箱和密码建一个账号
+      （这里不做公开注册，只有你自己知道这组邮箱密码才能登入）
+   4. 项目设置 → 你的应用 → 网页应用，复制得到的 firebaseConfig，粘贴替换下面这个占位对象
+   5. Firestore 的「规则」分页贴上（每个账号只能读写自己的数据）：
+      rules_version = '2';
+      service cloud.firestore {
+        match /databases/{database}/documents {
+          match /ledger/{uid} {
+            allow read, write: if request.auth != null && request.auth.uid == uid;
+          }
+        }
+      }
+   不改这一步，程序会自动只用本机存储（不需要登录），不影响正常使用。
+*/
+const firebaseConfig = {
+  apiKey: "AIzaSyD9tmObAp5KeuBu3iQ359fHYqEv4d8RSCM",
+  authDomain: "antique-cafe-accon.firebaseapp.com",
+  projectId: "antique-cafe-accon",
+  storageBucket: "antique-cafe-accon.firebasestorage.app",
+  messagingSenderId: "321680945985",
+  appId: "1:321680945985:web:a21e369da929045cc0a7c0"
+};
+const cloudConfigured = firebaseConfig.apiKey && firebaseConfig.apiKey !== "YOUR_API_KEY";
+let cloudDocRef = null;
+let cloudReady = false;
+
+function setSyncStatus(text){
+  const el = document.getElementById('syncStatus');
+  if(el) el.textContent = text;
+}
+
 function loadState(){
+  if(cloudConfigured){
+    document.getElementById('loginScreen').style.display = 'block';
+    setSyncStatus('需要登录');
+    try{
+      firebase.initializeApp(firebaseConfig);
+      firebase.auth().onAuthStateChanged((user)=>{
+        if(user){
+          document.getElementById('loginScreen').style.display = 'none';
+          document.getElementById('appBody').style.display = 'block';
+          loadLocalThenApp();
+          initCloudSync(user);
+        }else{
+          document.getElementById('loginScreen').style.display = 'block';
+          document.getElementById('appBody').style.display = 'none';
+        }
+      });
+    }catch(e){
+      console.error(e);
+      document.getElementById('loginError').textContent = '云服务初始化失败，请检查 firebaseConfig 是否填对';
+    }
+  }else{
+    document.getElementById('appBody').style.display = 'block';
+    setSyncStatus('仅本机存储（未设置云同步，无需登录）');
+    loadLocalThenApp();
+  }
+}
+function loadLocalThenApp(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
     if(raw){
@@ -191,13 +269,60 @@ function loadState(){
   loaded = true;
   renderAll();
 }
+function doLogin(){
+  const email = document.getElementById('loginEmail').value.trim();
+  const pw = document.getElementById('loginPassword').value;
+  document.getElementById('loginError').textContent = '';
+  firebase.auth().signInWithEmailAndPassword(email, pw).catch((err)=>{
+    document.getElementById('loginError').textContent = '登录失败：邮箱或密码不对';
+  });
+}
+function doLogout(){
+  if(!confirm('确定要登出吗？')) return;
+  firebase.auth().signOut();
+}
+
+function initCloudSync(user){
+  try{
+    setSyncStatus('云同步：连接中…');
+    cloudDocRef = firebase.firestore().collection('ledger').doc(user.uid);
+    cloudDocRef.onSnapshot((snap)=>{
+      cloudReady = true;
+      if(snap.exists){
+        const remote = snap.data();
+        if(!state.updatedAt || (remote.updatedAt||0) >= (state.updatedAt||0)){
+          state = Object.assign(state, remote);
+          renderAll();
+        }
+        setSyncStatus('云同步：已连接 ✓');
+      }else{
+        // 云端还没有数据，把本机现有数据推上去作为初始版本
+        pushToCloud();
+        setSyncStatus('云同步：已连接 ✓（首次上传）');
+      }
+    }, (err)=>{
+      console.error(err);
+      setSyncStatus('云同步失败，暂时仅用本机存储');
+    });
+  }catch(e){
+    console.error(e);
+    setSyncStatus('云同步初始化失败，暂时仅用本机存储');
+  }
+}
+function pushToCloud(){
+  if(!cloudDocRef) return;
+  cloudDocRef.set(state).catch(err=>console.error('云同步写入失败', err));
+}
+
 function saveState(){
+  state.updatedAt = Date.now();
   try{
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }catch(e){
     console.error('保存失败', e);
     alert('保存失败，可能是浏览器存储空间不足或处于隐私模式。');
   }
+  pushToCloud();
 }
 
 /* 导出 / 导入：数据存在这台设备的浏览器里，换设备/换浏览器需要手动导出再导入 */
@@ -288,6 +413,13 @@ function renderOverview(){
   ].sort((a,b)=> (b.date||'').localeCompare(a.date||'')).slice(0,8);
 
   el.innerHTML = `
+    ${cloudConfigured ? `
+    <div class="card">
+      <h3>账号</h3>
+      <div class="muted" style="font-size:12.5px; margin-bottom:10px;">已登录：${(firebase.auth().currentUser||{}).email||''}</div>
+      <button class="btn-ghost" onclick="doLogout()">登出</button>
+    </div>` : ''}
+
     <div class="card">
       <h3>本期期初现金</h3>
       <label>期初现金余额（设置一次即可，之后自动累计）</label>
@@ -296,10 +428,11 @@ function renderOverview(){
     </div>
 
     <div class="card">
-      <h3>数据备份 <span class="n">跨设备同步</span></h3>
+      <h3>数据备份 <span class="n">${cloudConfigured ? '已开启云同步' : '未开启云同步'}</span></h3>
       <div class="muted" style="font-size:12.5px; line-height:1.6; margin-bottom:10px;">
-        这个网页版数据只保存在<b>当前这台设备的浏览器里</b>，手机和电脑不会自动同步。
-        建议记完账后导出一份备份，需要在另一台设备上查看/继续记账时，用导入把最新备份载入即可。
+        ${cloudConfigured
+          ? '已连接云端，手机和电脑上打开这个网址会自动同步同一份数据。仍建议偶尔导出一份备份保底。'
+          : '目前数据只保存在<b>当前这台设备的浏览器里</b>，手机和电脑不会自动同步。可以记完账后导出备份，到另一台设备用导入载入；如果想要自动同步，可以按之前给的步骤在代码里配置云同步。'}
       </div>
       <div class="grid2">
         <button class="btn-ghost" onclick="exportData()">⬇ 导出备份</button>
