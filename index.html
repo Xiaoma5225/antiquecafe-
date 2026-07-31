@@ -92,6 +92,15 @@
   .pi-bottom{display:grid; grid-template-columns:repeat(4,1fr); gap:6px;}
   .pi-bottom input{padding:8px; font-size:13px;}
 
+  .viz-bar{height:9px; border-radius:5px; background:var(--border); overflow:hidden; display:flex; margin:6px 0;}
+  .viz-bar .seg{height:100%; transition:width .2s ease;}
+  .viz-legend{display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--muted); margin-bottom:2px;}
+  .viz-legend .dot{display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; vertical-align:middle;}
+  .supplier-card{border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:8px;}
+  .supplier-card .row{display:flex; justify-content:space-between; align-items:center;}
+  .day-viz{display:grid; grid-template-columns:70px 1fr 1fr; gap:8px; align-items:center; margin-bottom:8px; font-size:12px;}
+  .day-viz .bars{display:flex; flex-direction:column; gap:3px;}
+
   #backupFab{
     position:fixed; right:14px; bottom:88px; z-index:40;
     width:44px; height:44px; border-radius:50%;
@@ -242,6 +251,13 @@ function fmt(n){
   return 'RM ' + n.toLocaleString('en-MY',{minimumFractionDigits:2, maximumFractionDigits:2});
 }
 function fmtPlain(n){ return (Number(n)||0).toLocaleString('en-MY',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+function vizBar(segments, maxOverride){
+  const total = maxOverride || segments.reduce((a,s)=>a+Math.max(Number(s.value)||0,0),0) || 1;
+  return `<div class="viz-bar">${segments.map(s=>`<div class="seg" style="width:${Math.min(100,Math.max(0,Number(s.value)||0)/total*100)}%; background:${s.color};"></div>`).join('')}</div>`;
+}
+function vizLegend(items){
+  return `<div class="viz-legend">${items.map(i=>`<span><span class="dot" style="background:${i.color}"></span>${i.label}</span>`).join('')}</div>`;
+}
 
 /* ============ 跨设备云同步 + 密码登录（Firebase）============
    1. 去 https://console.firebase.google.com 建一个免费项目
@@ -486,6 +502,10 @@ function renderOverview(){
 
     <div class="card">
       <h3>本月经营概况 <span class="n">${mk}</span></h3>
+      ${monthRevenue>0 ? `
+        ${vizLegend([{color:'var(--rust)',label:'食材成本'},{color:'var(--green)',label:'毛利润'}])}
+        ${vizBar([{value:monthCost, color:'var(--rust)'}, {value:Math.max(monthProfit,0), color:'var(--green)'}], monthRevenue)}
+      ` : ''}
       <table>
         <tr><td>销售总额</td><td class="num">${fmt(monthRevenue)}</td></tr>
         <tr><td>食材成本</td><td class="num">${fmt(monthCost)}</td></tr>
@@ -508,15 +528,23 @@ function renderOverview(){
         <div><label>按日期查看</label><input type="date" id="recentActDate" value="${recentActivityFilterDate}" onchange="setRecentActivityFilter(this.value)"></div>
         <div style="display:flex; align-items:flex-end;"><button class="btn-ghost" style="width:100%" onclick="setRecentActivityFilter('')">最近10天</button></div>
       </div>
-      ${filteredDaily.length? `<table>
-        <tr><th>日期</th><th class="num">收入</th><th class="num">支出</th><th class="num">净额</th></tr>
-        ${filteredDaily.map(d=>`<tr>
-          <td class="muted">${d.date}</td>
-          <td class="num" style="color:var(--green)">${fmtPlain(d.in)}</td>
-          <td class="num" style="color:var(--rust)">${fmtPlain(d.out)}</td>
-          <td class="num"><b>${fmtPlain(d.in-d.out)}</b></td>
-        </tr>`).join('')}
-      </table>` : `<div class="empty">${recentActivityFilterDate? '这天没有收支记录' : '还没有任何记录，从"采购"或"销售"页开始记吧'}</div>`}
+      ${filteredDaily.length? `
+        ${vizLegend([{color:'var(--green)',label:'收入'},{color:'var(--rust)',label:'支出'}])}
+        ${(()=>{ const maxVal = Math.max(...filteredDaily.map(d=>Math.max(d.in,d.out)), 1);
+          return filteredDaily.map(d=>`
+            <div class="day-viz">
+              <div class="muted">${d.date}</div>
+              <div class="bars">
+                ${vizBar([{value:d.in, color:'var(--green)'}], maxVal)}
+                ${vizBar([{value:d.out, color:'var(--rust)'}], maxVal)}
+              </div>
+              <div class="num" style="line-height:1.6">
+                <div style="color:var(--green)">${fmtPlain(d.in)}</div>
+                <div style="color:var(--rust)">${fmtPlain(d.out)}</div>
+              </div>
+            </div>`).join('');
+        })()}
+      ` : `<div class="empty">${recentActivityFilterDate? '这天没有收支记录' : '还没有任何记录，从"采购"或"销售"页开始记吧'}</div>`}
     </div>
   `;
 }
@@ -541,7 +569,26 @@ let purHistoryFilterDate = '';
 function renderPurchase(){
   const el = document.getElementById('tab-purchase');
   const filteredPurchases = purHistoryFilterDate ? state.purchases.filter(p=>p.date===purHistoryFilterDate) : state.purchases;
+  const mkP = monthKey(todayKey());
+  const catTotals = {};
+  state.purchases.filter(p=>monthKey(p.date)===mkP).forEach(p=>{
+    p.items.forEach(i=>{ catTotals[i.category||'食材'] = (catTotals[i.category||'食材']||0) + Number(i.totalCost||0); });
+  });
+  const catList = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]);
+  const catMax = catList.length? catList[0][1] : 1;
   el.innerHTML = `
+    ${catList.length? `
+    <div class="card">
+      <h3>本月采购类别分布 <span class="n">${mkP}</span></h3>
+      ${catList.map(([cat,amt])=>`
+        <div style="margin-bottom:8px">
+          <div style="display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:2px;">
+            <span>${cat}</span><span class="mono">${fmtPlain(amt)}</span>
+          </div>
+          ${vizBar([{value:amt, color:'var(--green)'}], catMax)}
+        </div>`).join('')}
+    </div>` : ''}
+
     <div class="card">
       <h3>供应商 <span class="n">${state.suppliers.length} 家</span></h3>
       <div class="grid2">
@@ -557,19 +604,26 @@ function renderPurchase(){
         <button class="btn-main" onclick="bulkAddSuppliers()">批量添加</button>
       </details>
       <hr class="receipt-divider">
-      ${state.suppliers.length? `<table>
-        <tr><th>名称</th><th class="num">已购</th><th class="num">已付</th><th>欠款</th><th></th></tr>
+      ${state.suppliers.length? `
+        ${vizLegend([{color:'var(--green)',label:'已付'},{color:'var(--rust)',label:'欠款'}])}
         ${state.suppliers.map(s=>{
           const t = supplierTotals(s.id);
-          return `<tr>
-            <td>${s.name}${s.phone?`<div class="muted" style="font-size:11px">${s.phone}</div>`:''}</td>
-            <td class="num">${fmtPlain(t.bought)}</td>
-            <td class="num">${fmtPlain(t.paid)}</td>
-            <td>${t.owe>0.001? `<span class="pill owe">欠 ${fmtPlain(t.owe)}</span>` : `<span class="pill clear">已结清</span>`}</td>
-            <td><button class="btn-danger-text" onclick="deleteSupplier('${s.id}')">删除</button></td>
-          </tr>`;
+          return `<div class="supplier-card">
+            <div class="row">
+              <div>
+                <b>${s.name}</b>
+                ${s.phone?`<div class="muted" style="font-size:11px">${s.phone}</div>`:''}
+              </div>
+              <button class="btn-danger-text" onclick="deleteSupplier('${s.id}')">删除</button>
+            </div>
+            ${t.bought>0 ? vizBar([{value:t.paid,color:'var(--green)'},{value:Math.max(t.owe,0),color:'var(--rust)'}], t.bought) : ''}
+            <div class="row" style="font-size:12px">
+              <span class="muted">已购 ${fmtPlain(t.bought)} · 已付 ${fmtPlain(t.paid)}</span>
+              ${t.owe>0.001? `<span class="pill owe">欠 ${fmtPlain(t.owe)}</span>` : `<span class="pill clear">已结清</span>`}
+            </div>
+          </div>`;
         }).join('')}
-      </table>` : `<div class="empty">还没有供应商，先在上面添加一个</div>`}
+      ` : `<div class="empty">还没有供应商，先在上面添加一个</div>`}
     </div>
 
     <div class="card">
@@ -794,6 +848,7 @@ function renderCost(){
           </div>
           <button class="btn-line" onclick="appendCostItem('${p.id}')">+ 追加食材成本</button>
           <hr class="receipt-divider">
+          ${p.price>0 ? vizBar([{value:cost,color:'var(--rust)'},{value:Math.max(profit,0),color:'var(--green)'}], p.price) : ''}
           <table>
             <tr><td>售价</td><td class="num">${fmt(p.price)}</td></tr>
             <tr><td>食材成本</td><td class="num">${fmt(cost)}</td></tr>
@@ -899,6 +954,10 @@ function renderSales(){
   const monthSales = state.sales.filter(s=>monthKey(s.date)===mk);
   const totalRevenue = monthSales.reduce((a,s)=>a+Number(s.amount||0),0);
   const totalCost = monthSales.reduce((a,s)=>a+Number(s.cost||0),0);
+  const byProduct = {};
+  monthSales.forEach(s=>{ byProduct[s.productName] = (byProduct[s.productName]||0) + Number(s.amount||0); });
+  const topProducts = Object.entries(byProduct).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const topMax = topProducts.length? topProducts[0][1] : 1;
 
   el.innerHTML = `
     <div class="card">
@@ -929,6 +988,18 @@ function renderSales(){
         <tr><td><b>毛利</b></td><td class="num"><b>${fmt(totalRevenue-totalCost)}</b></td></tr>
       </table>
     </div>
+
+    ${topProducts.length? `
+    <div class="card">
+      <h3>本月热销 <span class="n">Top ${topProducts.length}</span></h3>
+      ${topProducts.map(([name,amt])=>`
+        <div style="margin-bottom:8px">
+          <div style="display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:2px;">
+            <span>${name}</span><span class="mono">${fmtPlain(amt)}</span>
+          </div>
+          ${vizBar([{value:amt, color:'var(--gold)'}], topMax)}
+        </div>`).join('')}
+    </div>` : ''}
 
     <div class="card">
       <h3>销售记录</h3>
