@@ -106,6 +106,11 @@
   .viz-legend .dot{display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; vertical-align:middle;}
   .supplier-card{border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:8px;}
   .supplier-card .row{display:flex; justify-content:space-between; align-items:center;}
+  .invoice-pick{
+    display:flex; justify-content:space-between; align-items:center; cursor:pointer;
+    border:1px solid var(--border); border-radius:10px; padding:8px 12px; margin-bottom:6px; background:#FFFDF9;
+  }
+  .invoice-pick.active{border-color:var(--green); background:var(--green-dim);}
   .day-viz{display:grid; grid-template-columns:70px 1fr 1fr; gap:8px; align-items:center; margin-bottom:8px; font-size:12px;}
   .day-viz .bars{display:flex; flex-direction:column; gap:3px;}
 
@@ -516,6 +521,19 @@ function supplierTotals(id){
   const paid = state.payments.filter(p=>p.supplierId===id).reduce((a,p)=>a+Number(p.amount||0),0);
   return {bought, paid, owe: bought - paid};
 }
+/* 单张 invoice 还欠多少：这张采购单的总额，减去所有指名付给这张 invoice 的付款 */
+function purchaseOutstanding(purchaseId){
+  const pur = state.purchases.find(p=>p.id===purchaseId);
+  if(!pur) return 0;
+  const paid = state.payments.filter(pay=>pay.purchaseId===purchaseId).reduce((a,pay)=>a+Number(pay.amount||0),0);
+  return Number(pur.totalAmount||0) - paid;
+}
+function supplierUnpaidInvoices(supplierId){
+  return state.purchases.filter(p=>p.supplierId===supplierId)
+    .map(p=>({p, outstanding: purchaseOutstanding(p.id)}))
+    .filter(x=>x.outstanding>0.001)
+    .sort((a,b)=>a.p.date.localeCompare(b.p.date));
+}
 function supplierCardHtml(s,t){
   return `<div class="supplier-card">
     <div class="row">
@@ -675,6 +693,7 @@ function setRecentActivityFilter(val){
 let tempPurchaseItems = [{id:uid(), name:'', category:'食材', productName:'', qty:'', unit:'', unitPrice:'', total:''}];
 let purHistoryFilterDate = '';
 let payPayMethod = PAY_METHODS[0];
+let payPurchaseId = null;
 
 function renderPurchase(){
   const el = document.getElementById('tab-purchase');
@@ -742,6 +761,7 @@ function renderPurchase(){
         </div>
         <div><label>采购日期</label><input type="date" id="purDate" value="${todayStr()}"></div>
       </div>
+      <label>Invoice 号码（选填）</label><input id="purInvoiceNumber" placeholder="例：INV-00123">
       <label style="margin-top:14px">品项明细（同一供应商可一次拿多个不同产品）</label>
       <div id="purItemsWrap"></div>
       <button class="btn-line" onclick="addPurchaseItemRow()">+ 添加一项</button>
@@ -753,10 +773,11 @@ function renderPurchase(){
       <h3>供应商付款</h3>
       <div class="grid2">
         <div><label>供应商</label>
-          <input list="supplierNames" id="paySupplier" placeholder="输入或选择供应商" autocomplete="off">
+          <input list="supplierNames" id="paySupplier" placeholder="输入或选择供应商" autocomplete="off" oninput="onPaySupplierInput()">
         </div>
         <div><label>付款日期</label><input type="date" id="payDate" value="${todayStr()}"></div>
       </div>
+      <div id="payInvoiceListWrap"></div>
       <label>付款金额</label><input type="number" step="0.01" id="payAmount" placeholder="0.00">
       <label>付款方式</label>
       <div class="btn-group" id="payMethodGroup">
@@ -777,9 +798,9 @@ function renderPurchase(){
         ${filteredPurchases.slice().reverse().map(p=>`
           <tr>
             <td class="muted">${p.date}</td>
-            <td>${supplierName(p.supplierId)}</td>
+            <td>${supplierName(p.supplierId)}${p.invoiceNumber?`<div class="muted" style="font-size:11px">Invoice #${p.invoiceNumber}</div>`:''}</td>
             <td class="muted" style="font-size:12px">${p.items.map(i=>i.name+' ×'+i.qty+(i.unit||'')+' ['+(i.category||'食材')+']'+(i.productId||i.productName?' → '+(i.productName||''):'')).join('，')}</td>
-            <td class="num">${fmtPlain(p.totalAmount)}</td>
+            <td class="num">${fmtPlain(p.totalAmount)}${purchaseOutstanding(p.id)>0.001?`<div class="muted" style="font-size:11px; color:var(--rust)">未付 ${fmtPlain(purchaseOutstanding(p.id))}</div>`:''}</td>
             <td><button class="btn-danger-text" onclick="deletePurchase('${p.id}')">删</button></td>
           </tr>`).join('')}
       </table>` : `<div class="empty">${purHistoryFilterDate? '这天没有采购记录' : '还没有采购记录'}</div>`}
@@ -882,6 +903,7 @@ function deleteSupplier(id){
 function submitPurchase(){
   const typedName = document.getElementById('purSupplier').value;
   const date = document.getElementById('purDate').value || todayStr();
+  const invoiceNumber = document.getElementById('purInvoiceNumber').value.trim();
   if(!typedName || !typedName.trim()){ alert('请输入或选择供应商'); return; }
   const items = tempPurchaseItems.filter(r=>r.name && r.total!=='').map(r=>{
     const typedProduct = (r.productName||'').trim();
@@ -896,7 +918,7 @@ function submitPurchase(){
   const totalAmount = items.reduce((a,i)=>a+i.totalCost,0);
   mutate(()=>{
     const supplierId = findOrCreateSupplierId(typedName);
-    state.purchases.push({id:uid(), date, supplierId, items, totalAmount});
+    state.purchases.push({id:uid(), date, supplierId, items, totalAmount, invoiceNumber});
   });
   tempPurchaseItems = [{id:uid(), name:'', category:'食材', productName:'', qty:'', unit:'', unitPrice:'', total:''}];
   renderPurchase();
@@ -904,6 +926,40 @@ function submitPurchase(){
 function deletePurchase(id){
   if(!confirm('确定删除这张采购单？')) return;
   mutate(()=>{ state.purchases = state.purchases.filter(p=>p.id!==id); });
+}
+function onPaySupplierInput(){
+  const typedName = document.getElementById('paySupplier').value.trim();
+  const wrap = document.getElementById('payInvoiceListWrap');
+  if(!wrap) return;
+  payPurchaseId = null;
+  const match = typedName ? state.suppliers.find(s=>s.name.toLowerCase()===typedName.toLowerCase()) : null;
+  if(!match){ wrap.innerHTML = ''; return; }
+  const unpaid = supplierUnpaidInvoices(match.id);
+  if(!unpaid.length){ wrap.innerHTML = `<div class="muted" style="font-size:12px; margin:6px 0;">这家供应商目前没有未付款的采购单</div>`; return; }
+  wrap.innerHTML = `
+    <label>选择要付的 Invoice（选填，不选就是笼统还款）</label>
+    <div id="payInvoiceList">
+      ${unpaid.map(x=>`
+        <div class="invoice-pick" data-id="${x.p.id}" onclick="selectPayInvoice('${x.p.id}', ${x.outstanding})">
+          <div>
+            <b>${x.p.invoiceNumber? 'Invoice #'+x.p.invoiceNumber : '（没填 Invoice 号）'}</b>
+            <div class="muted" style="font-size:11px">${x.p.date}</div>
+          </div>
+          <div class="num" style="color:var(--rust)">${fmtPlain(x.outstanding)}</div>
+        </div>
+      `).join('')}
+    </div>
+    <button type="button" class="btn-line" onclick="clearPayInvoice()">✕ 不指定 invoice，笼统还款</button>
+  `;
+}
+function selectPayInvoice(purchaseId, outstanding){
+  payPurchaseId = purchaseId;
+  document.querySelectorAll('#payInvoiceList .invoice-pick').forEach(el=>el.classList.toggle('active', el.dataset.id===purchaseId));
+  document.getElementById('payAmount').value = Math.round(outstanding*100)/100;
+}
+function clearPayInvoice(){
+  payPurchaseId = null;
+  document.querySelectorAll('#payInvoiceList .invoice-pick').forEach(el=>el.classList.remove('active'));
 }
 function submitPayment(){
   const typedName = document.getElementById('paySupplier').value.trim();
@@ -916,12 +972,16 @@ function submitPayment(){
   const supplierId = match.id;
   if(amount<=0){ alert('请输入付款金额'); return; }
   const payMethod = payPayMethod;
+  const purchaseId = payPurchaseId;
+  const invoicePur = purchaseId ? state.purchases.find(p=>p.id===purchaseId) : null;
   mutate(()=>{
     const pid = uid();
-    state.payments.push({id:pid, date, supplierId, amount, note, payMethod});
-    state.cashflow.push({id:uid(), date, type:'out', category:'供应商付款', amount, payMethod, note:`${supplierName(supplierId)}${note?' · '+note:''}`, auto:true});
+    state.payments.push({id:pid, date, supplierId, amount, note, payMethod, purchaseId});
+    const invoiceNote = invoicePur ? ` · Invoice ${invoicePur.invoiceNumber||'(无号)'}` : '';
+    state.cashflow.push({id:uid(), date, type:'out', category:'供应商付款', amount, payMethod, note:`${supplierName(supplierId)}${invoiceNote}${note?' · '+note:''}`, auto:true});
   });
   payPayMethod = PAY_METHODS[0];
+  payPurchaseId = null;
   renderPurchase();
 }
 function setPayPayMethod(val){
