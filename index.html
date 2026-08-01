@@ -114,6 +114,12 @@
   .day-viz{display:grid; grid-template-columns:70px 1fr 1fr; gap:8px; align-items:center; margin-bottom:8px; font-size:12px;}
   .day-viz .bars{display:flex; flex-direction:column; gap:3px;}
 
+  .account-badge{
+    position:fixed; top:10px; right:14px; z-index:50; cursor:pointer;
+    background:var(--ink); color:#F5EFE2; font-size:11px; font-weight:600;
+    padding:6px 12px; border-radius:20px; box-shadow:0 3px 10px rgba(0,0,0,0.2);
+    max-width:44vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
   #backupFab{
     position:fixed; right:14px; bottom:88px; z-index:40;
     width:44px; height:44px; border-radius:50%;
@@ -180,6 +186,8 @@
 </head>
 <body>
 
+<div id="accountBadge" class="account-badge" style="display:none;" onclick="doLogout()" title="点一下登出"></div>
+
 <header class="top">
   <div class="row">
     <h1>掌柜账本</h1>
@@ -208,6 +216,7 @@
   <button data-tab="cost"><span class="ic">🧮</span>成本</button>
   <button data-tab="sales"><span class="ic">💰</span>销售</button>
   <button data-tab="cash"><span class="ic">📒</span>收支</button>
+  <button data-tab="export"><span class="ic">📤</span>导出</button>
 </nav>
 
 <main>
@@ -218,6 +227,7 @@
   <section class="tab-panel" id="tab-cost"></section>
   <section class="tab-panel" id="tab-sales"></section>
   <section class="tab-panel" id="tab-cash"></section>
+  <section class="tab-panel" id="tab-export"></section>
 
 </main>
 </div>
@@ -254,6 +264,7 @@ const PURCHASE_CATEGORIES = ['食材','厨房固定用品','厨房消耗品','�
 const INCOME_CATEGORIES = ['Cash','TNG','FoodPanda','其他'];
 const EXPENSE_CATEGORIES = ['房租','水电','人工','杂项支出','提款','其他'];
 const PAY_METHODS = ['现金','信用卡','银行转账'];
+const COMPANIES = ['Antique Cafe','Shan Xian Hotpot'];
 let state = {
   initialCash: 0,
   suppliers: [],
@@ -328,11 +339,15 @@ function loadState(){
         if(user){
           document.getElementById('loginScreen').style.display = 'none';
           document.getElementById('appBody').style.display = 'block';
+          const badge = document.getElementById('accountBadge');
+          badge.textContent = `👤 ${user.email} · 登出`;
+          badge.style.display = 'block';
           loadLocalThenApp();
           initCloudSync(user);
         }else{
           document.getElementById('loginScreen').style.display = 'block';
           document.getElementById('appBody').style.display = 'none';
+          document.getElementById('accountBadge').style.display = 'none';
         }
       });
     }catch(e){
@@ -447,6 +462,67 @@ function exportData(){
   a.download = `账本备份_${todayStr()}.json`;
   a.click();
   URL.revokeObjectURL(url);
+}
+/* ---------------- CSV 导出 ---------------- */
+function csvEscape(val){
+  const s = (val===null||val===undefined) ? '' : String(val);
+  if(/[",\n]/.test(s)) return '"' + s.replace(/"/g,'""') + '"';
+  return s;
+}
+function downloadCSV(filename, header, rows){
+  if(rows.length===0){ alert('目前没有可以导出的数据'); return; }
+  const lines = [header, ...rows].map(r=>r.map(csvEscape).join(','));
+  const csv = '﻿' + lines.join('\r\n'); // 加 BOM，Excel 打开中文才不会乱码
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+function exportPurchasesCSV(){
+  const header = ['日期','公司','供应商','Invoice号','品名','类别','数量','单位','单价','总价','关联产品'];
+  const rows = [];
+  state.purchases.forEach(p=>{
+    (p.items||[]).forEach(i=>{
+      rows.push([p.date, p.company||'', supplierName(p.supplierId), p.invoiceNumber||'', i.name, i.category||'', i.qty, i.unit||'', i.unitPrice||'', i.totalCost, i.productName||'']);
+    });
+  });
+  downloadCSV(`采购记录_${todayStr()}.csv`, header, rows);
+}
+function exportPaymentsCSV(){
+  const header = ['日期','供应商','Invoice号','金额','付款方式','备注'];
+  const rows = state.payments.map(pay=>{
+    const pur = pay.purchaseId ? state.purchases.find(x=>x.id===pay.purchaseId) : null;
+    return [pay.date, supplierName(pay.supplierId), pur ? (pur.invoiceNumber||'') : '', pay.amount, pay.payMethod||'', pay.note||''];
+  });
+  downloadCSV(`供应商付款记录_${todayStr()}.csv`, header, rows);
+}
+function exportSalesCSV(){
+  const header = ['日期','公司','产品','数量','单价','金额','成本','收款方式'];
+  const rows = state.sales.map(s=>[s.date, s.company||'', s.productName, s.qty, s.price, s.amount, s.cost, s.payMethod||'']);
+  downloadCSV(`销售记录_${todayStr()}.csv`, header, rows);
+}
+function exportCashflowCSV(){
+  const header = ['日期','类型','分类','付款方式','金额','备注'];
+  const rows = state.cashflow.map(c=>[c.date, c.type==='in'?'收入':'支出', c.category, c.payMethod||'', c.amount, c.note||'']);
+  downloadCSV(`收支流水_${todayStr()}.csv`, header, rows);
+}
+function exportSupplierDebtCSV(){
+  const header = ['供应商','已购','已付','欠款'];
+  const rows = state.suppliers.map(s=>{ const t = supplierTotals(s.id); return [s.name, t.bought.toFixed(2), t.paid.toFixed(2), t.owe.toFixed(2)]; });
+  downloadCSV(`供应商欠款汇总_${todayStr()}.csv`, header, rows);
+}
+function exportProductCostCSV(){
+  const header = ['产品','售价','单位成本','毛利','毛利率(%)'];
+  const rows = state.products.map(p=>{
+    const cost = productUnitCost(p);
+    const profit = Number(p.price||0) - cost;
+    const pct = p.price>0 ? (profit/p.price*100).toFixed(1) : '0.0';
+    return [p.name, p.price, cost.toFixed(2), profit.toFixed(2), pct];
+  });
+  downloadCSV(`产品成本毛利汇总_${todayStr()}.csv`, header, rows);
 }
 function importData(fileInput){
   const file = fileInput.files[0];
@@ -637,13 +713,6 @@ function renderOverview(){
     : dailyTotals.slice(0,10);
 
   el.innerHTML = `
-    ${cloudConfigured ? `
-    <div class="card">
-      <h3>账号</h3>
-      <div class="muted" style="font-size:12.5px; margin-bottom:10px;">已登录：${(firebase.auth().currentUser||{}).email||''}</div>
-      <button class="btn-ghost" onclick="doLogout()">登出</button>
-    </div>` : ''}
-
     <div class="card">
       <h3>本月经营概况 <span class="n">${mk}</span></h3>
       ${monthRevenue>0 ? `
@@ -655,6 +724,19 @@ function renderOverview(){
         <tr><td>食材成本</td><td class="num">${fmt(monthCost)}</td></tr>
         <tr><td><b>毛利润</b></td><td class="num"><b>${fmt(monthProfit)}</b></td></tr>
         <tr><td>毛利率</td><td class="num">${marginPct}%</td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>本月经营概况 <span class="n">按公司</span></h3>
+      <table>
+        <tr><th>公司</th><th class="num">销售额</th><th class="num">成本</th><th class="num">毛利</th></tr>
+        ${COMPANIES.map(c=>{
+          const cs = monthSales.filter(s=>s.company===c);
+          const rev = cs.reduce((a,s)=>a+Number(s.amount||0),0);
+          const cost = cs.reduce((a,s)=>a+Number(s.cost||0),0);
+          return `<tr><td>${c}</td><td class="num">${fmtPlain(rev)}</td><td class="num">${fmtPlain(cost)}</td><td class="num">${fmtPlain(rev-cost)}</td></tr>`;
+        }).join('')}
       </table>
     </div>
 
@@ -709,15 +791,18 @@ function setRecentActivityFilter(val){
 /* ================= 采购 Tab（含供应商）================= */
 let tempPurchaseItems = [{id:uid(), name:'', category:'食材', productName:'', qty:'', unit:'', unitPrice:'', total:''}];
 let purHistoryFilterDate = '';
+let purHistoryFilterCompany = '';
+let purCompany = COMPANIES[0];
 let payPayMethod = PAY_METHODS[0];
 let payPurchaseId = null;
 
 function renderPurchase(){
   const el = document.getElementById('tab-purchase');
-  const filteredPurchases = purHistoryFilterDate ? state.purchases.filter(p=>p.date===purHistoryFilterDate) : state.purchases;
+  let filteredPurchases = purHistoryFilterDate ? state.purchases.filter(p=>p.date===purHistoryFilterDate) : state.purchases;
+  if(purHistoryFilterCompany) filteredPurchases = filteredPurchases.filter(p=>p.company===purHistoryFilterCompany);
   const mkP = monthKey(todayKey());
   const catTotals = {};
-  state.purchases.filter(p=>monthKey(p.date)===mkP).forEach(p=>{
+  state.purchases.filter(p=>monthKey(p.date)===mkP && (!purHistoryFilterCompany || p.company===purHistoryFilterCompany)).forEach(p=>{
     p.items.forEach(i=>{ catTotals[i.category||'食材'] = (catTotals[i.category||'食材']||0) + Number(i.totalCost||0); });
   });
   const catList = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]);
@@ -725,10 +810,14 @@ function renderPurchase(){
   el.innerHTML = `
     <div class="card">
       <h3>新增采购单</h3>
+      <label>公司</label>
+      <div class="btn-group" id="purCompanyGroup">
+        ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${purCompany===c?'active':''}" data-val="${c}" onclick="setPurCompany('${c}')">${c}</button>`).join('')}
+      </div>
       <datalist id="supplierNames">
         ${state.suppliers.map(s=>`<option value="${s.name}">`).join('')}
       </datalist>
-      <div class="grid2">
+      <div class="grid2" style="margin-top:10px">
         <div><label>供应商</label>
           <input list="supplierNames" id="purSupplier" placeholder="输入或选择供应商" autocomplete="off">
         </div>
@@ -792,17 +881,22 @@ function renderPurchase(){
         <div><label>按日期查看</label><input type="date" id="purHistDate" value="${purHistoryFilterDate}" onchange="setPurHistoryFilter(this.value)"></div>
         <div style="display:flex; align-items:flex-end;"><button class="btn-ghost" style="width:100%" onclick="setPurHistoryFilter('')">显示全部</button></div>
       </div>
+      <label>按公司筛选</label>
+      <div class="btn-group" style="margin-bottom:10px">
+        <button type="button" class="btn-toggle ${!purHistoryFilterCompany?'active':''}" onclick="setPurHistoryFilterCompany('')">全部</button>
+        ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${purHistoryFilterCompany===c?'active':''}" onclick="setPurHistoryFilterCompany('${c}')">${c}</button>`).join('')}
+      </div>
       ${filteredPurchases.length? `<table>
         <tr><th>日期</th><th>供应商</th><th>品项</th><th class="num">金额</th><th></th></tr>
         ${filteredPurchases.slice().reverse().map(p=>`
           <tr>
             <td class="muted">${p.date}</td>
-            <td>${supplierName(p.supplierId)}${p.invoiceNumber?`<div class="muted" style="font-size:11px">Invoice #${p.invoiceNumber}</div>`:''}</td>
+            <td>${supplierName(p.supplierId)}${p.company?`<div class="muted" style="font-size:11px">${p.company}</div>`:''}${p.invoiceNumber?`<div class="muted" style="font-size:11px">Invoice #${p.invoiceNumber}</div>`:''}</td>
             <td class="muted" style="font-size:12px">${p.items.map(i=>i.name+' ×'+i.qty+(i.unit||'')+' ['+(i.category||'食材')+']'+(i.productId||i.productName?' → '+(i.productName||''):'')).join('，')}</td>
             <td class="num">${fmtPlain(p.totalAmount)}${purchaseOutstanding(p.id)>0.001?`<div class="muted" style="font-size:11px; color:var(--rust)">未付 ${fmtPlain(purchaseOutstanding(p.id))}</div>`:''}</td>
             <td><button class="btn-danger-text" onclick="deletePurchase('${p.id}')">删</button></td>
           </tr>`).join('')}
-      </table>` : `<div class="empty">${purHistoryFilterDate? '这天没有采购记录' : '还没有采购记录'}</div>`}
+      </table>` : `<div class="empty">${purHistoryFilterDate||purHistoryFilterCompany? '没有符合条件的采购记录' : '还没有采购记录'}</div>`}
     </div>
   `;
   renderPurchaseItemRows();
@@ -810,6 +904,14 @@ function renderPurchase(){
 function setPurHistoryFilter(val){
   purHistoryFilterDate = val;
   renderPurchase();
+}
+function setPurHistoryFilterCompany(val){
+  purHistoryFilterCompany = val;
+  renderPurchase();
+}
+function setPurCompany(val){
+  purCompany = val;
+  document.querySelectorAll('#purCompanyGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
 }
 
 /* ================= 付款 Tab ================= */
@@ -959,9 +1061,10 @@ function submitPurchase(){
   });
   if(items.length===0){ alert('请至少填写一项品名和总价'); return; }
   const totalAmount = items.reduce((a,i)=>a+i.totalCost,0);
+  const company = purCompany;
   mutate(()=>{
     const supplierId = findOrCreateSupplierId(typedName);
-    state.purchases.push({id:uid(), date, supplierId, items, totalAmount, invoiceNumber});
+    state.purchases.push({id:uid(), date, supplierId, items, totalAmount, invoiceNumber, company});
   });
   tempPurchaseItems = [{id:uid(), name:'', category:'食材', productName:'', qty:'', unit:'', unitPrice:'', total:''}];
   renderPurchase();
@@ -1204,10 +1307,13 @@ function appendCostItem(prodId){
 }
 
 /* ================= 销售 Tab ================= */
+let saleCompany = COMPANIES[0];
+let saleHistoryFilterCompany = '';
 function renderSales(){
   const el = document.getElementById('tab-sales');
   const mk = monthKey(todayKey());
-  const monthSales = state.sales.filter(s=>monthKey(s.date)===mk);
+  const salesInScope = saleHistoryFilterCompany ? state.sales.filter(s=>s.company===saleHistoryFilterCompany) : state.sales;
+  const monthSales = salesInScope.filter(s=>monthKey(s.date)===mk);
   const totalRevenue = monthSales.reduce((a,s)=>a+Number(s.amount||0),0);
   const totalCost = monthSales.reduce((a,s)=>a+Number(s.cost||0),0);
   const byProduct = {};
@@ -1218,7 +1324,11 @@ function renderSales(){
   el.innerHTML = `
     <div class="card">
       <h3>记一笔销售</h3>
-      <label>产品</label>
+      <label>公司</label>
+      <div class="btn-group" id="saleCompanyGroup">
+        ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${saleCompany===c?'active':''}" data-val="${c}" onclick="setSaleCompany('${c}')">${c}</button>`).join('')}
+      </div>
+      <label style="margin-top:10px">产品</label>
       <datalist id="productNames">
         ${state.products.map(p=>`<option value="${p.name}">`).join('')}
       </datalist>
@@ -1237,7 +1347,15 @@ function renderSales(){
     </div>
 
     <div class="card">
-      <h3>本月销售汇总 <span class="n">${mk}</span></h3>
+      <h3>按公司筛选</h3>
+      <div class="btn-group">
+        <button type="button" class="btn-toggle ${!saleHistoryFilterCompany?'active':''}" onclick="setSaleHistoryFilterCompany('')">全部</button>
+        ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${saleHistoryFilterCompany===c?'active':''}" onclick="setSaleHistoryFilterCompany('${c}')">${c}</button>`).join('')}
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>本月销售汇总 <span class="n">${mk}${saleHistoryFilterCompany? ' · '+saleHistoryFilterCompany : ''}</span></h3>
       <table>
         <tr><td>销售额</td><td class="num">${fmt(totalRevenue)}</td></tr>
         <tr><td>成本</td><td class="num">${fmt(totalCost)}</td></tr>
@@ -1259,21 +1377,29 @@ function renderSales(){
 
     <div class="card">
       <h3>销售记录</h3>
-      ${state.sales.length? `<table>
+      ${salesInScope.length? `<table>
         <tr><th>日期</th><th>产品</th><th class="num">数量</th><th>收款</th><th class="num">金额</th><th></th></tr>
-        ${state.sales.slice().reverse().map(s=>`
+        ${salesInScope.slice().reverse().map(s=>`
           <tr>
             <td class="muted">${s.date}</td>
-            <td>${s.productName}</td>
+            <td>${s.productName}${s.company?`<div class="muted" style="font-size:11px">${s.company}</div>`:''}</td>
             <td class="num">${s.qty}</td>
             <td class="muted" style="font-size:12px">${s.payMethod||''}</td>
             <td class="num">${fmtPlain(s.amount)}</td>
             <td><button class="btn-danger-text" onclick="deleteSale('${s.id}')">删</button></td>
           </tr>`).join('')}
-      </table>` : `<div class="empty">还没有销售记录</div>`}
+      </table>` : `<div class="empty">${saleHistoryFilterCompany? '这间公司还没有销售记录' : '还没有销售记录'}</div>`}
     </div>
   `;
   wireSalePreview();
+}
+function setSaleCompany(val){
+  saleCompany = val;
+  document.querySelectorAll('#saleCompanyGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
+}
+function setSaleHistoryFilterCompany(val){
+  saleHistoryFilterCompany = val;
+  renderSales();
 }
 function onSaleProductChange(){
   const typedName = document.getElementById('saleProduct').value.trim();
@@ -1301,9 +1427,10 @@ function submitSale(){
   const amount = qty*price;
   const unitCost = productUnitCost(p);
   const payMethod = document.getElementById('salePayMethod').value || '其他';
+  const company = saleCompany;
   mutate(()=>{
     const sid = uid();
-    state.sales.push({id:sid, date, productId:p.id, productName:p.name, qty, price, amount, cost: unitCost*qty, payMethod});
+    state.sales.push({id:sid, date, productId:p.id, productName:p.name, qty, price, amount, cost: unitCost*qty, payMethod, company});
     state.cashflow.push({id:uid(), date, type:'in', category:payMethod, amount, note:`${p.name} ×${qty}`, auto:true, _saleId:sid});
   });
   renderSales();
@@ -1457,6 +1584,47 @@ function deleteCashflow(id){
   mutate(()=>{ state.cashflow = state.cashflow.filter(c=>c.id!==id); });
 }
 
+/* ================= 导出 Tab ================= */
+function renderExport(){
+  const el = document.getElementById('tab-export');
+  if(!el) return;
+  const reports = [
+    {key:'purchases', title:'采购记录', n:state.purchases.length, unit:'张采购单', fn:'exportPurchasesCSV'},
+    {key:'payments', title:'供应商付款记录', n:state.payments.length, unit:'笔付款', fn:'exportPaymentsCSV'},
+    {key:'sales', title:'销售记录', n:state.sales.length, unit:'笔销售', fn:'exportSalesCSV'},
+    {key:'cashflow', title:'收支流水', n:state.cashflow.length, unit:'条流水', fn:'exportCashflowCSV'},
+    {key:'supplierDebt', title:'供应商欠款汇总', n:state.suppliers.length, unit:'家供应商', fn:'exportSupplierDebtCSV'},
+    {key:'productCost', title:'产品成本毛利汇总', n:state.products.length, unit:'个产品', fn:'exportProductCostCSV'}
+  ];
+  el.innerHTML = `
+    <div class="card">
+      <h3>导出报告</h3>
+      <div class="muted" style="font-size:12.5px; line-height:1.6; margin-bottom:4px;">
+        每份都会导出成 CSV 文件，可以直接用 Excel / Numbers / Google Sheets 打开。
+      </div>
+    </div>
+    ${reports.map(r=>`
+    <div class="card">
+      <div class="row" style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <b>${r.title}</b>
+          <div class="muted" style="font-size:12px">${r.n} ${r.unit}</div>
+        </div>
+        <button class="btn-ghost" onclick="${r.fn}()">⬇ 导出 CSV</button>
+      </div>
+    </div>`).join('')}
+    <div class="card">
+      <div class="row" style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <b>完整数据备份</b>
+          <div class="muted" style="font-size:12px">包含全部原始数据（JSON），换设备用"导入备份"载入</div>
+        </div>
+        <button class="btn-ghost" onclick="exportData()">⬇ 导出 JSON</button>
+      </div>
+    </div>
+  `;
+}
+
 /* ---------------- 总渲染 & Tab 切换 ---------------- */
 function renderAll(){
   if(!loaded) return;
@@ -1467,6 +1635,7 @@ function renderAll(){
   renderCost();
   renderSales();
   renderCash();
+  renderExport();
 }
 document.getElementById('bottomNav').addEventListener('click', (e)=>{
   const btn = e.target.closest('button[data-tab]');
