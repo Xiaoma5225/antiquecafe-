@@ -372,7 +372,9 @@ function loadLocalThenApp(){
     }
   }catch(e){ /* 首次使用，无数据，或读取失败 */ }
   loaded = true;
-  if(reconcileCashflow()) saveState();
+  const changed1 = reconcileCashflow();
+  const changed2 = reconcileIngredients();
+  if(changed1 || changed2) saveState();
   renderAll();
 }
 function doLogin(){
@@ -411,7 +413,9 @@ function initCloudSync(user){
             const remote = snap.data();
             if(!state.updatedAt || (remote.updatedAt||0) >= (state.updatedAt||0)){
               state = Object.assign(state, remote);
-              if(reconcileCashflow()) saveState();
+              const changed1 = reconcileCashflow();
+              const changed2 = reconcileIngredients();
+              if(changed1 || changed2) saveState();
               renderAll();
             }
             setSyncStatus('云同步：已连接 ✓（共享账本）');
@@ -556,9 +560,26 @@ function reconcileCashflow(){
   state.cashflow = state.cashflow.filter(c=> !(c.auto && c.type==='in' && !saleIds.has(c._saleId)) );
   return state.cashflow.length !== before;
 }
+/* 食材字典有可能漏掉"这个功能上线之前"就已经存在的历史数据（比如老的采购单、老的产品食材成本项）。
+   这里每次都用现有的产品成本项 + 采购记录里的关联，重新补一遍字典，确保老数据也能被记住，不用重新输入一次。 */
+function reconcileIngredients(){
+  if(!state.ingredients) state.ingredients = [];
+  const before = JSON.stringify(state.ingredients);
+  state.products.forEach(p=>{
+    (p.costItems||[]).forEach(ci=>{ learnIngredientLink(ci.name, [p.id]); });
+  });
+  state.purchases.forEach(pu=>{
+    (pu.items||[]).forEach(item=>{
+      const pids = purchaseItemProductIds(item);
+      if(pids.length) learnIngredientLink(item.name, pids);
+    });
+  });
+  return JSON.stringify(state.ingredients) !== before;
+}
 function mutate(fn){
   fn();
   reconcileCashflow();
+  reconcileIngredients();
   saveState();
   renderAll();
 }
@@ -980,11 +1001,7 @@ function renderPurchase(){
                 ${COMPANIES.map(c=>`<option value="${c}" ${p.company===c?'selected':''}>${c}</option>`).join('')}
               </select>
               ${p.invoiceNumber?`<div class="muted" style="font-size:11px">Invoice #${p.invoiceNumber}</div>`:''}</td>
-            <td class="muted" style="font-size:12px">${p.items.map(i=>{
-              const pids = purchaseItemProductIds(i);
-              const names = pids.map(id=>{ const pr = state.products.find(x=>x.id===id); return pr?pr.name:null; }).filter(Boolean);
-              return i.name+' ×'+i.qty+(i.unit||'')+' ['+(i.category||'食材')+']'+(names.length?' → '+names.join('、'):'');
-            }).join('，')}</td>
+            <td class="muted" style="font-size:12px">${p.items.map(i=>i.name+' ×'+i.qty+(i.unit||'')+' ['+(i.category||'食材')+']').join('，')}</td>
             <td class="num">${fmtPlain(p.totalAmount)}${purchaseOutstanding(p.id)>0.001?`<div class="muted" style="font-size:11px; color:var(--rust)">未付 ${fmtPlain(purchaseOutstanding(p.id))}</div>`:''}</td>
             <td><button class="btn-danger-text" onclick="deletePurchase('${p.id}')">删</button></td>
           </tr>`).join('')}
