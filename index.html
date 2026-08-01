@@ -1712,6 +1712,18 @@ function renderSales(){
     </div>
 
     <div class="card">
+      <h3>批量导入销售报告</h3>
+      <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">先下载模板，按格式填好每一笔销售（产品名称要跟"成本"页里的一模一样），再上传回来，系统会一次帮你新增好。</div>
+      <div class="grid2">
+        <button class="btn-ghost" onclick="downloadSalesImportTemplate()">⬇ 下载CSV模板</button>
+        <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
+          ⬆ 上传销售报告
+          <input type="file" accept=".csv" style="display:none" onchange="importSalesReport(this)">
+        </label>
+      </div>
+    </div>
+
+    <div class="card">
       <h3>按公司筛选</h3>
       <div class="btn-group">
         <button type="button" class="btn-toggle ${!saleHistoryFilterCompany?'active':''}" onclick="setSaleHistoryFilterCompany('')">全部</button>
@@ -1810,6 +1822,105 @@ function deleteSale(id){
     state.sales = state.sales.filter(s=>s.id!==id);
     state.cashflow = state.cashflow.filter(c=>!(c.auto && c._saleId===id));
   });
+}
+
+/* ---------------- 批量导入销售报告（CSV）---------------- */
+function downloadSalesImportTemplate(){
+  const header = ['日期','产品','数量','单价(选填，不填就用产品目前的售价)','收款方式(选填)','公司(选填)'];
+  const example = ['2026-08-01','招牌炒河粉','2','15.90','Cash', COMPANIES[0]];
+  downloadCSV('销售报告模板.csv', header, [example]);
+}
+/* 简单的 CSV 解析（支持带引号的字段，内含逗号/换行/转义引号），不依赖外部库 */
+function parseCSV(text){
+  if(text.charCodeAt(0)===0xFEFF) text = text.slice(1); // 去掉 BOM
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for(let i=0;i<text.length;i++){
+    const c = text[i];
+    if(inQuotes){
+      if(c==='"'){
+        if(text[i+1]==='"'){ field+='"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else {
+      if(c==='"') inQuotes = true;
+      else if(c===','){ row.push(field); field=''; }
+      else if(c==='\r'){ /* 忽略，交给 \n 处理换行 */ }
+      else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; }
+      else field += c;
+    }
+  }
+  if(field!=='' || row.length){ row.push(field); rows.push(row); }
+  return rows.filter(r=>!(r.length===1 && r[0].trim()===''));
+}
+/* 尽量把常见几种日期写法都转成系统统一用的 YYYY-MM-DD */
+function normalizeDateStr(str){
+  const s = (str||'').trim();
+  if(/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)){
+    const [y,m,d] = s.split('-');
+    return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+  }
+  let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/); // DD/MM/YYYY 或 DD-MM-YYYY
+  if(m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  return s;
+}
+function importSalesReport(fileInput){
+  const file = fileInput.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    try{
+      const rows = parseCSV(String(e.target.result));
+      if(rows.length<2){ alert('文件里没有找到数据行，请确认是不是用模板格式填的'); fileInput.value=''; return; }
+      const dataRows = rows.slice(1); // 跳过表头
+      const toAdd = [];
+      const errors = [];
+      dataRows.forEach((r,idx)=>{
+        const lineNo = idx+2;
+        if(!r.some(v=>(v||'').trim()!=='')) return; // 空行跳过
+        const date = normalizeDateStr(r[0]);
+        const productName = (r[1]||'').trim();
+        const qty = Number(r[2]);
+        const priceRaw = (r[3]||'').trim();
+        const payMethodRaw = (r[4]||'').trim();
+        const companyRaw = (r[5]||'').trim();
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ errors.push(`第${lineNo}行：日期"${r[0]||''}"看不懂，请用 2026-08-01 这种格式`); return; }
+        if(!productName){ errors.push(`第${lineNo}行：缺少产品名称`); return; }
+        const product = state.products.find(p=>p.name.toLowerCase()===productName.toLowerCase());
+        if(!product){ errors.push(`第${lineNo}行：找不到产品"${productName}"，请先在"成本"页新增，或检查名字有没有打错`); return; }
+        if(!qty || qty<=0 || isNaN(qty)){ errors.push(`第${lineNo}行：数量不对`); return; }
+        const price = priceRaw!=='' ? Number(priceRaw) : Number(product.price||0);
+        if(isNaN(price)){ errors.push(`第${lineNo}行：单价不对`); return; }
+        const payMethod = payMethodRaw || '其他';
+        let company = '';
+        if(companyRaw){
+          if(COMPANIES.includes(companyRaw)) company = companyRaw;
+          else errors.push(`第${lineNo}行：公司"${companyRaw}"不认得（可选：${COMPANIES.join('、')}），这行会先不分公司导入`);
+        }
+        toAdd.push({date, product, qty, price, payMethod, company});
+      });
+      if(toAdd.length===0){ alert('没有成功解析到任何一笔销售记录：\n\n' + errors.join('\n')); fileInput.value=''; return; }
+      let msg = `准备导入 ${toAdd.length} 笔销售记录`;
+      if(errors.length) msg += `，另外有 ${errors.length} 行有问题：\n\n` + errors.join('\n') + '\n\n这些行不会被导入。';
+      msg += '\n\n确定继续导入吗？';
+      if(!confirm(msg)){ fileInput.value=''; return; }
+      mutate(()=>{
+        toAdd.forEach(item=>{
+          const p = item.product;
+          const amount = item.qty * item.price;
+          const unitCost = p.costMethod==='total' ? 0 : productUnitCost(p);
+          const sid = uid();
+          state.sales.push({id:sid, date:item.date, productId:p.id, productName:p.name, qty:item.qty, price:item.price, amount, cost: unitCost*item.qty, payMethod:item.payMethod, company:item.company});
+          state.cashflow.push({id:uid(), date:item.date, type:'in', category:item.payMethod, amount, company:item.company, note:`${p.name} ×${item.qty}（批量导入）`, auto:true, _saleId:sid});
+        });
+      });
+      alert(`已成功导入 ${toAdd.length} 笔销售记录${errors.length? `，${errors.length} 行被跳过`:''}`);
+    }catch(err){
+      alert('文件解析失败，请确认是不是用系统模板格式的CSV文件。\n' + err.message);
+    }
+    fileInput.value = '';
+  };
+  reader.readAsText(file, 'UTF-8');
 }
 
 /* ================= 收支 Tab ================= */
