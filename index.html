@@ -286,15 +286,16 @@ function vizLegend(items){
    1. 去 https://console.firebase.google.com 建一个免费项目
    2. 开启 Firestore Database（测试模式）
    3. Authentication → Sign-in method → 启用「电子邮件/密码」
-      然后到 Authentication → Users，点「Add user」，用你自己的邮箱和密码建一个账号
-      （这里不做公开注册，只有你自己知道这组邮箱密码才能登入）
+      然后到 Authentication → Users，点「Add user」，为每个要登入的人建一个账号
+      （这里不做公开注册，只有你手动加进去的邮箱密码才能登入）
    4. 项目设置 → 你的应用 → 网页应用，复制得到的 firebaseConfig，粘贴替换下面这个占位对象
-   5. Firestore 的「规则」分页贴上（每个账号只能读写自己的数据）：
+   5. Firestore 的「规则」分页贴上（现在改成共享账本：任何登录过的账号都能读写同一份数据，
+      方便多个人——比如你和店里另一个账号——共用同一套记账）：
       rules_version = '2';
       service cloud.firestore {
         match /databases/{database}/documents {
-          match /ledger/{uid} {
-            allow read, write: if request.auth != null && request.auth.uid == uid;
+          match /ledger/{docId} {
+            allow read, write: if request.auth != null;
           }
         }
       }
@@ -369,29 +370,43 @@ function doLogout(){
   firebase.auth().signOut();
 }
 
+/* 共享账本：不再用每个人自己的 uid 当文档 ID，而是固定用一个共享文档，
+   这样不同的登录账号（比如你和 wanyi9595@hotmail.com）都能读写同一份数据。
+   Firestore 规则要相应改成"任何登录过的账号都能读写 /ledger/shared"（见部署说明）。 */
+const SHARED_LEDGER_ID = 'shared';
 function initCloudSync(user){
   try{
     setSyncStatus('云同步：连接中…');
-    cloudDocRef = firebase.firestore().collection('ledger').doc(user.uid);
-    cloudDocRef.onSnapshot((snap)=>{
-      cloudReady = true;
-      if(snap.exists){
-        const remote = snap.data();
-        if(!state.updatedAt || (remote.updatedAt||0) >= (state.updatedAt||0)){
-          state = Object.assign(state, remote);
-          if(reconcileCashflow()) saveState();
-          renderAll();
-        }
-        setSyncStatus('云同步：已连接 ✓');
-      }else{
-        // 云端还没有数据，把本机现有数据推上去作为初始版本
-        pushToCloud();
-        setSyncStatus('云同步：已连接 ✓（首次上传）');
-      }
-    }, (err)=>{
-      console.error(err);
-      setSyncStatus('云同步失败，暂时仅用本机存储');
-    });
+    const sharedRef = firebase.firestore().collection('ledger').doc(SHARED_LEDGER_ID);
+    cloudDocRef = sharedRef;
+    sharedRef.get().then(sharedSnap=>{
+      if(sharedSnap.exists) return;
+      // 共享文档还不存在：第一次从旧版「每个账号自己的文档」搬过来一次，之后就都用共享的了
+      return firebase.firestore().collection('ledger').doc(user.uid).get().then(oldSnap=>{
+        if(oldSnap.exists) return sharedRef.set(oldSnap.data());
+      });
+    }).catch(err=>console.error('共享账本迁移失败', err))
+      .finally(()=>{
+        cloudDocRef.onSnapshot((snap)=>{
+          cloudReady = true;
+          if(snap.exists){
+            const remote = snap.data();
+            if(!state.updatedAt || (remote.updatedAt||0) >= (state.updatedAt||0)){
+              state = Object.assign(state, remote);
+              if(reconcileCashflow()) saveState();
+              renderAll();
+            }
+            setSyncStatus('云同步：已连接 ✓（共享账本）');
+          }else{
+            // 云端还没有数据，把本机现有数据推上去作为初始版本
+            pushToCloud();
+            setSyncStatus('云同步：已连接 ✓（首次上传）');
+          }
+        }, (err)=>{
+          console.error(err);
+          setSyncStatus('云同步失败，暂时仅用本机存储');
+        });
+      });
   }catch(e){
     console.error(e);
     setSyncStatus('云同步初始化失败，暂时仅用本机存储');
