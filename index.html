@@ -1258,15 +1258,17 @@ function setPayPayMethod(val){
 
 /* ================= 产品成本 Tab ================= */
 let tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
+let editingProductId = null;
 
 function renderCost(){
   const el = document.getElementById('tab-cost');
+  const editingProduct = editingProductId ? state.products.find(x=>x.id===editingProductId) : null;
   el.innerHTML = `
     <div class="card">
-      <h3>新增菜品 / 产品</h3>
+      <h3>${editingProduct? `✏️ 编辑产品：${editingProduct.name}` : '新增菜品 / 产品'}</h3>
       <div class="grid2">
-        <div><label>产品名称</label><input id="prodName" placeholder="例：招牌炒河粉"></div>
-        <div><label>售价</label><input id="prodPrice" type="number" step="0.01" placeholder="0.00"></div>
+        <div><label>产品名称</label><input id="prodName" placeholder="例：招牌炒河粉" value="${editingProduct?editingProduct.name:''}"></div>
+        <div><label>售价</label><input id="prodPrice" type="number" step="0.01" placeholder="0.00" value="${editingProduct?editingProduct.price:''}"></div>
       </div>
       <label style="margin-top:14px">食材成本项（保底用：如果这个产品在"采购"页还没有关联到任何采购记录，就会用这里的估算；一旦有关联采购+销售数据，系统会自动改用实际数据算成本）</label>
       <div id="costItemsWrap"></div>
@@ -1274,11 +1276,14 @@ function renderCost(){
       <div style="margin-top:8px; font-size:13px; color:var(--muted)">
         总成本：<b class="mono" id="costTotalPreview">RM 0.00</b>
       </div>
-      <button class="btn-main" onclick="submitProduct()">保存产品</button>
+      <button class="btn-main" onclick="submitProduct()">${editingProduct?'保存修改':'保存产品'}</button>
+      ${editingProduct?`<button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditProduct()">取消编辑</button>`:''}
     </div>
 
     <div class="card">
       <h3>产品成本一览 <span class="n">${state.products.length} 项</span></h3>
+      ${state.products.length? `<input id="costSearchInput" placeholder="🔍 搜索产品名称..." oninput="filterCostProducts(this.value)" style="margin-bottom:10px;">
+      <div id="costSearchEmpty" class="empty" style="display:none;">没有找到符合的产品</div>` : ''}
       ${state.products.length? state.products.map(p=>{
         const method = p.costMethod==='total' ? 'total' : 'unit';
         const methodToggle = `<div class="btn-group" style="margin-top:8px; margin-bottom:6px;">
@@ -1293,10 +1298,13 @@ function renderCost(){
           const groupProfit = groupRevenue - groupSpend;
           const pct = groupRevenue>0? (groupProfit/groupRevenue*100).toFixed(1) : '0.0';
           return `
-          <div style="border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:10px;">
+          <div class="cost-product-card" data-pname="${p.name.toLowerCase().replace(/"/g,'&quot;')}" style="border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:10px;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
               <b>${p.name}</b>
-              <button class="btn-danger-text" onclick="deleteProduct('${p.id}')">删除产品</button>
+              <div style="display:flex; gap:6px;">
+                <button class="btn-ghost btn-small" onclick="startEditProduct('${p.id}')">编辑</button>
+                <button class="btn-danger-text" onclick="deleteProduct('${p.id}')">删除产品</button>
+              </div>
             </div>
             ${methodToggle}
             <div class="muted" style="font-size:11px; margin-bottom:4px;">总额法：${groupNames.length>1?`把 ${groupNames.join('、')} 的销售额归为一组`:'该产品单独一组（还没有跟其他产品共用采购食材）'}，直接用总销售额扣除共用的采购食材总成本</div>
@@ -1315,10 +1323,13 @@ function renderCost(){
         const profit = Number(p.price||0) - cost;
         const pct = p.price>0? (profit/p.price*100).toFixed(1) : '0.0';
         return `
-        <div style="border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:10px;">
+        <div class="cost-product-card" data-pname="${p.name.toLowerCase().replace(/"/g,'&quot;')}" style="border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:10px;">
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <b>${p.name}</b>
-            <button class="btn-danger-text" onclick="deleteProduct('${p.id}')">删除产品</button>
+            <div style="display:flex; gap:6px;">
+              <button class="btn-ghost btn-small" onclick="startEditProduct('${p.id}')">编辑</button>
+              <button class="btn-danger-text" onclick="deleteProduct('${p.id}')">删除产品</button>
+            </div>
           </div>
           ${methodToggle}
           ${usingRealData? `<div class="muted" style="font-size:11px; margin-top:4px;">按实际数据算成本：关联采购总额 ${fmtPlain(spend)} ÷ 已售出 ${qtySold} 份 = 单位成本 ${fmtPlain(cost)}</div>` : `<div class="muted" style="font-size:11px; margin-top:4px;">还没有关联采购或销售数据，暂用下面手动填的食材成本项估算</div>`}
@@ -1396,13 +1407,54 @@ function submitProduct(){
   const price = Number(document.getElementById('prodPrice').value)||0;
   if(!name){ alert('请输入产品名称'); return; }
   const costItems = tempCostItems.filter(r=>r.name && r.cost!=='').map(r=>({id:uid(), name:r.name, qty:Number(r.qty||0), unit:r.unit, unitPrice:Number(r.unitPrice||0), cost:Number(r.cost||0)}));
-  mutate(()=>{ state.products.push({id:uid(), name, price, costItems, costMethod:'unit'}); });
+  if(editingProductId){
+    const targetId = editingProductId;
+    mutate(()=>{
+      const p = state.products.find(x=>x.id===targetId);
+      if(p){ p.name = name; p.price = price; p.costItems = costItems; }
+    });
+    editingProductId = null;
+  } else {
+    mutate(()=>{ state.products.push({id:uid(), name, price, costItems, costMethod:'unit'}); });
+  }
   tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
   renderCost();
+}
+function startEditProduct(id){
+  const p = state.products.find(x=>x.id===id);
+  if(!p) return;
+  editingProductId = id;
+  tempCostItems = (p.costItems&&p.costItems.length)
+    ? p.costItems.map(ci=>({id:uid(), name:ci.name||'', qty:ci.qty?String(ci.qty):'', unit:ci.unit||'', unitPrice:ci.unitPrice?String(ci.unitPrice):'', cost:ci.cost!=null?String(ci.cost):''}))
+    : [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
+  renderCost();
+  const nameInput = document.getElementById('prodName');
+  if(nameInput) nameInput.scrollIntoView({behavior:'smooth', block:'center'});
+}
+function cancelEditProduct(){
+  editingProductId = null;
+  tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
+  renderCost();
+}
+function filterCostProducts(q){
+  const query = (q||'').trim().toLowerCase();
+  let anyVisible = false;
+  document.querySelectorAll('.cost-product-card').forEach(card=>{
+    const match = !query || (card.dataset.pname||'').includes(query);
+    card.style.display = match ? '' : 'none';
+    if(match) anyVisible = true;
+  });
+  const emptyEl = document.getElementById('costSearchEmpty');
+  if(emptyEl) emptyEl.style.display = (query && !anyVisible) ? '' : 'none';
 }
 function deleteProduct(id){
   if(!confirm('确定删除该产品？')) return;
   mutate(()=>{ state.products = state.products.filter(p=>p.id!==id); });
+  if(editingProductId===id){
+    editingProductId = null;
+    tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
+    renderCost();
+  }
 }
 function setProductCostMethod(id, method){
   mutate(()=>{
