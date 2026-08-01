@@ -894,7 +894,8 @@ function renderPurchase(){
           <tr>
             <td class="muted">${p.date}</td>
             <td>${supplierName(p.supplierId)}
-              <select style="width:auto; margin-top:3px; padding:2px 4px; font-size:11px; border-radius:6px;" onchange="updatePurchaseCompany('${p.id}', this.value)">
+              <select style="width:auto; margin-top:3px; padding:2px 4px; font-size:11px; border-radius:6px; ${!p.company?'color:var(--rust); border-color:var(--rust);':''}" onchange="updatePurchaseCompany('${p.id}', this.value)">
+                <option value="" ${!p.company?'selected':''}>未选择公司</option>
                 ${COMPANIES.map(c=>`<option value="${c}" ${p.company===c?'selected':''}>${c}</option>`).join('')}
               </select>
               ${p.invoiceNumber?`<div class="muted" style="font-size:11px">Invoice #${p.invoiceNumber}</div>`:''}</td>
