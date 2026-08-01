@@ -274,7 +274,8 @@ let state = {
   products: [],
   sales: [],
   cashflow: [],
-  customExpenseCategories: []
+  customExpenseCategories: [],
+  ingredients: []
 };
 let loaded = false;
 let recentActivityFilterDate = '';
@@ -535,7 +536,7 @@ function importData(fileInput){
     try{
       const parsed = JSON.parse(e.target.result);
       if(!confirm('导入会覆盖当前这台设备上的所有数据，确定继续吗？')) return;
-      state = Object.assign({initialCash:0, suppliers:[], purchases:[], payments:[], products:[], sales:[], cashflow:[], customExpenseCategories:[]}, parsed);
+      state = Object.assign({initialCash:0, suppliers:[], purchases:[], payments:[], products:[], sales:[], cashflow:[], customExpenseCategories:[], ingredients:[]}, parsed);
       saveState();
       renderAll();
       alert('导入成功');
@@ -669,6 +670,27 @@ function monthTotalMethodPurchaseCost(mk, company){
     });
   });
   return total;
+}
+
+/* ---------------- 食材字典（自动记住"某个食材属于哪些产品"）----------------
+   来源：1) 在"成本"页给产品添加食材成本项时；2) 在"采购"页把采购项手动关联到产品并提交时。
+   之后在"采购"页输入品名时，会自动带出建议清单，选到已知食材还会自动帮你勾选它所属的产品。 */
+function learnIngredientLink(name, productIds){
+  const n = (name||'').trim();
+  const ids = (productIds||[]).filter(Boolean);
+  if(!n || !ids.length) return;
+  if(!state.ingredients) state.ingredients = [];
+  let ing = state.ingredients.find(i=>i.name.toLowerCase()===n.toLowerCase());
+  if(!ing){ ing = {id:uid(), name:n, productIds:[]}; state.ingredients.push(ing); }
+  ids.forEach(pid=>{ if(!ing.productIds.includes(pid)) ing.productIds.push(pid); });
+}
+function findIngredient(name){
+  const n = (name||'').trim().toLowerCase();
+  if(!n) return null;
+  return (state.ingredients||[]).find(i=>i.name.toLowerCase()===n) || null;
+}
+function getIngredientNames(){
+  return (state.ingredients||[]).map(i=>i.name).sort((a,b)=>a.localeCompare(b,'zh'));
 }
 function supplierTotals(id){
   const bought = state.purchases.filter(p=>p.supplierId===id).reduce((a,p)=>a+Number(p.totalAmount||0),0);
@@ -1034,15 +1056,19 @@ function renderPurchaseItemRows(){
     <datalist id="purItemProductNames">
       ${state.products.map(p=>`<option value="${p.name}">`).join('')}
     </datalist>
+    <datalist id="purIngredientNames">
+      ${getIngredientNames().map(n=>`<option value="${n}">`).join('')}
+    </datalist>
   ` + tempPurchaseItems.map((row,idx)=>`
     <div class="pi-card">
       <div class="pi-top">
-        <input placeholder="品名" value="${row.name}" oninput="updatePurItem('${row.id}','name',this.value)">
+        <input list="purIngredientNames" placeholder="品名" value="${row.name}" oninput="updatePurItem('${row.id}','name',this.value)" onchange="autoLinkPurItemIngredient('${row.id}')">
         <select style="flex:0 0 108px" onchange="updatePurItem('${row.id}','category',this.value)">
           ${PURCHASE_CATEGORIES.map(c=>`<option value="${c}" ${row.category===c?'selected':''}>${c}</option>`).join('')}
         </select>
         ${tempPurchaseItems.length>1?`<button class="rm" onclick="removePurItem('${row.id}')">×</button>`:'<span style="width:20px"></span>'}
       </div>
+      ${(()=>{ const ing = findIngredient(row.name); return (ing && ing.productIds.length) ? `<div class="muted" style="font-size:11px; margin-bottom:4px;">💡 系统记得这个食材是给：${ing.productIds.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean).join('、')}</div>` : ''; })()}
       <div style="display:flex; gap:6px; margin-bottom:6px;">
         <input list="purItemProductNames" placeholder="属于哪个产品（选填，可加多个，用来自动算成本）" autocomplete="off" value="${row.productInput||''}" oninput="updatePurItem('${row.id}','productInput',this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault(); addPurItemProduct('${row.id}');}" style="flex:1;">
         <button type="button" class="btn-ghost btn-small" onclick="addPurItemProduct('${row.id}')">+ 加入</button>
@@ -1108,6 +1134,16 @@ function removePurItemProduct(rowId, productId){
   row.productIds = (row.productIds||[]).filter(id=>id!==productId);
   renderPurchaseItemRows();
 }
+function autoLinkPurItemIngredient(rowId){
+  const row = tempPurchaseItems.find(r=>r.id===rowId);
+  if(!row) return;
+  const ing = findIngredient(row.name);
+  if(!ing || !ing.productIds.length) return;
+  if(!row.productIds) row.productIds = [];
+  let added = false;
+  ing.productIds.forEach(pid=>{ if(!row.productIds.includes(pid)){ row.productIds.push(pid); added = true; } });
+  if(added) renderPurchaseItemRows();
+}
 
 function addSupplier(){
   const name = document.getElementById('supName').value.trim();
@@ -1157,6 +1193,7 @@ function submitPurchase(){
   mutate(()=>{
     const supplierId = findOrCreateSupplierId(typedName);
     state.purchases.push({id:uid(), date, supplierId, items, totalAmount, invoiceNumber, company});
+    items.forEach(i=>learnIngredientLink(i.name, i.productIds));
   });
   tempPurchaseItems = [{id:uid(), name:'', category:'食材', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
   renderPurchase();
@@ -1412,10 +1449,15 @@ function submitProduct(){
     mutate(()=>{
       const p = state.products.find(x=>x.id===targetId);
       if(p){ p.name = name; p.price = price; p.costItems = costItems; }
+      costItems.forEach(ci=>learnIngredientLink(ci.name, [targetId]));
     });
     editingProductId = null;
   } else {
-    mutate(()=>{ state.products.push({id:uid(), name, price, costItems, costMethod:'unit'}); });
+    const newId = uid();
+    mutate(()=>{
+      state.products.push({id:newId, name, price, costItems, costMethod:'unit'});
+      costItems.forEach(ci=>learnIngredientLink(ci.name, [newId]));
+    });
   }
   tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
   renderCost();
@@ -1488,6 +1530,7 @@ function appendCostItem(prodId){
   mutate(()=>{
     const p = state.products.find(x=>x.id===prodId);
     if(p) p.costItems.push({id:uid(), name, qty:Number(qtyEl.value||0), unitPrice:Number(upEl.value||0), cost});
+    learnIngredientLink(name, [prodId]);
   });
 }
 
