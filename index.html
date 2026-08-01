@@ -785,6 +785,20 @@ function renderPurchase(){
       </div>
       <label>备注（选填）</label><input id="payNote" placeholder="例：结清上月货款">
       <button class="btn-main" onclick="submitPayment()">记录付款</button>
+      <hr class="receipt-divider">
+      <label>最近付款记录</label>
+      ${state.payments.length? `<table>
+        <tr><th>日期</th><th>供应商</th><th class="num">金额</th><th></th></tr>
+        ${state.payments.slice().reverse().slice(0,5).map(pay=>{
+          const pur = pay.purchaseId ? state.purchases.find(x=>x.id===pay.purchaseId) : null;
+          return `<tr>
+            <td class="muted">${pay.date}</td>
+            <td>${supplierName(pay.supplierId)}${pur&&pur.invoiceNumber?`<div class="muted" style="font-size:11px">Invoice #${pur.invoiceNumber}</div>`:''}${pay.payMethod?`<div class="muted" style="font-size:11px">${pay.payMethod}</div>`:''}</td>
+            <td class="num">${fmtPlain(pay.amount)}</td>
+            <td><button class="btn-danger-text" onclick="deletePayment('${pay.id}')">删</button></td>
+          </tr>`;
+        }).join('')}
+      </table>` : `<div class="empty">还没有付款记录</div>`}
     </div>
 
     <div class="card">
@@ -927,6 +941,29 @@ function deletePurchase(id){
   if(!confirm('确定删除这张采购单？')) return;
   mutate(()=>{ state.purchases = state.purchases.filter(p=>p.id!==id); });
 }
+function deletePayment(id){
+  if(!confirm('确定删除这笔付款记录？（关联的收支流水也会一并删除）')) return;
+  mutate(()=>{
+    const pay = state.payments.find(p=>p.id===id);
+    state.payments = state.payments.filter(p=>p.id!==id);
+    let removedLinked = false;
+    state.cashflow = state.cashflow.filter(c=>{
+      if(c.auto && c._paymentId===id){ removedLinked = true; return false; }
+      return true;
+    });
+    // 旧数据（当初没连上 _paymentId 的付款）：按日期+金额找一条最接近的自动流水删掉，只删一条
+    if(!removedLinked && pay){
+      let matchedOnce = false;
+      state.cashflow = state.cashflow.filter(c=>{
+        if(!matchedOnce && c.auto && !c._paymentId && c.type==='out' && c.category==='供应商付款' && c.date===pay.date && Math.abs(Number(c.amount||0)-Number(pay.amount||0))<0.005){
+          matchedOnce = true;
+          return false;
+        }
+        return true;
+      });
+    }
+  });
+}
 function onPaySupplierInput(){
   const typedName = document.getElementById('paySupplier').value.trim();
   const wrap = document.getElementById('payInvoiceListWrap');
@@ -978,7 +1015,7 @@ function submitPayment(){
     const pid = uid();
     state.payments.push({id:pid, date, supplierId, amount, note, payMethod, purchaseId});
     const invoiceNote = invoicePur ? ` · Invoice ${invoicePur.invoiceNumber||'(无号)'}` : '';
-    state.cashflow.push({id:uid(), date, type:'out', category:'供应商付款', amount, payMethod, note:`${supplierName(supplierId)}${invoiceNote}${note?' · '+note:''}`, auto:true});
+    state.cashflow.push({id:uid(), date, type:'out', category:'供应商付款', amount, payMethod, note:`${supplierName(supplierId)}${invoiceNote}${note?' · '+note:''}`, auto:true, _paymentId:pid});
   });
   payPayMethod = PAY_METHODS[0];
   payPurchaseId = null;
