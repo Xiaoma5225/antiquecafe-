@@ -566,12 +566,12 @@ function reconcileIngredients(){
   if(!state.ingredients) state.ingredients = [];
   const before = JSON.stringify(state.ingredients);
   state.products.forEach(p=>{
-    (p.costItems||[]).forEach(ci=>{ learnIngredientLink(ci.name, [p.id]); });
+    (p.costItems||[]).forEach(ci=>{ learnIngredientLink(ci.name, [p.id], {unit: ci.unit, unitPrice: ci.unitPrice}); });
   });
   state.purchases.forEach(pu=>{
     (pu.items||[]).forEach(item=>{
       const pids = purchaseItemProductIds(item);
-      if(pids.length) learnIngredientLink(item.name, pids);
+      learnIngredientLink(item.name, pids, {unit: item.unit, unitPrice: item.unitPrice});
     });
   });
   return JSON.stringify(state.ingredients) !== before;
@@ -693,17 +693,20 @@ function monthTotalMethodPurchaseCost(mk, company){
   return total;
 }
 
-/* ---------------- 食材字典（自动记住"某个食材属于哪些产品"）----------------
-   来源：1) 在"成本"页给产品添加食材成本项时；2) 在"采购"页把采购项手动关联到产品并提交时。
-   之后在"采购"页输入品名时，会自动带出建议清单，选到已知食材还会自动帮你勾选它所属的产品。 */
-function learnIngredientLink(name, productIds){
+/* ---------------- 食材字典（自动记住"某个食材属于哪些产品、常用单位、参考单价"）----------------
+   来源：1) 在"成本"页给产品添加食材成本项时；2) 在"采购"页填写/提交采购项时（不管有没有关联产品）。
+   之后在"采购"页输入品名时，会自动带出建议清单，选到已知食材还会自动帮你带出单位、单价，并勾选它所属的产品。 */
+function learnIngredientLink(name, productIds, extra){
   const n = (name||'').trim();
-  const ids = (productIds||[]).filter(Boolean);
-  if(!n || !ids.length) return;
+  if(!n) return;
   if(!state.ingredients) state.ingredients = [];
   let ing = state.ingredients.find(i=>i.name.toLowerCase()===n.toLowerCase());
-  if(!ing){ ing = {id:uid(), name:n, productIds:[]}; state.ingredients.push(ing); }
-  ids.forEach(pid=>{ if(!ing.productIds.includes(pid)) ing.productIds.push(pid); });
+  if(!ing){ ing = {id:uid(), name:n, productIds:[], unit:'', unitPrice:0}; state.ingredients.push(ing); }
+  (productIds||[]).filter(Boolean).forEach(pid=>{ if(!ing.productIds.includes(pid)) ing.productIds.push(pid); });
+  if(extra){
+    if(extra.unit) ing.unit = extra.unit;
+    if(extra.unitPrice!=null && Number(extra.unitPrice)>0) ing.unitPrice = Number(extra.unitPrice);
+  }
 }
 function findIngredient(name){
   const n = (name||'').trim().toLowerCase();
@@ -1085,7 +1088,15 @@ function renderPurchaseItemRows(){
         </select>
         ${tempPurchaseItems.length>1?`<button class="rm" onclick="removePurItem('${row.id}')">×</button>`:'<span style="width:20px"></span>'}
       </div>
-      ${(()=>{ const ing = findIngredient(row.name); return (ing && ing.productIds.length) ? `<div class="muted" style="font-size:11px; margin-bottom:4px;">💡 系统记得这个食材是给：${ing.productIds.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean).join('、')}</div>` : ''; })()}
+      ${(()=>{
+        const ing = findIngredient(row.name);
+        if(!ing) return '';
+        const parts = [];
+        if(ing.unit) parts.push(`单位 ${ing.unit}`);
+        if(ing.unitPrice>0) parts.push(`参考单价 RM${fmtPlain(ing.unitPrice)}`);
+        if(ing.productIds && ing.productIds.length) parts.push(`是给：${ing.productIds.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean).join('、')}`);
+        return parts.length ? `<div class="muted" style="font-size:11px; margin-bottom:4px;">💡 系统记得这个食材 · ${parts.join(' · ')}</div>` : '';
+      })()}
       <div style="display:flex; gap:6px; margin-bottom:6px;">
         <input list="purItemProductNames" placeholder="属于哪个产品（选填，可加多个，用来自动算成本）" autocomplete="off" value="${row.productInput||''}" oninput="updatePurItem('${row.id}','productInput',this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault(); addPurItemProduct('${row.id}');}" style="flex:1;">
         <button type="button" class="btn-ghost btn-small" onclick="addPurItemProduct('${row.id}')">+ 加入</button>
@@ -1155,11 +1166,20 @@ function autoLinkPurItemIngredient(rowId){
   const row = tempPurchaseItems.find(r=>r.id===rowId);
   if(!row) return;
   const ing = findIngredient(row.name);
-  if(!ing || !ing.productIds.length) return;
-  if(!row.productIds) row.productIds = [];
-  let added = false;
-  ing.productIds.forEach(pid=>{ if(!row.productIds.includes(pid)){ row.productIds.push(pid); added = true; } });
-  if(added) renderPurchaseItemRows();
+  if(!ing) return;
+  let changed = false;
+  if(ing.productIds && ing.productIds.length){
+    if(!row.productIds) row.productIds = [];
+    ing.productIds.forEach(pid=>{ if(!row.productIds.includes(pid)){ row.productIds.push(pid); changed = true; } });
+  }
+  if(ing.unit && !row.unit){ row.unit = ing.unit; changed = true; }
+  if(ing.unitPrice && !row.unitPrice){
+    row.unitPrice = String(ing.unitPrice);
+    changed = true;
+    const qty = Number(row.qty);
+    if(row.qty!=='' && !isNaN(qty)) row.total = String(Math.round(qty*ing.unitPrice*100)/100);
+  }
+  if(changed) renderPurchaseItemRows();
 }
 
 function addSupplier(){
@@ -1210,7 +1230,7 @@ function submitPurchase(){
   mutate(()=>{
     const supplierId = findOrCreateSupplierId(typedName);
     state.purchases.push({id:uid(), date, supplierId, items, totalAmount, invoiceNumber, company});
-    items.forEach(i=>learnIngredientLink(i.name, i.productIds));
+    items.forEach(i=>learnIngredientLink(i.name, i.productIds, {unit: i.unit, unitPrice: i.unitPrice}));
   });
   tempPurchaseItems = [{id:uid(), name:'', category:'食材', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
   renderPurchase();
@@ -1466,14 +1486,14 @@ function submitProduct(){
     mutate(()=>{
       const p = state.products.find(x=>x.id===targetId);
       if(p){ p.name = name; p.price = price; p.costItems = costItems; }
-      costItems.forEach(ci=>learnIngredientLink(ci.name, [targetId]));
+      costItems.forEach(ci=>learnIngredientLink(ci.name, [targetId], {unit: ci.unit, unitPrice: ci.unitPrice}));
     });
     editingProductId = null;
   } else {
     const newId = uid();
     mutate(()=>{
       state.products.push({id:newId, name, price, costItems, costMethod:'unit'});
-      costItems.forEach(ci=>learnIngredientLink(ci.name, [newId]));
+      costItems.forEach(ci=>learnIngredientLink(ci.name, [newId], {unit: ci.unit, unitPrice: ci.unitPrice}));
     });
   }
   tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
@@ -1547,7 +1567,7 @@ function appendCostItem(prodId){
   mutate(()=>{
     const p = state.products.find(x=>x.id===prodId);
     if(p) p.costItems.push({id:uid(), name, qty:Number(qtyEl.value||0), unitPrice:Number(upEl.value||0), cost});
-    learnIngredientLink(name, [prodId]);
+    learnIngredientLink(name, [prodId], {unitPrice: Number(upEl.value||0)});
   });
 }
 
