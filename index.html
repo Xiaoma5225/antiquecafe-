@@ -204,6 +204,7 @@
 <nav class="bottom" id="bottomNav">
   <button data-tab="overview" class="active"><span class="ic">📊</span>总览</button>
   <button data-tab="purchase"><span class="ic">🛒</span>采购</button>
+  <button data-tab="payment"><span class="ic">💳</span>付款</button>
   <button data-tab="cost"><span class="ic">🧮</span>成本</button>
   <button data-tab="sales"><span class="ic">💰</span>销售</button>
   <button data-tab="cash"><span class="ic">📒</span>收支</button>
@@ -213,6 +214,7 @@
 
   <section class="tab-panel active" id="tab-overview"></section>
   <section class="tab-panel" id="tab-purchase"></section>
+  <section class="tab-panel" id="tab-payment"></section>
   <section class="tab-panel" id="tab-cost"></section>
   <section class="tab-panel" id="tab-sales"></section>
   <section class="tab-panel" id="tab-cash"></section>
@@ -706,6 +708,25 @@ function renderPurchase(){
   const catList = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]);
   const catMax = catList.length? catList[0][1] : 1;
   el.innerHTML = `
+    <div class="card">
+      <h3>新增采购单</h3>
+      <datalist id="supplierNames">
+        ${state.suppliers.map(s=>`<option value="${s.name}">`).join('')}
+      </datalist>
+      <div class="grid2">
+        <div><label>供应商</label>
+          <input list="supplierNames" id="purSupplier" placeholder="输入或选择供应商" autocomplete="off">
+        </div>
+        <div><label>采购日期</label><input type="date" id="purDate" value="${todayStr()}"></div>
+      </div>
+      <label>Invoice 号码（选填）</label><input id="purInvoiceNumber" placeholder="例：INV-00123">
+      <label style="margin-top:14px">品项明细（同一供应商可一次拿多个不同产品）</label>
+      <div id="purItemsWrap"></div>
+      <button class="btn-line" onclick="addPurchaseItemRow()">+ 添加一项</button>
+      <div style="margin-top:8px; font-size:13px; color:var(--muted)">本单总金额：<b class="mono" id="purTotalPreview">RM 0.00</b></div>
+      <button class="btn-main" onclick="submitPurchase()">保存采购单</button>
+    </div>
+
     ${catList.length? `
     <div class="card">
       <h3>本月采购类别分布 <span class="n">${mkP}</span></h3>
@@ -751,57 +772,6 @@ function renderPurchase(){
     </div>
 
     <div class="card">
-      <h3>新增采购单</h3>
-      <datalist id="supplierNames">
-        ${state.suppliers.map(s=>`<option value="${s.name}">`).join('')}
-      </datalist>
-      <div class="grid2">
-        <div><label>供应商</label>
-          <input list="supplierNames" id="purSupplier" placeholder="输入或选择供应商" autocomplete="off">
-        </div>
-        <div><label>采购日期</label><input type="date" id="purDate" value="${todayStr()}"></div>
-      </div>
-      <label>Invoice 号码（选填）</label><input id="purInvoiceNumber" placeholder="例：INV-00123">
-      <label style="margin-top:14px">品项明细（同一供应商可一次拿多个不同产品）</label>
-      <div id="purItemsWrap"></div>
-      <button class="btn-line" onclick="addPurchaseItemRow()">+ 添加一项</button>
-      <div style="margin-top:8px; font-size:13px; color:var(--muted)">本单总金额：<b class="mono" id="purTotalPreview">RM 0.00</b></div>
-      <button class="btn-main" onclick="submitPurchase()">保存采购单</button>
-    </div>
-
-    <div class="card">
-      <h3>供应商付款</h3>
-      <div class="grid2">
-        <div><label>供应商</label>
-          <input list="supplierNames" id="paySupplier" placeholder="输入或选择供应商" autocomplete="off" oninput="onPaySupplierInput()">
-        </div>
-        <div><label>付款日期</label><input type="date" id="payDate" value="${todayStr()}"></div>
-      </div>
-      <div id="payInvoiceListWrap"></div>
-      <label>付款金额</label><input type="number" step="0.01" id="payAmount" placeholder="0.00">
-      <label>付款方式</label>
-      <div class="btn-group" id="payMethodGroup">
-        ${PAY_METHODS.map(m=>`<button type="button" class="btn-toggle ${payPayMethod===m?'active':''}" data-val="${m}" onclick="setPayPayMethod('${m}')">${m}</button>`).join('')}
-      </div>
-      <label>备注（选填）</label><input id="payNote" placeholder="例：结清上月货款">
-      <button class="btn-main" onclick="submitPayment()">记录付款</button>
-      <hr class="receipt-divider">
-      <label>最近付款记录</label>
-      ${state.payments.length? `<table>
-        <tr><th>日期</th><th>供应商</th><th class="num">金额</th><th></th></tr>
-        ${state.payments.slice().reverse().slice(0,5).map(pay=>{
-          const pur = pay.purchaseId ? state.purchases.find(x=>x.id===pay.purchaseId) : null;
-          return `<tr>
-            <td class="muted">${pay.date}</td>
-            <td>${supplierName(pay.supplierId)}${pur&&pur.invoiceNumber?`<div class="muted" style="font-size:11px">Invoice #${pur.invoiceNumber}</div>`:''}${pay.payMethod?`<div class="muted" style="font-size:11px">${pay.payMethod}</div>`:''}</td>
-            <td class="num">${fmtPlain(pay.amount)}</td>
-            <td><button class="btn-danger-text" onclick="deletePayment('${pay.id}')">删</button></td>
-          </tr>`;
-        }).join('')}
-      </table>` : `<div class="empty">还没有付款记录</div>`}
-    </div>
-
-    <div class="card">
       <h3>采购历史</h3>
       <div class="grid2" style="margin-bottom:10px">
         <div><label>按日期查看</label><input type="date" id="purHistDate" value="${purHistoryFilterDate}" onchange="setPurHistoryFilter(this.value)"></div>
@@ -825,6 +795,50 @@ function renderPurchase(){
 function setPurHistoryFilter(val){
   purHistoryFilterDate = val;
   renderPurchase();
+}
+
+/* ================= 付款 Tab ================= */
+function renderPayment(){
+  const el = document.getElementById('tab-payment');
+  if(!el) return;
+  el.innerHTML = `
+    <div class="card">
+      <h3>供应商付款</h3>
+      <datalist id="paySupplierNames">
+        ${state.suppliers.map(s=>`<option value="${s.name}">`).join('')}
+      </datalist>
+      <div class="grid2">
+        <div><label>供应商</label>
+          <input list="paySupplierNames" id="paySupplier" placeholder="输入或选择供应商" autocomplete="off" oninput="onPaySupplierInput()">
+        </div>
+        <div><label>付款日期</label><input type="date" id="payDate" value="${todayStr()}"></div>
+      </div>
+      <div id="payInvoiceListWrap"></div>
+      <label>付款金额</label><input type="number" step="0.01" id="payAmount" placeholder="0.00">
+      <label>付款方式</label>
+      <div class="btn-group" id="payMethodGroup">
+        ${PAY_METHODS.map(m=>`<button type="button" class="btn-toggle ${payPayMethod===m?'active':''}" data-val="${m}" onclick="setPayPayMethod('${m}')">${m}</button>`).join('')}
+      </div>
+      <label>备注（选填）</label><input id="payNote" placeholder="例：结清上月货款">
+      <button class="btn-main" onclick="submitPayment()">记录付款</button>
+    </div>
+
+    <div class="card">
+      <h3>最近付款记录</h3>
+      ${state.payments.length? `<table>
+        <tr><th>日期</th><th>供应商</th><th class="num">金额</th><th></th></tr>
+        ${state.payments.slice().reverse().slice(0,5).map(pay=>{
+          const pur = pay.purchaseId ? state.purchases.find(x=>x.id===pay.purchaseId) : null;
+          return `<tr>
+            <td class="muted">${pay.date}</td>
+            <td>${supplierName(pay.supplierId)}${pur&&pur.invoiceNumber?`<div class="muted" style="font-size:11px">Invoice #${pur.invoiceNumber}</div>`:''}${pay.payMethod?`<div class="muted" style="font-size:11px">${pay.payMethod}</div>`:''}</td>
+            <td class="num">${fmtPlain(pay.amount)}</td>
+            <td><button class="btn-danger-text" onclick="deletePayment('${pay.id}')">删</button></td>
+          </tr>`;
+        }).join('')}
+      </table>` : `<div class="empty">还没有付款记录</div>`}
+    </div>
+  `;
 }
 
 function renderPurchaseItemRows(){
@@ -1434,6 +1448,7 @@ function renderAll(){
   renderCashStrip();
   renderOverview();
   renderPurchase();
+  renderPayment();
   renderCost();
   renderSales();
   renderCash();
