@@ -282,6 +282,17 @@ let recentActivityFilterDate = '';
 
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function todayStr(){ return new Date().toISOString().slice(0,10); }
+/* 在重建某个 tab 的 innerHTML 之前，先把里面还没提交的输入框内容抓下来，
+   重建完再塞回去，这样切去别的页面操作（导致整个 app 重新渲染）时，
+   还没保存的资料不会被清空。用法：renderX() 一开始先 capture，组 HTML 时用抓到的值当 value，最后 submit 成功时手动清空对应值。 */
+function captureFormValues(ids){
+  const draft = {};
+  ids.forEach(id=>{
+    const elx = document.getElementById(id);
+    if(elx) draft[id] = elx.value;
+  });
+  return draft;
+}
 function fmt(n){
   n = Number(n)||0;
   return 'RM ' + n.toLocaleString('en-MY',{minimumFractionDigits:2, maximumFractionDigits:2});
@@ -900,11 +911,14 @@ let tempPurchaseItems = [{id:uid(), name:'', category:'食材', productIds:[], p
 let purHistoryFilterDate = '';
 let purHistoryFilterCompany = '';
 let purCompany = COMPANIES[0];
+let editingPurchaseId = null;
 let payPayMethod = PAY_METHODS[0];
-let payPurchaseId = null;
+let payPurchaseIds = [];
 
 function renderPurchase(){
   const el = document.getElementById('tab-purchase');
+  const editingPurchase = editingPurchaseId ? state.purchases.find(x=>x.id===editingPurchaseId) : null;
+  const draft = editingPurchase ? {} : captureFormValues(['purSupplier','purDate','purInvoiceNumber','supName','supPhone','bulkSupplierText']);
   let filteredPurchases = purHistoryFilterDate ? state.purchases.filter(p=>p.date===purHistoryFilterDate) : state.purchases;
   if(purHistoryFilterCompany) filteredPurchases = filteredPurchases.filter(p=>p.company===purHistoryFilterCompany);
   const mkP = monthKey(todayKey());
@@ -916,7 +930,7 @@ function renderPurchase(){
   const catMax = catList.length? catList[0][1] : 1;
   el.innerHTML = `
     <div class="card">
-      <h3>新增采购单</h3>
+      <h3>${editingPurchase? '✏️ 编辑采购单' : '新增采购单'}</h3>
       <label>公司</label>
       <div class="btn-group" id="purCompanyGroup">
         ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${purCompany===c?'active':''}" data-val="${c}" onclick="setPurCompany('${c}')">${c}</button>`).join('')}
@@ -926,16 +940,17 @@ function renderPurchase(){
       </datalist>
       <div class="grid2" style="margin-top:10px">
         <div><label>供应商</label>
-          <input list="supplierNames" id="purSupplier" placeholder="输入或选择供应商" autocomplete="off">
+          <input list="supplierNames" id="purSupplier" placeholder="输入或选择供应商" autocomplete="off" value="${editingPurchase? supplierName(editingPurchase.supplierId) : (draft.purSupplier||'')}">
         </div>
-        <div><label>采购日期</label><input type="date" id="purDate" value="${todayStr()}"></div>
+        <div><label>采购日期</label><input type="date" id="purDate" value="${editingPurchase? editingPurchase.date : (draft.purDate||todayStr())}"></div>
       </div>
-      <label>Invoice 号码（选填）</label><input id="purInvoiceNumber" placeholder="例：INV-00123">
+      <label>Invoice 号码（选填）</label><input id="purInvoiceNumber" placeholder="例：INV-00123" value="${editingPurchase? (editingPurchase.invoiceNumber||'') : (draft.purInvoiceNumber||'')}">
       <label style="margin-top:14px">品项明细（同一供应商可一次拿多个不同产品）</label>
       <div id="purItemsWrap"></div>
       <button class="btn-line" onclick="addPurchaseItemRow()">+ 添加一项</button>
       <div style="margin-top:8px; font-size:13px; color:var(--muted)">本单总金额：<b class="mono" id="purTotalPreview">RM 0.00</b></div>
-      <button class="btn-main" onclick="submitPurchase()">保存采购单</button>
+      <button class="btn-main" onclick="submitPurchase()">${editingPurchase?'保存修改':'保存采购单'}</button>
+      ${editingPurchase?`<button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditPurchase()">取消编辑</button>`:''}
     </div>
 
     ${catList.length? `
@@ -953,15 +968,15 @@ function renderPurchase(){
     <div class="card">
       <h3>供应商 <span class="n">${state.suppliers.length} 家</span></h3>
       <div class="grid2">
-        <div><label>供应商名称</label><input id="supName" placeholder="例：新鲜蔬果行"></div>
-        <div><label>联系电话（选填）</label><input id="supPhone" placeholder="012-3456789"></div>
+        <div><label>供应商名称</label><input id="supName" placeholder="例：新鲜蔬果行" value="${draft.supName||''}"></div>
+        <div><label>联系电话（选填）</label><input id="supPhone" placeholder="012-3456789" value="${draft.supPhone||''}"></div>
       </div>
       <button class="btn-main" onclick="addSupplier()">+ 添加供应商</button>
       <hr class="receipt-divider">
       <details class="subtle-form">
         <summary>批量添加供应商（一次贴一整份名单）</summary>
         <label style="margin-top:8px">每行一个名字，前面的编号会自动去掉，已存在的名字会自动跳过</label>
-        <textarea id="bulkSupplierText" rows="6" style="width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px; font-family:inherit; font-size:13.5px;" placeholder="99 SPEED MART SDN BHD&#10;AH LOCK TRADING&#10;..."></textarea>
+        <textarea id="bulkSupplierText" rows="6" style="width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px; font-family:inherit; font-size:13.5px;" placeholder="99 SPEED MART SDN BHD&#10;AH LOCK TRADING&#10;...">${draft.bulkSupplierText||''}</textarea>
         <button class="btn-main" onclick="bulkAddSuppliers()">批量添加</button>
       </details>
       <hr class="receipt-divider">
@@ -1006,7 +1021,10 @@ function renderPurchase(){
               ${p.invoiceNumber?`<div class="muted" style="font-size:11px">Invoice #${p.invoiceNumber}</div>`:''}</td>
             <td class="muted" style="font-size:12px">${p.items.map(i=>i.name+' ×'+i.qty+(i.unit||'')+' ['+(i.category||'食材')+']').join('，')}</td>
             <td class="num">${fmtPlain(p.totalAmount)}${purchaseOutstanding(p.id)>0.001?`<div class="muted" style="font-size:11px; color:var(--rust)">未付 ${fmtPlain(purchaseOutstanding(p.id))}</div>`:''}</td>
-            <td><button class="btn-danger-text" onclick="deletePurchase('${p.id}')">删</button></td>
+            <td>
+              <button class="btn-ghost btn-small" onclick="startEditPurchase('${p.id}')">编辑</button>
+              <button class="btn-danger-text" onclick="deletePurchase('${p.id}')">删</button>
+            </td>
           </tr>`).join('')}
       </table>` : `<div class="empty">${purHistoryFilterDate||purHistoryFilterCompany? '没有符合条件的采购记录' : '还没有采购记录'}</div>`}
     </div>
@@ -1030,6 +1048,7 @@ function setPurCompany(val){
 function renderPayment(){
   const el = document.getElementById('tab-payment');
   if(!el) return;
+  const draft = captureFormValues(['paySupplier','payDate','payAmount','payNote']);
   el.innerHTML = `
     <div class="card">
       <h3>供应商付款</h3>
@@ -1038,17 +1057,17 @@ function renderPayment(){
       </datalist>
       <div class="grid2">
         <div><label>供应商</label>
-          <input list="paySupplierNames" id="paySupplier" placeholder="输入或选择供应商" autocomplete="off" oninput="onPaySupplierInput()">
+          <input list="paySupplierNames" id="paySupplier" placeholder="输入或选择供应商" autocomplete="off" value="${draft.paySupplier||''}" oninput="onPaySupplierInput()">
         </div>
-        <div><label>付款日期</label><input type="date" id="payDate" value="${todayStr()}"></div>
+        <div><label>付款日期</label><input type="date" id="payDate" value="${draft.payDate||todayStr()}"></div>
       </div>
       <div id="payInvoiceListWrap"></div>
-      <label>付款金额</label><input type="number" step="0.01" id="payAmount" placeholder="0.00">
+      <label>付款金额</label><input type="number" step="0.01" id="payAmount" placeholder="0.00" value="${draft.payAmount||''}">
       <label>付款方式</label>
       <div class="btn-group" id="payMethodGroup">
         ${PAY_METHODS.map(m=>`<button type="button" class="btn-toggle ${payPayMethod===m?'active':''}" data-val="${m}" onclick="setPayPayMethod('${m}')">${m}</button>`).join('')}
       </div>
-      <label>备注（选填）</label><input id="payNote" placeholder="例：结清上月货款">
+      <label>备注（选填）</label><input id="payNote" placeholder="例：结清上月货款" value="${draft.payNote||''}">
       <button class="btn-main" onclick="submitPayment()">记录付款</button>
     </div>
 
@@ -1068,6 +1087,7 @@ function renderPayment(){
       </table>` : `<div class="empty">还没有付款记录</div>`}
     </div>
   `;
+  if(draft.paySupplier) onPaySupplierInput();
 }
 
 function renderPurchaseItemRows(){
@@ -1187,6 +1207,8 @@ function addSupplier(){
   if(!name){ alert('请输入供应商名称'); return; }
   const phone = document.getElementById('supPhone').value.trim();
   mutate(()=>{ state.suppliers.push({id:uid(), name, phone}); });
+  const nameEl = document.getElementById('supName'); if(nameEl) nameEl.value = '';
+  const phoneEl = document.getElementById('supPhone'); if(phoneEl) phoneEl.value = '';
 }
 function bulkAddSuppliers(){
   const raw = document.getElementById('bulkSupplierText').value;
@@ -1227,17 +1249,55 @@ function submitPurchase(){
   if(items.length===0){ alert('请至少填写一项品名和总价'); return; }
   const totalAmount = items.reduce((a,i)=>a+i.totalCost,0);
   const company = purCompany;
-  mutate(()=>{
-    const supplierId = findOrCreateSupplierId(typedName);
-    state.purchases.push({id:uid(), date, supplierId, items, totalAmount, invoiceNumber, company});
-    items.forEach(i=>learnIngredientLink(i.name, i.productIds, {unit: i.unit, unitPrice: i.unitPrice}));
-  });
+  ['purSupplier','purInvoiceNumber'].forEach(id2=>{ const elx=document.getElementById(id2); if(elx) elx.value=''; });
+  const purDateEl = document.getElementById('purDate'); if(purDateEl) purDateEl.value = todayStr();
+  if(editingPurchaseId){
+    const targetId = editingPurchaseId;
+    mutate(()=>{
+      const supplierId = findOrCreateSupplierId(typedName);
+      const pu = state.purchases.find(x=>x.id===targetId);
+      if(pu){ pu.date = date; pu.supplierId = supplierId; pu.items = items; pu.totalAmount = totalAmount; pu.invoiceNumber = invoiceNumber; pu.company = company; }
+      items.forEach(i=>learnIngredientLink(i.name, i.productIds, {unit: i.unit, unitPrice: i.unitPrice}));
+    });
+    editingPurchaseId = null;
+  } else {
+    mutate(()=>{
+      const supplierId = findOrCreateSupplierId(typedName);
+      state.purchases.push({id:uid(), date, supplierId, items, totalAmount, invoiceNumber, company});
+      items.forEach(i=>learnIngredientLink(i.name, i.productIds, {unit: i.unit, unitPrice: i.unitPrice}));
+    });
+  }
+  tempPurchaseItems = [{id:uid(), name:'', category:'食材', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
+  renderPurchase();
+}
+function startEditPurchase(id){
+  const p = state.purchases.find(x=>x.id===id);
+  if(!p) return;
+  editingPurchaseId = id;
+  purCompany = p.company || COMPANIES[0];
+  tempPurchaseItems = (p.items&&p.items.length) ? p.items.map(i=>({
+    id: uid(), name: i.name||'', category: i.category||'食材',
+    productIds: purchaseItemProductIds(i).slice(), productInput: '',
+    qty: i.qty!=null?String(i.qty):'', unit: i.unit||'',
+    unitPrice: i.unitPrice?String(i.unitPrice):'', total: i.totalCost!=null?String(i.totalCost):''
+  })) : [{id:uid(), name:'', category:'食材', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
+  renderPurchase();
+  const supplierInput = document.getElementById('purSupplier');
+  if(supplierInput) supplierInput.scrollIntoView({behavior:'smooth', block:'center'});
+}
+function cancelEditPurchase(){
+  editingPurchaseId = null;
   tempPurchaseItems = [{id:uid(), name:'', category:'食材', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
   renderPurchase();
 }
 function deletePurchase(id){
   if(!confirm('确定删除这张采购单？')) return;
   mutate(()=>{ state.purchases = state.purchases.filter(p=>p.id!==id); });
+  if(editingPurchaseId===id){
+    editingPurchaseId = null;
+    tempPurchaseItems = [{id:uid(), name:'', category:'食材', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
+    renderPurchase();
+  }
 }
 function updatePurchaseCompany(id, company){
   mutate(()=>{
@@ -1272,16 +1332,16 @@ function onPaySupplierInput(){
   const typedName = document.getElementById('paySupplier').value.trim();
   const wrap = document.getElementById('payInvoiceListWrap');
   if(!wrap) return;
-  payPurchaseId = null;
+  payPurchaseIds = [];
   const match = typedName ? state.suppliers.find(s=>s.name.toLowerCase()===typedName.toLowerCase()) : null;
   if(!match){ wrap.innerHTML = ''; return; }
   const unpaid = supplierUnpaidInvoices(match.id);
   if(!unpaid.length){ wrap.innerHTML = `<div class="muted" style="font-size:12px; margin:6px 0;">这家供应商目前没有未付款的采购单</div>`; return; }
   wrap.innerHTML = `
-    <label>选择要付的 Invoice（选填，不选就是笼统还款）</label>
+    <label>选择要付的 Invoice（可多选一起付；不选就是笼统还款）</label>
     <div id="payInvoiceList">
       ${unpaid.map(x=>`
-        <div class="invoice-pick" data-id="${x.p.id}" onclick="selectPayInvoice('${x.p.id}', ${x.outstanding})">
+        <div class="invoice-pick" data-id="${x.p.id}" onclick="togglePayInvoice('${x.p.id}')">
           <div>
             <b>${x.p.invoiceNumber? 'Invoice #'+x.p.invoiceNumber : '（没填 Invoice 号）'}</b>
             <div class="muted" style="font-size:11px">${x.p.date}</div>
@@ -1290,17 +1350,33 @@ function onPaySupplierInput(){
         </div>
       `).join('')}
     </div>
+    <div id="payInvoiceSelSummary" class="muted" style="font-size:12px; margin:4px 0;"></div>
     <button type="button" class="btn-line" onclick="clearPayInvoice()">✕ 不指定 invoice，笼统还款</button>
   `;
+  updatePayInvoiceSelSummary();
 }
-function selectPayInvoice(purchaseId, outstanding){
-  payPurchaseId = purchaseId;
-  document.querySelectorAll('#payInvoiceList .invoice-pick').forEach(el=>el.classList.toggle('active', el.dataset.id===purchaseId));
-  document.getElementById('payAmount').value = Math.round(outstanding*100)/100;
+function togglePayInvoice(purchaseId){
+  const idx = payPurchaseIds.indexOf(purchaseId);
+  if(idx>=0) payPurchaseIds.splice(idx,1);
+  else payPurchaseIds.push(purchaseId);
+  document.querySelectorAll('#payInvoiceList .invoice-pick').forEach(el=>el.classList.toggle('active', payPurchaseIds.includes(el.dataset.id)));
+  const total = payPurchaseIds.reduce((a,id)=>a+purchaseOutstanding(id),0);
+  const amountEl = document.getElementById('payAmount');
+  if(amountEl) amountEl.value = payPurchaseIds.length ? Math.round(total*100)/100 : '';
+  updatePayInvoiceSelSummary();
+}
+function updatePayInvoiceSelSummary(){
+  const el = document.getElementById('payInvoiceSelSummary');
+  if(!el) return;
+  if(!payPurchaseIds.length){ el.textContent = ''; return; }
+  const total = payPurchaseIds.reduce((a,id)=>a+purchaseOutstanding(id),0);
+  el.textContent = `已选择 ${payPurchaseIds.length} 张 invoice，合计 RM${fmtPlain(total)}`;
 }
 function clearPayInvoice(){
-  payPurchaseId = null;
+  payPurchaseIds = [];
   document.querySelectorAll('#payInvoiceList .invoice-pick').forEach(el=>el.classList.remove('active'));
+  const amountEl = document.getElementById('payAmount'); if(amountEl) amountEl.value = '';
+  updatePayInvoiceSelSummary();
 }
 function submitPayment(){
   const typedName = document.getElementById('paySupplier').value.trim();
@@ -1313,16 +1389,36 @@ function submitPayment(){
   const supplierId = match.id;
   if(amount<=0){ alert('请输入付款金额'); return; }
   const payMethod = payPayMethod;
-  const purchaseId = payPurchaseId;
-  const invoicePur = purchaseId ? state.purchases.find(p=>p.id===purchaseId) : null;
+  // 选了几张 invoice 一起付：按选择顺序把总金额依次分配给每张（不超过该张还欠的金额），
+  // 分不完的余额（或没选 invoice）就当笼统还款处理。每张 invoice 各自生成一笔付款记录 + 一笔收支流水，
+  // 这样之后删除某一笔付款，或看"欠供应商货款"，每张 invoice 的欠款都还是各自独立、准确的。
+  const selectedIds = payPurchaseIds.slice();
+  const allocations = [];
+  let remaining = amount;
+  selectedIds.forEach(pid=>{
+    if(remaining<=0.001) return;
+    const outstanding = purchaseOutstanding(pid);
+    if(outstanding<=0.001) return;
+    const pay = Math.min(remaining, outstanding);
+    allocations.push({purchaseId: pid, amount: Math.round(pay*100)/100});
+    remaining -= pay;
+  });
+  if(remaining>0.001) allocations.push({purchaseId: null, amount: Math.round(remaining*100)/100});
+  if(allocations.length===0) allocations.push({purchaseId: null, amount});
+  ['paySupplier','payAmount','payNote'].forEach(id=>{ const elx=document.getElementById(id); if(elx) elx.value=''; });
+  const payDateEl = document.getElementById('payDate'); if(payDateEl) payDateEl.value = todayStr();
+  const invWrap = document.getElementById('payInvoiceListWrap'); if(invWrap) invWrap.innerHTML = '';
   mutate(()=>{
-    const pid = uid();
-    state.payments.push({id:pid, date, supplierId, amount, note, payMethod, purchaseId});
-    const invoiceNote = invoicePur ? ` · Invoice ${invoicePur.invoiceNumber||'(无号)'}` : '';
-    state.cashflow.push({id:uid(), date, type:'out', category:'供应商付款', amount, payMethod, note:`${supplierName(supplierId)}${invoiceNote}${note?' · '+note:''}`, auto:true, _paymentId:pid});
+    allocations.forEach(a=>{
+      const pid = uid();
+      const invoicePur = a.purchaseId ? state.purchases.find(p=>p.id===a.purchaseId) : null;
+      state.payments.push({id:pid, date, supplierId, amount:a.amount, note, payMethod, purchaseId:a.purchaseId});
+      const invoiceNote = invoicePur ? ` · Invoice ${invoicePur.invoiceNumber||'(无号)'}` : '';
+      state.cashflow.push({id:uid(), date, type:'out', category:'供应商付款', amount:a.amount, payMethod, note:`${supplierName(supplierId)}${invoiceNote}${note?' · '+note:''}`, auto:true, _paymentId:pid});
+    });
   });
   payPayMethod = PAY_METHODS[0];
-  payPurchaseId = null;
+  payPurchaseIds = [];
   renderPurchase();
 }
 function setPayPayMethod(val){
@@ -1337,12 +1433,13 @@ let editingProductId = null;
 function renderCost(){
   const el = document.getElementById('tab-cost');
   const editingProduct = editingProductId ? state.products.find(x=>x.id===editingProductId) : null;
+  const draft = editingProduct ? {} : captureFormValues(['prodName','prodPrice']);
   el.innerHTML = `
     <div class="card">
       <h3>${editingProduct? `✏️ 编辑产品：${editingProduct.name}` : '新增菜品 / 产品'}</h3>
       <div class="grid2">
-        <div><label>产品名称</label><input id="prodName" placeholder="例：招牌炒河粉" value="${editingProduct?editingProduct.name:''}"></div>
-        <div><label>售价</label><input id="prodPrice" type="number" step="0.01" placeholder="0.00" value="${editingProduct?editingProduct.price:''}"></div>
+        <div><label>产品名称</label><input id="prodName" placeholder="例：招牌炒河粉" value="${editingProduct?editingProduct.name:(draft.prodName||'')}"></div>
+        <div><label>售价</label><input id="prodPrice" type="number" step="0.01" placeholder="0.00" value="${editingProduct?editingProduct.price:(draft.prodPrice||'')}"></div>
       </div>
       <label style="margin-top:14px">食材成本项（保底用：如果这个产品在"采购"页还没有关联到任何采购记录，就会用这里的估算；一旦有关联采购+销售数据，系统会自动改用实际数据算成本）</label>
       <div id="costItemsWrap"></div>
@@ -1481,6 +1578,8 @@ function submitProduct(){
   const price = Number(document.getElementById('prodPrice').value)||0;
   if(!name){ alert('请输入产品名称'); return; }
   const costItems = tempCostItems.filter(r=>r.name && r.cost!=='').map(r=>({id:uid(), name:r.name, qty:Number(r.qty||0), unit:r.unit, unitPrice:Number(r.unitPrice||0), cost:Number(r.cost||0)}));
+  const prodNameEl = document.getElementById('prodName'); if(prodNameEl) prodNameEl.value='';
+  const prodPriceEl = document.getElementById('prodPrice'); if(prodPriceEl) prodPriceEl.value='';
   if(editingProductId){
     const targetId = editingProductId;
     mutate(()=>{
@@ -1576,6 +1675,7 @@ let saleCompany = COMPANIES[0];
 let saleHistoryFilterCompany = '';
 function renderSales(){
   const el = document.getElementById('tab-sales');
+  const draft = captureFormValues(['saleProduct','saleQty','salePrice','saleDate','salePayMethod']);
   const mk = monthKey(todayKey());
   const salesInScope = saleHistoryFilterCompany ? state.sales.filter(s=>s.company===saleHistoryFilterCompany) : state.sales;
   const monthSales = salesInScope.filter(s=>monthKey(s.date)===mk);
@@ -1597,15 +1697,15 @@ function renderSales(){
       <datalist id="productNames">
         ${state.products.map(p=>`<option value="${p.name}">`).join('')}
       </datalist>
-      <input list="productNames" id="saleProduct" placeholder="输入或选择产品" autocomplete="off" oninput="onSaleProductChange()">
+      <input list="productNames" id="saleProduct" placeholder="输入或选择产品" autocomplete="off" value="${draft.saleProduct||''}" oninput="onSaleProductChange()">
       <div class="grid2" style="margin-top:10px">
-        <div><label>数量</label><input type="number" id="saleQty" value="1" min="1"></div>
-        <div><label>单价（可改，例如打折）</label><input type="number" step="0.01" id="salePrice"></div>
+        <div><label>数量</label><input type="number" id="saleQty" value="${draft.saleQty||'1'}" min="1"></div>
+        <div><label>单价（可改，例如打折）</label><input type="number" step="0.01" id="salePrice" value="${draft.salePrice||''}"></div>
       </div>
-      <label>日期</label><input type="date" id="saleDate" value="${todayStr()}">
+      <label>日期</label><input type="date" id="saleDate" value="${draft.saleDate||todayStr()}">
       <label>收款方式</label>
       <select id="salePayMethod">
-        ${INCOME_CATEGORIES.map(c=>`<option value="${c}">${c}</option>`).join('')}
+        ${INCOME_CATEGORIES.map(c=>`<option value="${c}" ${(draft.salePayMethod?draft.salePayMethod===c:c===INCOME_CATEGORIES[0])?'selected':''}>${c}</option>`).join('')}
       </select>
       <div style="margin-top:8px; font-size:13px; color:var(--muted)">本笔小计：<b class="mono" id="saleAmountPreview">RM 0.00</b></div>
       <button class="btn-main" onclick="submitSale()">保存销售记录</button>
@@ -1657,6 +1757,7 @@ function renderSales(){
     </div>
   `;
   wireSalePreview();
+  updateSalePreview();
 }
 function setSaleCompany(val){
   saleCompany = val;
@@ -1693,6 +1794,9 @@ function submitSale(){
   const unitCost = p.costMethod==='total' ? 0 : productUnitCost(p);
   const payMethod = document.getElementById('salePayMethod').value || '其他';
   const company = saleCompany;
+  ['saleProduct','salePrice'].forEach(id=>{ const elx=document.getElementById(id); if(elx) elx.value=''; });
+  const saleQtyEl = document.getElementById('saleQty'); if(saleQtyEl) saleQtyEl.value = '1';
+  const saleDateEl = document.getElementById('saleDate'); if(saleDateEl) saleDateEl.value = todayStr();
   mutate(()=>{
     const sid = uid();
     state.sales.push({id:sid, date, productId:p.id, productName:p.name, qty, price, amount, cost: unitCost*qty, payMethod, company});
@@ -1718,6 +1822,7 @@ let cfHistoryFilterCompany = '';
 
 function renderCash(){
   const el = document.getElementById('tab-cash');
+  const draft = captureFormValues(['cfDate','cfAmount','cfNote']);
   const bal = cashBalance();
   const now = splitBalances(null);
   const lastMonthEnd = lastMonthEndDateStr();
@@ -1730,7 +1835,7 @@ function renderCash(){
       <div class="btn-group" id="cfTypeGroup">
         ${CF_TYPES.map(t=>`<button type="button" class="btn-toggle ${t.v} ${cfType===t.v?'active':''}" data-val="${t.v}" onclick="setCfType('${t.v}')">${t.label}</button>`).join('')}
       </div>
-      <label>日期</label><input type="date" id="cfDate" value="${todayStr()}">
+      <label>日期</label><input type="date" id="cfDate" value="${draft.cfDate||todayStr()}">
       <label>公司（选填，共用的支出可以不选）</label>
       <div class="btn-group" id="cfCompanyGroup">
         <button type="button" class="btn-toggle ${!cfCompany?'active':''}" data-val="" onclick="setCfCompany('')">不分公司</button>
@@ -1739,8 +1844,8 @@ function renderCash(){
       <label>分类</label>
       <div class="btn-group" id="cfCategoryGroup"></div>
       <div id="cfPayMethodWrap"></div>
-      <label>金额</label><input type="number" step="0.01" id="cfAmount">
-      <label>备注（选填）</label><input id="cfNote">
+      <label>金额</label><input type="number" step="0.01" id="cfAmount" value="${draft.cfAmount||''}">
+      <label>备注（选填）</label><input id="cfNote" value="${draft.cfNote||''}">
       <button class="btn-main" onclick="submitCashflow()">保存记录</button>
     </div>
 
@@ -1860,6 +1965,8 @@ function submitCashflow(){
   const note = document.getElementById('cfNote').value.trim();
   const date = document.getElementById('cfDate').value || todayStr();
   if(amount<=0){ alert('请输入金额'); return; }
+  ['cfAmount','cfNote'].forEach(id=>{ const elx=document.getElementById(id); if(elx) elx.value=''; });
+  const cfDateEl = document.getElementById('cfDate'); if(cfDateEl) cfDateEl.value = todayStr();
   mutate(()=>{ state.cashflow.push({id:uid(), date, type, category, amount, payMethod, company, note, auto:false}); });
   cfPayMethod = PAY_METHODS[0];
   cfCompany = '';
