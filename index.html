@@ -116,9 +116,10 @@
 
   .account-badge{
     position:fixed; top:10px; right:14px; z-index:50; cursor:pointer;
-    background:var(--ink); color:#F5EFE2; font-size:11px; font-weight:600;
-    padding:6px 12px; border-radius:20px; box-shadow:0 3px 10px rgba(0,0,0,0.2);
-    max-width:44vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    background:var(--ink); color:#F5EFE2; font-size:16px;
+    width:34px; height:34px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 3px 10px rgba(0,0,0,0.2);
   }
   #backupFab{
     position:fixed; right:14px; bottom:88px; z-index:40;
@@ -340,8 +341,9 @@ function loadState(){
           document.getElementById('loginScreen').style.display = 'none';
           document.getElementById('appBody').style.display = 'block';
           const badge = document.getElementById('accountBadge');
-          badge.textContent = `👤 ${user.email} · 登出`;
-          badge.style.display = 'block';
+          badge.textContent = '👤';
+          badge.title = `${user.email} · 点一下登出`;
+          badge.style.display = 'flex';
           loadLocalThenApp();
           initCloudSync(user);
         }else{
@@ -505,8 +507,8 @@ function exportSalesCSV(){
   downloadCSV(`销售记录_${todayStr()}.csv`, header, rows);
 }
 function exportCashflowCSV(){
-  const header = ['日期','类型','分类','付款方式','金额','备注'];
-  const rows = state.cashflow.map(c=>[c.date, c.type==='in'?'收入':'支出', c.category, c.payMethod||'', c.amount, c.note||'']);
+  const header = ['日期','公司','类型','分类','付款方式','金额','备注'];
+  const rows = state.cashflow.map(c=>[c.date, c.company||'', c.type==='in'?'收入':'支出', c.category, c.payMethod||'', c.amount, c.note||'']);
   downloadCSV(`收支流水_${todayStr()}.csv`, header, rows);
 }
 function exportSupplierDebtCSV(){
@@ -891,7 +893,11 @@ function renderPurchase(){
         ${filteredPurchases.slice().reverse().map(p=>`
           <tr>
             <td class="muted">${p.date}</td>
-            <td>${supplierName(p.supplierId)}${p.company?`<div class="muted" style="font-size:11px">${p.company}</div>`:''}${p.invoiceNumber?`<div class="muted" style="font-size:11px">Invoice #${p.invoiceNumber}</div>`:''}</td>
+            <td>${supplierName(p.supplierId)}
+              <select style="width:auto; margin-top:3px; padding:2px 4px; font-size:11px; border-radius:6px;" onchange="updatePurchaseCompany('${p.id}', this.value)">
+                ${COMPANIES.map(c=>`<option value="${c}" ${p.company===c?'selected':''}>${c}</option>`).join('')}
+              </select>
+              ${p.invoiceNumber?`<div class="muted" style="font-size:11px">Invoice #${p.invoiceNumber}</div>`:''}</td>
             <td class="muted" style="font-size:12px">${p.items.map(i=>i.name+' ×'+i.qty+(i.unit||'')+' ['+(i.category||'食材')+']'+(i.productId||i.productName?' → '+(i.productName||''):'')).join('，')}</td>
             <td class="num">${fmtPlain(p.totalAmount)}${purchaseOutstanding(p.id)>0.001?`<div class="muted" style="font-size:11px; color:var(--rust)">未付 ${fmtPlain(purchaseOutstanding(p.id))}</div>`:''}</td>
             <td><button class="btn-danger-text" onclick="deletePurchase('${p.id}')">删</button></td>
@@ -1072,6 +1078,12 @@ function submitPurchase(){
 function deletePurchase(id){
   if(!confirm('确定删除这张采购单？')) return;
   mutate(()=>{ state.purchases = state.purchases.filter(p=>p.id!==id); });
+}
+function updatePurchaseCompany(id, company){
+  mutate(()=>{
+    const p = state.purchases.find(x=>x.id===id);
+    if(p) p.company = company;
+  });
 }
 function deletePayment(id){
   if(!confirm('确定删除这笔付款记录？（关联的收支流水也会一并删除）')) return;
@@ -1431,7 +1443,7 @@ function submitSale(){
   mutate(()=>{
     const sid = uid();
     state.sales.push({id:sid, date, productId:p.id, productName:p.name, qty, price, amount, cost: unitCost*qty, payMethod, company});
-    state.cashflow.push({id:uid(), date, type:'in', category:payMethod, amount, note:`${p.name} ×${qty}`, auto:true, _saleId:sid});
+    state.cashflow.push({id:uid(), date, type:'in', category:payMethod, amount, company, note:`${p.name} ×${qty}`, auto:true, _saleId:sid});
   });
   renderSales();
 }
@@ -1448,6 +1460,8 @@ const CF_TYPES = [{v:'out', label:'支出'}, {v:'in', label:'收入'}];
 let cfType = 'out';
 let cfCategory = EXPENSE_CATEGORIES[0];
 let cfPayMethod = PAY_METHODS[0];
+let cfCompany = '';
+let cfHistoryFilterCompany = '';
 
 function renderCash(){
   const el = document.getElementById('tab-cash');
@@ -1455,6 +1469,7 @@ function renderCash(){
   const now = splitBalances(null);
   const lastMonthEnd = lastMonthEndDateStr();
   const lastMonth = splitBalances(lastMonthEnd);
+  const cashflowInScope = cfHistoryFilterCompany ? state.cashflow.filter(c=>c.company===cfHistoryFilterCompany) : state.cashflow;
   el.innerHTML = `
     <div class="card">
       <h3>手动记一笔收支</h3>
@@ -1463,6 +1478,11 @@ function renderCash(){
         ${CF_TYPES.map(t=>`<button type="button" class="btn-toggle ${t.v} ${cfType===t.v?'active':''}" data-val="${t.v}" onclick="setCfType('${t.v}')">${t.label}</button>`).join('')}
       </div>
       <label>日期</label><input type="date" id="cfDate" value="${todayStr()}">
+      <label>公司（选填，共用的支出可以不选）</label>
+      <div class="btn-group" id="cfCompanyGroup">
+        <button type="button" class="btn-toggle ${!cfCompany?'active':''}" data-val="" onclick="setCfCompany('')">不分公司</button>
+        ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${cfCompany===c?'active':''}" data-val="${c}" onclick="setCfCompany('${c}')">${c}</button>`).join('')}
+      </div>
       <label>分类</label>
       <div class="btn-group" id="cfCategoryGroup"></div>
       <div id="cfPayMethodWrap"></div>
@@ -1489,20 +1509,33 @@ function renderCash(){
 
     <div class="card">
       <h3>收支流水</h3>
-      ${state.cashflow.length? `<table>
+      <label>按公司筛选</label>
+      <div class="btn-group" style="margin-bottom:10px">
+        <button type="button" class="btn-toggle ${!cfHistoryFilterCompany?'active':''}" onclick="setCfHistoryFilterCompany('')">全部</button>
+        ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${cfHistoryFilterCompany===c?'active':''}" onclick="setCfHistoryFilterCompany('${c}')">${c}</button>`).join('')}
+      </div>
+      ${cashflowInScope.length? `<table>
         <tr><th>日期</th><th>类别</th><th class="num">金额</th><th></th></tr>
-        ${state.cashflow.slice().reverse().map(c=>`
+        ${cashflowInScope.slice().reverse().map(c=>`
           <tr>
             <td class="muted">${c.date}</td>
-            <td>${c.category}${c.payMethod?` <span class="muted" style="font-size:11px">· ${c.payMethod}</span>`:''}${c.note?`<div class="muted" style="font-size:11px">${c.note}</div>`:''}</td>
+            <td>${c.category}${c.payMethod?` <span class="muted" style="font-size:11px">· ${c.payMethod}</span>`:''}${c.company?`<div class="muted" style="font-size:11px">${c.company}</div>`:''}${c.note?`<div class="muted" style="font-size:11px">${c.note}</div>`:''}</td>
             <td class="num" style="color:${c.type==='in'?'var(--green)':'var(--rust)'}">${c.type==='in'?'+':'-'}${fmtPlain(c.amount)}</td>
             <td>${c.auto? '' : `<button class="btn-danger-text" onclick="deleteCashflow('${c.id}')">删</button>`}</td>
           </tr>`).join('')}
-      </table>` : `<div class="empty">还没有收支记录</div>`}
+      </table>` : `<div class="empty">${cfHistoryFilterCompany? '这间公司还没有相关流水' : '还没有收支记录'}</div>`}
     </div>
   `;
   renderCfCategoryGroup();
   renderCfPayMethodGroup();
+}
+function setCfCompany(val){
+  cfCompany = val;
+  document.querySelectorAll('#cfCompanyGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
+}
+function setCfHistoryFilterCompany(val){
+  cfHistoryFilterCompany = val;
+  renderCash();
 }
 function renderCfCategoryGroup(){
   const custom = state.customExpenseCategories || [];
@@ -1569,12 +1602,14 @@ function submitCashflow(){
   const type = cfType;
   const category = cfCategory;
   const payMethod = type==='out' ? cfPayMethod : undefined;
+  const company = cfCompany || undefined;
   const amount = Number(document.getElementById('cfAmount').value)||0;
   const note = document.getElementById('cfNote').value.trim();
   const date = document.getElementById('cfDate').value || todayStr();
   if(amount<=0){ alert('请输入金额'); return; }
-  mutate(()=>{ state.cashflow.push({id:uid(), date, type, category, amount, payMethod, note, auto:false}); });
+  mutate(()=>{ state.cashflow.push({id:uid(), date, type, category, amount, payMethod, company, note, auto:false}); });
   cfPayMethod = PAY_METHODS[0];
+  cfCompany = '';
   cfType = 'out';
   cfCategory = EXPENSE_CATEGORIES[0];
   renderCash();
