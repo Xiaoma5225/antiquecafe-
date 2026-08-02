@@ -264,7 +264,7 @@
 /* ---------------- 数据层 ---------------- */
 const STORAGE_KEY = 'restaurant_ledger_v1';
 const PURCHASE_CATEGORIES = ['食材','厨房固定用品','厨房消耗品','修理','水费','电费','执照','工钱','营销','员工福利','租金','其他'];
-const INCOME_CATEGORIES = ['Cash','TNG','FoodPanda','其他'];
+const INCOME_CATEGORIES = ['Cash','TNG','FoodPanda'];
 const EXPENSE_CATEGORIES = ['房租','水电','人工','杂项支出','提款','其他'];
 const PAY_METHODS = ['现金','信用卡','银行转账'];
 const COMPANIES = ['Antique Cafe','Shan Xian Hotpot'];
@@ -800,7 +800,7 @@ function cashBalance(){
   const outSum = state.cashflow.filter(c=>c.type==='out').reduce((a,c)=>a+Number(c.amount||0),0);
   return Number(state.initialCash||0) + inSum - outSum;
 }
-/* 现金 vs 银行：收入方式为 Cash 算现金，其余（TNG/FoodPanda/其他）算银行；
+/* 现金 vs 银行：收入方式为 Cash 算现金，其余（TNG/FoodPanda）算银行；
    支出付款方式为「现金」（或没填，视为现金）算现金，「信用卡/银行转账」算银行 */
 function isCashEntry(c){
   if(c.type==='in') return c.category==='Cash';
@@ -2014,12 +2014,12 @@ const CF_TYPES = [{v:'out', label:'支出'}, {v:'in', label:'收入'}];
 let cfType = 'out';
 let cfCategory = EXPENSE_CATEGORIES[0];
 let cfPayMethod = PAY_METHODS[0];
-let cfCompany = '';
+let cfCompany = COMPANIES[0];
 let cfHistoryFilterCompany = '';
 
 function renderCash(){
   const el = document.getElementById('tab-cash');
-  const draft = captureFormValues(['cfDate','cfAmount','cfNote']);
+  const draft = captureFormValues(['cfDate','cfAmount','cfNote', ...INCOME_CATEGORIES.map(c=>'cfIncome_'+c)]);
   const bal = cashBalance();
   const now = splitBalances(null);
   const lastMonthEnd = lastMonthEndDateStr();
@@ -2033,15 +2033,11 @@ function renderCash(){
         ${CF_TYPES.map(t=>`<button type="button" class="btn-toggle ${t.v} ${cfType===t.v?'active':''}" data-val="${t.v}" onclick="setCfType('${t.v}')">${t.label}</button>`).join('')}
       </div>
       <label>日期</label><input type="date" id="cfDate" value="${draft.cfDate||todayStr()}">
-      <label>公司（选填，共用的支出可以不选）</label>
+      <label>公司</label>
       <div class="btn-group" id="cfCompanyGroup">
-        <button type="button" class="btn-toggle ${!cfCompany?'active':''}" data-val="" onclick="setCfCompany('')">不分公司</button>
         ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${cfCompany===c?'active':''}" data-val="${c}" onclick="setCfCompany('${c}')">${c}</button>`).join('')}
       </div>
-      <label>分类</label>
-      <div class="btn-group" id="cfCategoryGroup"></div>
-      <div id="cfPayMethodWrap"></div>
-      <label>金额</label><input type="number" step="0.01" id="cfAmount" value="${draft.cfAmount||''}">
+      <div id="cfBodyWrap"></div>
       <label>备注（选填）</label><input id="cfNote" value="${draft.cfNote||''}">
       <button class="btn-main" onclick="submitCashflow()">保存记录</button>
     </div>
@@ -2081,8 +2077,7 @@ function renderCash(){
       </table>` : `<div class="empty">${cfHistoryFilterCompany? '这间公司还没有相关流水' : '还没有收支记录'}</div>`}
     </div>
   `;
-  renderCfCategoryGroup();
-  renderCfPayMethodGroup();
+  renderCfBodyWrap(draft);
 }
 function setCfCompany(val){
   cfCompany = val;
@@ -2092,16 +2087,40 @@ function setCfHistoryFilterCompany(val){
   cfHistoryFilterCompany = val;
   renderCash();
 }
+/* 收支表单主体：收入可以同时填 Cash / TNG / FoodPanda 几个金额，一次保存会拆成对应几笔流水；
+   支出维持原本的"分类 + 付款方式 + 单一金额"。 */
+function renderCfBodyWrap(draft){
+  draft = draft || {};
+  const wrap = document.getElementById('cfBodyWrap');
+  if(!wrap) return;
+  if(cfType==='in'){
+    wrap.innerHTML = `
+      <label>收入金额（可同时填多个，比如 Cash + TNG 一起入账）</label>
+      <div class="grid3">
+        ${INCOME_CATEGORIES.map(c=>`<div><label style="margin-top:0">${c}</label><input type="number" step="0.01" id="cfIncome_${c}" placeholder="0.00" value="${draft['cfIncome_'+c]||''}"></div>`).join('')}
+      </div>
+    `;
+  }else{
+    wrap.innerHTML = `
+      <label>分类</label>
+      <div class="btn-group" id="cfCategoryGroup"></div>
+      <div id="cfPayMethodWrap"></div>
+      <label>金额</label><input type="number" step="0.01" id="cfAmount" value="${draft.cfAmount||''}">
+    `;
+    renderCfCategoryGroup();
+    renderCfPayMethodGroup();
+  }
+}
 function renderCfCategoryGroup(){
   const custom = state.customExpenseCategories || [];
-  const cats = cfType==='in' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES.concat(custom);
+  const cats = EXPENSE_CATEGORIES.concat(custom);
   if(!cats.includes(cfCategory)) cfCategory = cats[0];
   const wrap = document.getElementById('cfCategoryGroup');
   if(!wrap) return;
   wrap.innerHTML = cats.map(c=>{
-    const isCustom = cfType==='out' && custom.includes(c);
+    const isCustom = custom.includes(c);
     return `<button type="button" class="btn-toggle ${cfCategory===c?'active':''}" data-val="${c}" onclick="setCfCategory('${c}')">${c}${isCustom?` <span onclick="event.stopPropagation(); removeCfCategory('${c}')" style="opacity:.65; margin-left:2px;">×</span>`:''}</button>`;
-  }).join('') + (cfType==='out' ? `<button type="button" class="btn-toggle" style="border-style:dashed;" onclick="addCfCategory()">+ 自定义分类</button>` : '');
+  }).join('') + `<button type="button" class="btn-toggle" style="border-style:dashed;" onclick="addCfCategory()">+ 自定义分类</button>`;
 }
 function addCfCategory(){
   const name = prompt('输入新的支出分类名称：');
@@ -2133,17 +2152,12 @@ function removeCfCategory(name){
 function renderCfPayMethodGroup(){
   const wrap = document.getElementById('cfPayMethodWrap');
   if(!wrap) return;
-  if(cfType==='out'){
-    wrap.innerHTML = `<label>付款方式</label><div class="btn-group" id="cfPayMethodGroup">${PAY_METHODS.map(m=>`<button type="button" class="btn-toggle ${cfPayMethod===m?'active':''}" data-val="${m}" onclick="setCfPayMethod('${m}')">${m}</button>`).join('')}</div>`;
-  }else{
-    wrap.innerHTML = '';
-  }
+  wrap.innerHTML = `<label>付款方式</label><div class="btn-group" id="cfPayMethodGroup">${PAY_METHODS.map(m=>`<button type="button" class="btn-toggle ${cfPayMethod===m?'active':''}" data-val="${m}" onclick="setCfPayMethod('${m}')">${m}</button>`).join('')}</div>`;
 }
 function setCfType(val){
   cfType = val;
   document.querySelectorAll('#cfTypeGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
-  renderCfCategoryGroup();
-  renderCfPayMethodGroup();
+  renderCfBodyWrap();
 }
 function setCfCategory(val){
   cfCategory = val;
@@ -2155,18 +2169,36 @@ function setCfPayMethod(val){
 }
 function submitCashflow(){
   const type = cfType;
-  const category = cfCategory;
-  const payMethod = type==='out' ? cfPayMethod : undefined;
-  const company = cfCompany || undefined;
-  const amount = Number(document.getElementById('cfAmount').value)||0;
+  const company = cfCompany;
   const note = document.getElementById('cfNote').value.trim();
   const date = document.getElementById('cfDate').value || todayStr();
-  if(amount<=0){ alert('请输入金额'); return; }
-  ['cfAmount','cfNote'].forEach(id=>{ const elx=document.getElementById(id); if(elx) elx.value=''; });
-  const cfDateEl = document.getElementById('cfDate'); if(cfDateEl) cfDateEl.value = todayStr();
-  mutate(()=>{ state.cashflow.push({id:uid(), date, type, category, amount, payMethod, company, note, auto:false}); });
+  if(!company){ alert('请选择公司'); return; }
+
+  if(type==='in'){
+    // 收入可以同时填 Cash / TNG / FoodPanda 几个金额，一次保存拆成对应几笔流水（分类各自记账）
+    const entries = INCOME_CATEGORIES.map(c=>{
+      const elx = document.getElementById('cfIncome_'+c);
+      return {category:c, amount: Number(elx ? elx.value : 0)||0};
+    }).filter(e=>e.amount>0);
+    if(entries.length===0){ alert('请至少填写一个收入金额'); return; }
+    document.getElementById('cfNote').value = '';
+    const cfDateEl = document.getElementById('cfDate'); if(cfDateEl) cfDateEl.value = todayStr();
+    mutate(()=>{
+      entries.forEach(e=>{
+        state.cashflow.push({id:uid(), date, type:'in', category:e.category, amount:e.amount, company, note, auto:false});
+      });
+    });
+  }else{
+    const category = cfCategory;
+    const payMethod = cfPayMethod;
+    const amount = Number(document.getElementById('cfAmount').value)||0;
+    if(amount<=0){ alert('请输入金额'); return; }
+    document.getElementById('cfNote').value = '';
+    const cfDateEl = document.getElementById('cfDate'); if(cfDateEl) cfDateEl.value = todayStr();
+    mutate(()=>{ state.cashflow.push({id:uid(), date, type:'out', category, amount, payMethod, company, note, auto:false}); });
+  }
+
   cfPayMethod = PAY_METHODS[0];
-  cfCompany = '';
   cfType = 'out';
   cfCategory = EXPENSE_CATEGORIES[0];
   renderCash();
