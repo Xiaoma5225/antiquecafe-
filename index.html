@@ -255,6 +255,7 @@
       <button class="btn-ghost" onclick="clearAllSales()">🗑 清空销售记录</button>
     </div>
     <button class="btn-ghost" style="width:100%; margin-top:8px;" onclick="removeSalesCashflow()">🗑 清除销售自动生成的收支流水（保留销售记录）</button>
+    <button class="btn-ghost" style="width:100%; margin-top:8px;" onclick="removeDuplicateSales()">🧹 清除重复销售记录（同一笔重复出现的只保留1笔）</button>
   </div>
 </div>
 </div>
@@ -276,7 +277,8 @@ let state = {
   sales: [],
   cashflow: [],
   customExpenseCategories: [],
-  ingredients: []
+  ingredients: [],
+  importBatches: []
 };
 let loaded = false;
 let recentActivityFilterDate = '';
@@ -552,7 +554,7 @@ function importData(fileInput){
     try{
       const parsed = JSON.parse(e.target.result);
       if(!confirm('导入会覆盖当前这台设备上的所有数据，确定继续吗？')) return;
-      state = Object.assign({initialCash:0, suppliers:[], purchases:[], payments:[], products:[], sales:[], cashflow:[], customExpenseCategories:[], ingredients:[]}, parsed);
+      state = Object.assign({initialCash:0, suppliers:[], purchases:[], payments:[], products:[], sales:[], cashflow:[], customExpenseCategories:[], ingredients:[], importBatches:[]}, parsed);
       saveState();
       renderAll();
       alert('导入成功');
@@ -612,6 +614,25 @@ function clearAllSales(){
   });
   toggleBackupPanel();
   alert('已清空所有销售记录');
+}
+/* 找出"日期/产品/数量/单价/公司/收款方式"完全一样的销售记录（比如同一份CSV不小心导入了两次），
+   每组重复只保留最早那 1 笔，其余删掉。跟正常情况下同一天同一个产品卖好几次、但数量或单价不同的
+   记录不会被误删，因为那些字段只要有一项不同就不算重复。 */
+function removeDuplicateSales(){
+  const seen = new Set();
+  const toRemove = [];
+  state.sales.forEach(s=>{
+    const key = [s.date, s.productId, s.qty, s.price, s.company||'', s.payMethod||''].join('|');
+    if(seen.has(key)) toRemove.push(s.id);
+    else seen.add(key);
+  });
+  if(!toRemove.length){ alert('没有发现完全重复的销售记录'); return; }
+  if(!confirm(`发现 ${toRemove.length} 笔完全重复的销售记录（日期/产品/数量/单价/公司/收款方式都一样），每组重复会保留最早那 1 笔，删掉多余的。确定继续吗？此操作无法撤销。`)) return;
+  mutate(()=>{
+    const removeSet = new Set(toRemove);
+    state.sales = state.sales.filter(s=>!removeSet.has(s.id));
+  });
+  alert(`已删除 ${toRemove.length} 笔重复的销售记录`);
 }
 /* 清理"以前版本"批量导入/手动记销售时自动生成的收支流水——只删流水，销售记录本身保留，
    之后收支都靠用户自己手动记。 */
@@ -1734,6 +1755,18 @@ function renderSales(){
           <input type="file" accept=".csv" style="display:none" onchange="importSalesReport(this)">
         </label>
       </div>
+      ${(state.importBatches||[]).length? `
+      <hr class="receipt-divider">
+      <div class="muted" style="font-size:12px; margin-bottom:8px;">最近批量导入（导错、导重复了可以整批删掉）</div>
+      ${(state.importBatches||[]).slice().reverse().map(b=>`
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--line, #eee);">
+          <div style="font-size:12.5px;">
+            <div>${b.fileName||'CSV导入'} <span class="muted">· ${b.dateRange||''}</span></div>
+            <div class="muted" style="font-size:11px;">${b.count} 笔・RM ${fmt(b.amount)}</div>
+          </div>
+          <button class="btn-danger-text" onclick="deleteImportBatch('${b.id}')">删除整批</button>
+        </div>`).join('')}
+      ` : ''}
     </div>
 
     <div class="card">
@@ -1836,6 +1869,20 @@ function deleteSale(id){
     state.cashflow = state.cashflow.filter(c=>!(c.auto && c._saleId===id));
   });
 }
+/* 删掉某一整批 CSV 导入的销售记录（比如发现导入重复了、或那批文件本身填错了）。
+   只删这批带 importBatch 标记的销售记录，其他手动记的、别批导入的都不受影响。
+   这批当时自动新增的产品不会被删除（怕别的销售记录也在用），只是不会再被用到而已。 */
+function deleteImportBatch(batchId){
+  const batch = (state.importBatches||[]).find(b=>b.id===batchId);
+  const n = state.sales.filter(s=>s.importBatch===batchId).length;
+  if(!n){ alert('这批导入已经没有对应的销售记录了（可能已经被删过）'); mutate(()=>{ state.importBatches=(state.importBatches||[]).filter(b=>b.id!==batchId); }); return; }
+  if(!confirm(`确定删除这批导入的 ${n} 笔销售记录吗？（${batch?batch.fileName:''}）此操作无法撤销。`)) return;
+  mutate(()=>{
+    state.sales = state.sales.filter(s=>s.importBatch!==batchId);
+    state.importBatches = (state.importBatches||[]).filter(b=>b.id!==batchId);
+  });
+  alert(`已删除这批的 ${n} 笔销售记录`);
+}
 
 /* ---------------- 批量导入销售报告（CSV）---------------- */
 function downloadSalesImportTemplate(){
@@ -1930,20 +1977,30 @@ function importSalesReport(fileInput){
       if(errors.length) msg += `\n\n另外有 ${errors.length} 行有问题：\n\n` + errors.join('\n') + '\n\n这些行不会被导入。';
       msg += '\n\n确定继续导入吗？';
       if(!confirm(msg)){ fileInput.value=''; return; }
+      const batchId = uid();
+      const importedFileName = (file && file.name) || 'CSV导入';
       mutate(()=>{
+        if(!state.importBatches) state.importBatches = [];
         newProducts.forEach(np=>{
           state.products.push({id:np.id, name:np.name, price:np.price, costItems:[], costMethod:'unit'});
         });
+        let batchAmount = 0;
+        const dates = [];
         toAdd.forEach(item=>{
           const p = item.product;
           const amount = item.qty * item.price;
           const unitCost = p.costMethod==='total' ? 0 : productUnitCost(p);
           const sid = uid();
-          state.sales.push({id:sid, date:item.date, productId:p.id, productName:p.name, qty:item.qty, price:item.price, amount, cost: unitCost*item.qty, payMethod:item.payMethod, company:item.company});
+          state.sales.push({id:sid, date:item.date, productId:p.id, productName:p.name, qty:item.qty, price:item.price, amount, cost: unitCost*item.qty, payMethod:item.payMethod, company:item.company, importBatch:batchId});
           // 销售记录不再自动生成收支流水——收支由用户自己手动记录，这里只做产品利润统计用
+          batchAmount += amount;
+          dates.push(item.date);
         });
+        const minDate = dates.length? dates.reduce((a,b)=>a<b?a:b) : todayStr();
+        const maxDate = dates.length? dates.reduce((a,b)=>a>b?a:b) : todayStr();
+        state.importBatches.push({id:batchId, fileName:importedFileName, importedAt:Date.now(), count:toAdd.length, amount:batchAmount, dateRange: minDate===maxDate? minDate : `${minDate} ~ ${maxDate}`});
       });
-      alert(`已成功导入 ${toAdd.length} 笔销售记录${newProducts.length? `，自动新增了 ${newProducts.length} 个产品`:''}${errors.length? `，${errors.length} 行被跳过`:''}`);
+      alert(`已成功导入 ${toAdd.length} 笔销售记录${newProducts.length? `，自动新增了 ${newProducts.length} 个产品`:''}${errors.length? `，${errors.length} 行被跳过`:''}\n\n如果之后发现这批导入有问题，可以去"销售"页的"最近批量导入"里把这整批一次性删掉。`);
     }catch(err){
       alert('文件解析失败，请确认是不是用系统模板格式的CSV文件。\n' + err.message);
     }
