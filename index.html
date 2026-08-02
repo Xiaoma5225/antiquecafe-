@@ -254,6 +254,7 @@
       <button class="btn-ghost" onclick="clearAllPurchases()">🗑 清空采购单</button>
       <button class="btn-ghost" onclick="clearAllSales()">🗑 清空销售记录</button>
     </div>
+    <button class="btn-ghost" style="width:100%; margin-top:8px;" onclick="removeSalesCashflow()">🗑 清除销售自动生成的收支流水（保留销售记录）</button>
   </div>
 </div>
 </div>
@@ -611,6 +612,18 @@ function clearAllSales(){
   });
   toggleBackupPanel();
   alert('已清空所有销售记录');
+}
+/* 清理"以前版本"批量导入/手动记销售时自动生成的收支流水——只删流水，销售记录本身保留，
+   之后收支都靠用户自己手动记。 */
+function removeSalesCashflow(){
+  const count = state.cashflow.filter(c=>c.auto && c._saleId).length;
+  if(!count){ alert('目前没有由销售记录自动生成的收支流水'); return; }
+  if(!confirm(`确定清除 ${count} 条由销售记录自动生成的收支流水吗？销售记录本身不会被删除，之后这些销售对应的收支要你自己手动记。此操作无法撤销。`)) return;
+  mutate(()=>{
+    state.cashflow = state.cashflow.filter(c=>!(c.auto && c._saleId));
+  });
+  toggleBackupPanel();
+  alert(`已清除 ${count} 条销售自动生成的收支流水，销售记录保留`);
 }
 
 /* ---------------- 计算辅助 ---------------- */
