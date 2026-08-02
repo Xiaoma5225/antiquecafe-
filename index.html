@@ -1801,7 +1801,7 @@ function renderSales(){
     <div class="card">
       <h3>销售记录</h3>
       ${salesInScope.length? `<table>
-        <tr><th>日期</th><th>产品</th><th class="num">数量</th><th>收款</th><th class="num">金额</th><th></th></tr>
+        <tr><th>日期</th><th>产品</th><th class="num">数量</th><th style="white-space:nowrap">收款</th><th class="num">金额</th><th></th></tr>
         ${salesInScope.slice().reverse().map(s=>`
           <tr>
             <td class="muted">${s.date}</td>
