@@ -1875,6 +1875,8 @@ function importSalesReport(fileInput){
       const dataRows = rows.slice(1); // 跳过表头
       const toAdd = [];
       const errors = [];
+      const newProducts = []; // 本次导入需要自动新增的产品（去重）
+      const newProductByKey = {}; // key: 产品名小写 -> 待新增的产品对象
       dataRows.forEach((r,idx)=>{
         const lineNo = idx+2;
         if(!r.some(v=>(v||'').trim()!=='')) return; // 空行跳过
@@ -1886,11 +1888,21 @@ function importSalesReport(fileInput){
         const companyRaw = (r[5]||'').trim();
         if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ errors.push(`第${lineNo}行：日期"${r[0]||''}"看不懂，请用 2026-08-01 这种格式`); return; }
         if(!productName){ errors.push(`第${lineNo}行：缺少产品名称`); return; }
-        const product = state.products.find(p=>p.name.toLowerCase()===productName.toLowerCase());
-        if(!product){ errors.push(`第${lineNo}行：找不到产品"${productName}"，请先在"成本"页新增，或检查名字有没有打错`); return; }
+        let product = state.products.find(p=>p.name.toLowerCase()===productName.toLowerCase());
+        if(!product){
+          // 找不到就自动建一个新产品（无成本项，售价用这笔的单价，之后要自己去"成本"页补充食材成本）
+          const key = productName.toLowerCase();
+          product = newProductByKey[key];
+          if(!product){
+            product = {id:uid(), name:productName, price:0, costItems:[], costMethod:'unit', _isNew:true};
+            newProductByKey[key] = product;
+            newProducts.push(product);
+          }
+        }
         if(!qty || qty<=0 || isNaN(qty)){ errors.push(`第${lineNo}行：数量不对`); return; }
         const price = priceRaw!=='' ? Number(priceRaw) : Number(product.price||0);
         if(isNaN(price)){ errors.push(`第${lineNo}行：单价不对`); return; }
+        if(product._isNew && !product._priceSet && price>0){ product.price = price; product._priceSet = true; }
         const payMethod = payMethodRaw || '其他';
         let company = '';
         if(companyRaw){
@@ -1901,10 +1913,14 @@ function importSalesReport(fileInput){
       });
       if(toAdd.length===0){ alert('没有成功解析到任何一笔销售记录：\n\n' + errors.join('\n')); fileInput.value=''; return; }
       let msg = `准备导入 ${toAdd.length} 笔销售记录`;
-      if(errors.length) msg += `，另外有 ${errors.length} 行有问题：\n\n` + errors.join('\n') + '\n\n这些行不会被导入。';
+      if(newProducts.length) msg += `\n\n其中 ${newProducts.length} 个产品在"成本"页找不到，会自动新增（暂无成本项，售价用导入数据里的单价，之后请自己去"成本"页补充食材成本）：\n` + newProducts.map(p=>`${p.name}（¥${fmt(p.price)}）`).join('、');
+      if(errors.length) msg += `\n\n另外有 ${errors.length} 行有问题：\n\n` + errors.join('\n') + '\n\n这些行不会被导入。';
       msg += '\n\n确定继续导入吗？';
       if(!confirm(msg)){ fileInput.value=''; return; }
       mutate(()=>{
+        newProducts.forEach(np=>{
+          state.products.push({id:np.id, name:np.name, price:np.price, costItems:[], costMethod:'unit'});
+        });
         toAdd.forEach(item=>{
           const p = item.product;
           const amount = item.qty * item.price;
@@ -1914,7 +1930,7 @@ function importSalesReport(fileInput){
           state.cashflow.push({id:uid(), date:item.date, type:'in', category:item.payMethod, amount, company:item.company, note:`${p.name} ×${item.qty}（批量导入）`, auto:true, _saleId:sid});
         });
       });
-      alert(`已成功导入 ${toAdd.length} 笔销售记录${errors.length? `，${errors.length} 行被跳过`:''}`);
+      alert(`已成功导入 ${toAdd.length} 笔销售记录${newProducts.length? `，自动新增了 ${newProducts.length} 个产品`:''}${errors.length? `，${errors.length} 行被跳过`:''}`);
     }catch(err){
       alert('文件解析失败，请确认是不是用系统模板格式的CSV文件。\n' + err.message);
     }
