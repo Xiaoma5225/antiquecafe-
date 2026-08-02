@@ -1812,7 +1812,7 @@ function submitSale(){
   mutate(()=>{
     const sid = uid();
     state.sales.push({id:sid, date, productId:p.id, productName:p.name, qty, price, amount, cost: unitCost*qty, payMethod, company});
-    state.cashflow.push({id:uid(), date, type:'in', category:payMethod, amount, company, note:`${p.name} ×${qty}`, auto:true, _saleId:sid});
+    // 销售记录不再自动生成收支流水——收支由用户自己手动记录，这里只做产品利润统计用
   });
   renderSales();
 }
@@ -1927,7 +1927,7 @@ function importSalesReport(fileInput){
           const unitCost = p.costMethod==='total' ? 0 : productUnitCost(p);
           const sid = uid();
           state.sales.push({id:sid, date:item.date, productId:p.id, productName:p.name, qty:item.qty, price:item.price, amount, cost: unitCost*item.qty, payMethod:item.payMethod, company:item.company});
-          state.cashflow.push({id:uid(), date:item.date, type:'in', category:item.payMethod, amount, company:item.company, note:`${p.name} ×${item.qty}（批量导入）`, auto:true, _saleId:sid});
+          // 销售记录不再自动生成收支流水——收支由用户自己手动记录，这里只做产品利润统计用
         });
       });
       alert(`已成功导入 ${toAdd.length} 笔销售记录${newProducts.length? `，自动新增了 ${newProducts.length} 个产品`:''}${errors.length? `，${errors.length} 行被跳过`:''}`);
