@@ -1463,6 +1463,7 @@ function setPayPayMethod(val){
 /* ================= 产品成本 Tab ================= */
 let tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
 let editingProductId = null;
+let costSearchQuery = '';
 
 function renderCost(){
   const el = document.getElementById('tab-cost');
@@ -1487,7 +1488,7 @@ function renderCost(){
 
     <div class="card">
       <h3>产品成本一览 <span class="n">${state.products.length} 项</span></h3>
-      ${state.products.length? `<input id="costSearchInput" placeholder="🔍 搜索产品名称..." oninput="filterCostProducts(this.value)" style="margin-bottom:10px;">
+      ${state.products.length? `<input id="costSearchInput" placeholder="🔍 搜索产品名称..." value="${costSearchQuery.replace(/"/g,'&quot;')}" oninput="filterCostProducts(this.value)" style="margin-bottom:10px;">
       <div id="costSearchEmpty" class="empty" style="display:none;">没有找到符合的产品</div>` : ''}
       ${state.products.length? state.products.map(p=>{
         const method = p.costMethod==='total' ? 'total' : 'unit';
@@ -1562,6 +1563,7 @@ function renderCost(){
     </div>
   `;
   renderCostItemRows();
+  if(costSearchQuery) filterCostProducts(costSearchQuery);
 }
 function renderCostItemRows(){
   const wrap = document.getElementById('costItemsWrap');
@@ -1649,6 +1651,7 @@ function cancelEditProduct(){
   renderCost();
 }
 function filterCostProducts(q){
+  costSearchQuery = q||'';
   const query = (q||'').trim().toLowerCase();
   let anyVisible = false;
   document.querySelectorAll('.cost-product-card').forEach(card=>{
