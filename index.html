@@ -1167,7 +1167,21 @@ function renderPurchaseItemRows(){
       <div style="display:flex; gap:6px; margin-bottom:6px;">
         <input list="purItemProductNames" id="pi_product_${row.id}" placeholder="属于哪个产品（选填，可加多个，用来自动算成本）" autocomplete="off" value="${row.productInput||''}" oninput="updatePurItem('${row.id}','productInput',this.value)" onkeydown="if(event.key==='Enter'){ setTimeout(()=>addPurItemProduct('${row.id}'), 0); }" style="flex:1;">
         <button type="button" class="btn-ghost btn-small" onclick="addPurItemProduct('${row.id}')">+ 加入</button>
+        <button type="button" class="btn-ghost btn-small" onclick="togglePurItemProductPicker('${row.id}')">${row._pickerOpen?'收起 ▴':'☰ 多选 ▾'}</button>
       </div>
+      ${row._pickerOpen ? `
+      <div style="border:1px solid var(--border); border-radius:8px; padding:8px 10px; margin-bottom:6px; max-height:200px; overflow:auto;">
+        ${state.products.length ? `
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; margin-bottom:6px; cursor:pointer;">
+          <input type="checkbox" ${(row.productIds&&row.productIds.length===state.products.length)?'checked':''} onchange="togglePurItemAllProducts('${row.id}', this.checked)"> 全选（共 ${state.products.length} 个产品）
+        </label>
+        ${state.products.map(p=>`
+          <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-bottom:4px; cursor:pointer;">
+            <input type="checkbox" ${(row.productIds||[]).includes(p.id)?'checked':''} onchange="togglePurItemProductId('${row.id}','${p.id}', this.checked)"> ${p.name}
+          </label>
+        `).join('')}
+        ` : `<div class="muted" style="font-size:12px;">还没有产品，先去"成本"页新增</div>`}
+      </div>` : ''}
       ${(row.productIds&&row.productIds.length)?`<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px;">
         ${row.productIds.map(pid=>{
           const prod = state.products.find(x=>x.id===pid);
@@ -1223,6 +1237,26 @@ function addPurItemProduct(rowId){
   if(!row.productIds) row.productIds = [];
   if(!row.productIds.includes(matched.id)) row.productIds.push(matched.id);
   row.productInput = '';
+  renderPurchaseItemRows();
+}
+function togglePurItemProductPicker(rowId){
+  const row = tempPurchaseItems.find(r=>r.id===rowId);
+  if(!row) return;
+  row._pickerOpen = !row._pickerOpen;
+  renderPurchaseItemRows();
+}
+function togglePurItemProductId(rowId, productId, checked){
+  const row = tempPurchaseItems.find(r=>r.id===rowId);
+  if(!row) return;
+  if(!row.productIds) row.productIds = [];
+  if(checked){ if(!row.productIds.includes(productId)) row.productIds.push(productId); }
+  else { row.productIds = row.productIds.filter(id=>id!==productId); }
+  renderPurchaseItemRows();
+}
+function togglePurItemAllProducts(rowId, checked){
+  const row = tempPurchaseItems.find(r=>r.id===rowId);
+  if(!row) return;
+  row.productIds = checked ? state.products.map(p=>p.id) : [];
   renderPurchaseItemRows();
 }
 function removePurItemProduct(rowId, productId){
