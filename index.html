@@ -1169,22 +1169,13 @@ function renderPurchaseItemRows(){
         return parts.length ? `<div class="muted" style="font-size:11px; margin-bottom:4px;">💡 系统记得这个食材 · ${parts.join(' · ')}</div>` : '';
       })()}
       <div style="display:flex; gap:6px; margin-bottom:6px;">
-        <input list="purItemProductNames" id="pi_product_${row.id}" placeholder="属于哪个产品（选填，可加多个，用来自动算成本）" autocomplete="off" value="${row.productInput||''}" oninput="updatePurItem('${row.id}','productInput',this.value)" onkeydown="if(event.key==='Enter'){ setTimeout(()=>addPurItemProduct('${row.id}'), 0); }" style="flex:1;">
+        <input list="purItemProductNames" id="pi_product_${row.id}" placeholder="属于哪个产品（选填，可加多个，用来自动算成本；打字可以过滤下面的多选清单）" autocomplete="off" value="${row.productInput||''}" oninput="updatePurItem('${row.id}','productInput',this.value); filterPurItemPicker('${row.id}');" onkeydown="if(event.key==='Enter'){ setTimeout(()=>addPurItemProduct('${row.id}'), 0); }" style="flex:1;">
         <button type="button" class="btn-ghost btn-small" onclick="addPurItemProduct('${row.id}')">+ 加入</button>
         <button type="button" class="btn-ghost btn-small" onclick="togglePurItemProductPicker('${row.id}')">${row._pickerOpen?'收起 ▴':'☰ 多选 ▾'}</button>
       </div>
       ${row._pickerOpen ? `
-      <div style="border:1px solid var(--border); border-radius:8px; padding:8px 10px; margin-bottom:6px; max-height:200px; overflow:auto;">
-        ${state.products.length ? `
-        <label style="display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; margin-bottom:6px; cursor:pointer;">
-          <input type="checkbox" ${(row.productIds&&row.productIds.length===state.products.length)?'checked':''} onchange="togglePurItemAllProducts('${row.id}', this.checked)"> 全选（共 ${state.products.length} 个产品）
-        </label>
-        ${state.products.map(p=>`
-          <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-bottom:4px; cursor:pointer;">
-            <input type="checkbox" ${(row.productIds||[]).includes(p.id)?'checked':''} onchange="togglePurItemProductId('${row.id}','${p.id}', this.checked)"> ${p.name}
-          </label>
-        `).join('')}
-        ` : `<div class="muted" style="font-size:12px;">还没有产品，先去"成本"页新增</div>`}
+      <div id="pi_picker_${row.id}" style="border:1px solid var(--border); border-radius:8px; padding:8px 10px; margin-bottom:6px; max-height:200px; overflow:auto;">
+        ${purItemPickerListHtml(row.id)}
       </div>` : ''}
       ${(row.productIds&&row.productIds.length)?`<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px;">
         ${row.productIds.map(pid=>{
@@ -1249,6 +1240,37 @@ function togglePurItemProductPicker(rowId){
   row._pickerOpen = !row._pickerOpen;
   renderPurchaseItemRows();
 }
+/* 多选清单会跟着"属于哪个产品"输入框的文字即时过滤，方便产品很多的时候快速找到要选的那几个。
+   全选/取消全选只作用在目前过滤后看得到的那几个，不影响清单外、已经选好的其他产品。 */
+function purItemFilteredProducts(rowId){
+  const row = tempPurchaseItems.find(r=>r.id===rowId);
+  const q = (row && row.productInput || '').trim().toLowerCase();
+  return q ? state.products.filter(p=>p.name.toLowerCase().includes(q)) : state.products;
+}
+function purItemPickerListHtml(rowId){
+  const row = tempPurchaseItems.find(r=>r.id===rowId);
+  if(!row) return '';
+  const filtered = purItemFilteredProducts(rowId);
+  if(!state.products.length) return `<div class="muted" style="font-size:12px;">还没有产品，先去"成本"页新增</div>`;
+  if(!filtered.length) return `<div class="muted" style="font-size:12px;">没有符合"${row.productInput||''}"的产品</div>`;
+  const allChecked = filtered.every(p=>(row.productIds||[]).includes(p.id));
+  return `
+    <label style="display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; margin-bottom:6px; cursor:pointer;">
+      <input type="checkbox" ${allChecked?'checked':''} onchange="togglePurItemAllProducts('${rowId}', this.checked)"> 全选（${row.productInput?'符合的 '+filtered.length+' 个':'共 '+filtered.length+' 个产品'}）
+    </label>
+    ${filtered.map(p=>`
+      <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-bottom:4px; cursor:pointer;">
+        <input type="checkbox" ${(row.productIds||[]).includes(p.id)?'checked':''} onchange="togglePurItemProductId('${rowId}','${p.id}', this.checked)"> ${p.name}
+      </label>
+    `).join('')}
+  `;
+}
+/* 打字过滤只更新多选清单那一小块 DOM，不整行重建，这样输入框不会丢失焦点/光标位置。 */
+function filterPurItemPicker(rowId){
+  const panel = document.getElementById('pi_picker_'+rowId);
+  if(!panel) return; // 面板没打开就不用管
+  panel.innerHTML = purItemPickerListHtml(rowId);
+}
 function togglePurItemProductId(rowId, productId, checked){
   const row = tempPurchaseItems.find(r=>r.id===rowId);
   if(!row) return;
@@ -1260,7 +1282,13 @@ function togglePurItemProductId(rowId, productId, checked){
 function togglePurItemAllProducts(rowId, checked){
   const row = tempPurchaseItems.find(r=>r.id===rowId);
   if(!row) return;
-  row.productIds = checked ? state.products.map(p=>p.id) : [];
+  if(!row.productIds) row.productIds = [];
+  const filteredIds = purItemFilteredProducts(rowId).map(p=>p.id);
+  if(checked){
+    filteredIds.forEach(id=>{ if(!row.productIds.includes(id)) row.productIds.push(id); });
+  } else {
+    row.productIds = row.productIds.filter(id=>!filteredIds.includes(id));
+  }
   renderPurchaseItemRows();
 }
 function removePurItemProduct(rowId, productId){
