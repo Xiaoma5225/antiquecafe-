@@ -217,6 +217,7 @@
   <button data-tab="payment"><span class="ic">💳</span>付款</button>
   <button data-tab="cost"><span class="ic">🧮</span>成本</button>
   <button data-tab="sales"><span class="ic">💰</span>销售</button>
+  <button data-tab="inventory"><span class="ic">📦</span>库存</button>
   <button data-tab="cash"><span class="ic">📒</span>收支</button>
   <button data-tab="export"><span class="ic">📤</span>导出</button>
 </nav>
@@ -228,6 +229,7 @@
   <section class="tab-panel" id="tab-payment"></section>
   <section class="tab-panel" id="tab-cost"></section>
   <section class="tab-panel" id="tab-sales"></section>
+  <section class="tab-panel" id="tab-inventory"></section>
   <section class="tab-panel" id="tab-cash"></section>
   <section class="tab-panel" id="tab-export"></section>
 
@@ -279,7 +281,8 @@ let state = {
   cashflow: [],
   customExpenseCategories: [],
   ingredients: [],
-  importBatches: []
+  importBatches: [],
+  stockAdjustments: []
 };
 let loaded = false;
 let recentActivityFilterDate = '';
@@ -555,7 +558,7 @@ function importData(fileInput){
     try{
       const parsed = JSON.parse(e.target.result);
       if(!confirm('导入会覆盖当前这台设备上的所有数据，确定继续吗？')) return;
-      state = Object.assign({initialCash:0, suppliers:[], purchases:[], payments:[], products:[], sales:[], cashflow:[], customExpenseCategories:[], ingredients:[], importBatches:[]}, parsed);
+      state = Object.assign({initialCash:0, suppliers:[], purchases:[], payments:[], products:[], sales:[], cashflow:[], customExpenseCategories:[], ingredients:[], importBatches:[], stockAdjustments:[]}, parsed);
       saveState();
       renderAll();
       alert('导入成功');
@@ -2300,6 +2303,151 @@ function renderExport(){
   `;
 }
 
+/* ================= 库存 Tab ================= */
+/* 库存不是单独记账的，是从"采购"页历史记录自动汇总出来的（按品名归类、累加数量），
+   再加上这里手动记的"出入库调整"（损耗、盘点校正、非采购来源的入库等）。
+   目前库存 = 历史采购总数量 + 所有调整（入库为正、出库/损耗为负）。
+   这只是个大概的参考库存，因为系统目前不会在"销售"时自动扣库存，
+   实际用量要靠自己记出入库来维持准确。 */
+let invFilterCompany = '';
+let invSearchText = '';
+let stockAdjCompany = '';
+let stockAdjType = 'out';
+
+function computeInventoryRows(){
+  const map = {};
+  state.purchases.forEach(p=>{
+    if(invFilterCompany && p.company!==invFilterCompany) return;
+    (p.items||[]).forEach(i=>{
+      if(!i.name) return;
+      const key = i.name.trim().toLowerCase();
+      if(!map[key]) map[key] = {name:i.name.trim(), unit:i.unit||'', purchased:0, adjusted:0};
+      map[key].purchased += Number(i.qty||0);
+      if(!map[key].unit && i.unit) map[key].unit = i.unit;
+    });
+  });
+  (state.stockAdjustments||[]).forEach(a=>{
+    if(invFilterCompany && a.company && a.company!==invFilterCompany) return;
+    const key = (a.itemName||'').trim().toLowerCase();
+    if(!key) return;
+    if(!map[key]) map[key] = {name:a.itemName.trim(), unit:'', purchased:0, adjusted:0};
+    map[key].adjusted += Number(a.qty||0);
+  });
+  let rows = Object.values(map).map(r=>Object.assign({}, r, {stock: r.purchased + r.adjusted}));
+  if(invSearchText.trim()){
+    const q = invSearchText.trim().toLowerCase();
+    rows = rows.filter(r=>r.name.toLowerCase().includes(q));
+  }
+  rows.sort((a,b)=>a.name.localeCompare(b.name,'zh'));
+  return rows;
+}
+function renderInventory(){
+  const el = document.getElementById('tab-inventory');
+  if(!el) return;
+  const draft = captureFormValues(['invSearchInput','stockAdjItemName','stockAdjQty','stockAdjDate','stockAdjNote']);
+  const rows = computeInventoryRows();
+  el.innerHTML = `
+    <div class="card">
+      <h3>库存总览 <span class="n">共 ${rows.length} 项</span></h3>
+      <div class="muted" style="font-size:11.5px; margin-bottom:8px;">库存 = 历史所有采购单里的数量总和 + 下面手动记的出入库调整。系统不会在"销售"时自动扣库存，只是个大概参考，准不准要靠自己记出入库来维护。</div>
+      <label>按公司筛选</label>
+      <div class="btn-group" style="margin-bottom:10px">
+        <button type="button" class="btn-toggle ${!invFilterCompany?'active':''}" onclick="setInvFilterCompany('')">全部</button>
+        ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${invFilterCompany===c?'active':''}" onclick="setInvFilterCompany('${c}')">${c}</button>`).join('')}
+      </div>
+      <input id="invSearchInput" placeholder="搜索品名…" value="${draft.invSearchInput!==undefined?draft.invSearchInput:invSearchText}" oninput="setInvSearchText(this.value)" style="margin-bottom:10px;">
+      ${rows.length? `<table>
+        <tr><th>品名</th><th>单位</th><th class="num">已采购</th><th class="num">手动调整</th><th class="num">目前库存</th><th></th></tr>
+        ${rows.map(r=>`
+          <tr>
+            <td>${r.name}</td>
+            <td class="muted">${r.unit||'-'}</td>
+            <td class="num">${fmtPlain(r.purchased)}</td>
+            <td class="num" style="${r.adjusted<0?'color:var(--rust)':(r.adjusted>0?'color:var(--green)':'')}">${r.adjusted>0?'+':''}${fmtPlain(r.adjusted)}</td>
+            <td class="num" style="font-weight:600">${fmtPlain(r.stock)}</td>
+            <td><button class="btn-ghost btn-small" onclick="quickFillStockAdj('${r.name.replace(/'/g,"\\'")}')">出入库</button></td>
+          </tr>`).join('')}
+      </table>` : `<div class="empty">${invSearchText||invFilterCompany?'没有符合条件的品项':'还没有库存数据，先去"采购"页记一些采购单'}</div>`}
+    </div>
+
+    <div class="card">
+      <h3>记一笔出入库调整</h3>
+      <div class="muted" style="font-size:11.5px; margin-bottom:8px;">用来记损耗、盘点校正、或不是从"采购"页来的入库。</div>
+      <label>公司（选填）</label>
+      <div class="btn-group" id="stockAdjCompanyGroup" style="margin-bottom:10px">
+        <button type="button" class="btn-toggle ${!stockAdjCompany?'active':''}" data-val="" onclick="setStockAdjCompany('')">不指定</button>
+        ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${stockAdjCompany===c?'active':''}" data-val="${c}" onclick="setStockAdjCompany('${c}')">${c}</button>`).join('')}
+      </div>
+      <label>品名</label>
+      <input list="invItemNames" id="stockAdjItemName" placeholder="输入或选择品名" autocomplete="off" value="${draft.stockAdjItemName||''}">
+      <datalist id="invItemNames">${rows.map(r=>`<option value="${r.name}">`).join('')}</datalist>
+      <div class="grid2" style="margin-top:10px">
+        <div><label>类型</label>
+          <div class="btn-group" id="stockAdjTypeGroup">
+            <button type="button" class="btn-toggle ${stockAdjType==='out'?'active':''}" data-val="out" onclick="setStockAdjType('out')">出库/损耗</button>
+            <button type="button" class="btn-toggle ${stockAdjType==='in'?'active':''}" data-val="in" onclick="setStockAdjType('in')">入库/盘盈</button>
+          </div>
+        </div>
+        <div><label>数量</label><input type="number" step="0.01" id="stockAdjQty" placeholder="正数就好" value="${draft.stockAdjQty||''}"></div>
+      </div>
+      <label>日期</label><input type="date" id="stockAdjDate" value="${draft.stockAdjDate||todayStr()}">
+      <label>备注（选填）</label><input id="stockAdjNote" placeholder="例：打翻了、盘点校正" value="${draft.stockAdjNote||''}">
+      <button class="btn-main" onclick="submitStockAdjustment()">+ 记录调整</button>
+    </div>
+
+    <div class="card">
+      <h3>出入库调整记录</h3>
+      ${(state.stockAdjustments&&state.stockAdjustments.length)? `<table>
+        <tr><th>日期</th><th>品名</th><th class="num">数量</th><th>备注</th><th></th></tr>
+        ${state.stockAdjustments.slice().reverse().map(a=>`
+          <tr>
+            <td class="muted">${a.date}</td>
+            <td>${a.itemName}${a.company?`<div class="muted" style="font-size:11px">${a.company}</div>`:''}</td>
+            <td class="num" style="${a.qty<0?'color:var(--rust)':'color:var(--green)'}">${a.qty>0?'+':''}${fmtPlain(a.qty)}</td>
+            <td class="muted" style="font-size:12px">${a.note||''}</td>
+            <td><button class="btn-danger-text" onclick="deleteStockAdjustment('${a.id}')">删</button></td>
+          </tr>`).join('')}
+      </table>` : `<div class="empty">还没有出入库调整记录</div>`}
+    </div>
+  `;
+}
+function setInvFilterCompany(val){ invFilterCompany = val; renderInventory(); }
+function setInvSearchText(val){ invSearchText = val; renderInventory(); }
+function setStockAdjCompany(val){
+  stockAdjCompany = val;
+  document.querySelectorAll('#stockAdjCompanyGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
+}
+function setStockAdjType(val){
+  stockAdjType = val;
+  document.querySelectorAll('#stockAdjTypeGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
+}
+function quickFillStockAdj(name){
+  const elx = document.getElementById('stockAdjItemName');
+  if(!elx) return;
+  elx.value = name;
+  elx.scrollIntoView({behavior:'smooth', block:'center'});
+  elx.focus();
+}
+function submitStockAdjustment(){
+  const itemName = (document.getElementById('stockAdjItemName').value||'').trim();
+  const date = document.getElementById('stockAdjDate').value || todayStr();
+  const qtyRaw = Number(document.getElementById('stockAdjQty').value);
+  const note = document.getElementById('stockAdjNote').value.trim();
+  if(!itemName){ alert('请输入品名'); return; }
+  if(!qtyRaw || qtyRaw<=0 || isNaN(qtyRaw)){ alert('请输入数量（正数就好，类型上面选）'); return; }
+  const signedQty = stockAdjType==='out' ? -Math.abs(qtyRaw) : Math.abs(qtyRaw);
+  const company = stockAdjCompany;
+  mutate(()=>{
+    if(!state.stockAdjustments) state.stockAdjustments = [];
+    state.stockAdjustments.push({id:uid(), date, itemName, qty:signedQty, note, company});
+  });
+  ['stockAdjItemName','stockAdjQty','stockAdjNote'].forEach(id=>{ const elx=document.getElementById(id); if(elx) elx.value=''; });
+}
+function deleteStockAdjustment(id){
+  if(!confirm('确定删除这笔出入库调整记录吗？此操作无法撤销。')) return;
+  mutate(()=>{ state.stockAdjustments = (state.stockAdjustments||[]).filter(a=>a.id!==id); });
+}
+
 /* ---------------- 总渲染 & Tab 切换 ---------------- */
 function renderAll(){
   if(!loaded) return;
@@ -2309,6 +2457,7 @@ function renderAll(){
   renderPayment();
   renderCost();
   renderSales();
+  renderInventory();
   renderCash();
   renderExport();
 }
