@@ -1144,9 +1144,6 @@ function renderPayment(){
 function renderPurchaseItemRows(){
   const wrap = document.getElementById('purItemsWrap');
   wrap.innerHTML = `
-    <datalist id="purItemProductNames">
-      ${state.products.map(p=>`<option value="${p.name}">`).join('')}
-    </datalist>
     <datalist id="purIngredientNames">
       ${getIngredientNames().map(n=>`<option value="${n}">`).join('')}
     </datalist>
@@ -1169,7 +1166,7 @@ function renderPurchaseItemRows(){
         return parts.length ? `<div class="muted" style="font-size:11px; margin-bottom:4px;">💡 系统记得这个食材 · ${parts.join(' · ')}</div>` : '';
       })()}
       <div style="display:flex; gap:6px; margin-bottom:6px;">
-        <input list="purItemProductNames" id="pi_product_${row.id}" placeholder="属于哪个产品（选填，可加多个，用来自动算成本；打字可以过滤下面的多选清单）" autocomplete="off" value="${row.productInput||''}" oninput="updatePurItem('${row.id}','productInput',this.value); filterPurItemPicker('${row.id}');" onkeydown="if(event.key==='Enter'){ setTimeout(()=>addPurItemProduct('${row.id}'), 0); }" style="flex:1;">
+        <input id="pi_product_${row.id}" placeholder="属于哪个产品（选填，可加多个，用来自动算成本；打字可以过滤下面的多选清单）" autocomplete="off" value="${row.productInput||''}" oninput="updatePurItem('${row.id}','productInput',this.value); filterPurItemPicker('${row.id}');" onkeydown="if(event.key==='Enter'){ setTimeout(()=>addPurItemProduct('${row.id}'), 0); }" style="flex:1;">
         <button type="button" class="btn-ghost btn-small" onclick="addPurItemProduct('${row.id}')">+ 加入</button>
         <button type="button" class="btn-ghost btn-small" onclick="togglePurItemProductPicker('${row.id}')">${row._pickerOpen?'收起 ▴':'☰ 多选 ▾'}</button>
       </div>
