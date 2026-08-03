@@ -1165,7 +1165,7 @@ function renderPurchaseItemRows(){
         return parts.length ? `<div class="muted" style="font-size:11px; margin-bottom:4px;">💡 系统记得这个食材 · ${parts.join(' · ')}</div>` : '';
       })()}
       <div style="display:flex; gap:6px; margin-bottom:6px;">
-        <input list="purItemProductNames" placeholder="属于哪个产品（选填，可加多个，用来自动算成本）" autocomplete="off" value="${row.productInput||''}" oninput="updatePurItem('${row.id}','productInput',this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault(); addPurItemProduct('${row.id}');}" style="flex:1;">
+        <input list="purItemProductNames" id="pi_product_${row.id}" placeholder="属于哪个产品（选填，可加多个，用来自动算成本）" autocomplete="off" value="${row.productInput||''}" oninput="updatePurItem('${row.id}','productInput',this.value)" onkeydown="if(event.key==='Enter'){ setTimeout(()=>addPurItemProduct('${row.id}'), 0); }" style="flex:1;">
         <button type="button" class="btn-ghost btn-small" onclick="addPurItemProduct('${row.id}')">+ 加入</button>
       </div>
       ${(row.productIds&&row.productIds.length)?`<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px;">
@@ -1214,6 +1214,8 @@ function removePurItem(id){
 function addPurItemProduct(rowId){
   const row = tempPurchaseItems.find(r=>r.id===rowId);
   if(!row) return;
+  const inputEl = document.getElementById('pi_product_'+rowId);
+  if(inputEl) row.productInput = inputEl.value;
   const typed = (row.productInput||'').trim();
   if(!typed) return;
   const matched = state.products.find(p=>p.name.toLowerCase()===typed.toLowerCase());
