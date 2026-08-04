@@ -1148,7 +1148,7 @@ function renderPayment(){
 
     <div class="card">
       <h3>批量导入付款记录（CSV）</h3>
-      <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">格式跟"导出付款记录"一样：日期,供应商,Invoice号,金额,付款方式,备注。供应商没有会自动新建；Invoice号如果刚好对上系统里某张采购单会自动帮那张单挂上已付款，对不上就只是记在备注里，不影响这笔付款本身。每笔付款会自动生成一笔对应的"供应商付款"收支流水。</div>
+      <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">格式跟"导出付款记录"一样：日期,供应商,Invoice号,金额,付款方式,备注。供应商没有会自动新建。Invoice号支持两种写法：①正式发票号——精确对上同供应商的采购单；②日期式参考（像"29/7"这种没有正式发票号、只用送货日期当参考的供应商）——会去找同供应商、同一天、还有欠款的采购单。对上了以后，金额格可以留空，系统会自动填那张采购单还欠多少；对不上就把参考号记进备注，不影响这笔付款本身。每笔付款会自动生成一笔对应的"供应商付款"收支流水。</div>
       <div class="grid2">
         <button class="btn-ghost" onclick="downloadPaymentImportTemplate()">⬇ 下载CSV模板</button>
         <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
@@ -1592,9 +1592,10 @@ function setPayPayMethod(val){
    就自动把这笔付款连去那张采购单（这样"欠供应商货款"才会正确扣掉）；找不到就当笼统还款，
    原本填的号码会保留在备注里，不会不见。每笔都会照手动记账一样自动生成一笔"供应商付款"收支流水。 */
 function downloadPaymentImportTemplate(){
-  const header = ['日期','供应商','Invoice号(选填)','金额','付款方式(选填，默认银行转账)','备注(选填)'];
-  const example = ['2026-08-04','BCLC ENTERPRISE','20440','360','银行转账',''];
-  downloadCSV('付款记录导入模板.csv', header, [example]);
+  const header = ['日期','供应商','Invoice号(选填，正式发票号或D/M日期参考都行)','金额(选填，对上采购单可留空自动算)','付款方式(选填，默认银行转账)','备注(选填)'];
+  const example1 = ['2026-08-04','BCLC ENTERPRISE','20440','360','银行转账',''];
+  const example2 = ['2026-08-04','YEW KEE','29/7','','银行转账',''];
+  downloadCSV('付款记录导入模板.csv', header, [example1, example2]);
 }
 function importPaymentsReport(fileInput){
   const file = fileInput.files[0];
@@ -1607,24 +1608,62 @@ function importPaymentsReport(fileInput){
       const dataRows = rows.slice(1);
       const errors = [];
       const toAdd = [];
+      /* Invoice号 那格支持两种写法：
+         1) 一般发票号——照原本逻辑，跟同一供应商的采购单 invoiceNumber 精确比对（不分大小写）。
+         2) 日期式参考（像"29/7"这种没有正式发票号、只用送货日期当参考的供应商）——
+            格式 D/M 或 DD/MM，年份跟这笔付款自己的"日期"栏同一年；会去找同供应商、同日期、
+            还有欠款的采购单。金额格填空白的话，就直接用那张采购单当下还欠多少来付清。 */
+      function resolveDateRef(ref, paymentDateStr){
+        const m = ref.match(/^(\d{1,2})[\/\-](\d{1,2})$/);
+        if(!m) return null;
+        const day = m[1].padStart(2,'0');
+        const month = m[2].padStart(2,'0');
+        const year = paymentDateStr.slice(0,4);
+        return `${year}-${month}-${day}`;
+      }
       dataRows.forEach((r,idx)=>{
         const lineNo = idx+2;
         if(!r.some(v=>(v||'').trim()!=='')) return;
         const date = normalizeDateStr(r[0]);
         const supplierNameRaw = (r[1]||'').trim();
         const invoiceRefRaw = (r[2]||'').trim();
-        const amount = Number(r[3]);
+        const amountRaw = (r[3]||'').trim();
+        const amount = amountRaw!=='' ? Number(amountRaw) : NaN;
         const payMethodRaw = (r[4]||'').trim();
         let note = (r[5]||'').trim();
         if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ errors.push(`第${lineNo}行：日期"${r[0]||''}"看不懂，请用 2026-08-01 这种格式`); return; }
         if(!supplierNameRaw){ errors.push(`第${lineNo}行：缺少供应商名称`); return; }
-        if(!amount || amount<=0 || isNaN(amount)){ errors.push(`第${lineNo}行：金额不对`); return; }
+        if(amountRaw!=='' && (isNaN(amount) || amount<=0)){ errors.push(`第${lineNo}行：金额不对`); return; }
         let payMethod = '银行转账';
         if(payMethodRaw){
           if(PAY_METHODS.includes(payMethodRaw)) payMethod = payMethodRaw;
           else errors.push(`第${lineNo}行：付款方式"${payMethodRaw}"不认得，先当"银行转账"处理`);
         }
-        toAdd.push({date, supplierNameRaw, invoiceRefRaw, amount, payMethod, note});
+        // 找供应商（先看是不是已有的，找不到之后会自动新建，这里先只做匹配用）
+        const supplierMatch = state.suppliers.find(s=>s.name.toLowerCase()===supplierNameRaw.toLowerCase());
+        let purchaseId = null;
+        let resolvedAmount = amount;
+        if(invoiceRefRaw && supplierMatch){
+          const byInvoice = state.purchases.filter(p=>p.supplierId===supplierMatch.id && (p.invoiceNumber||'').trim().toLowerCase()===invoiceRefRaw.toLowerCase());
+          if(byInvoice.length===1){
+            purchaseId = byInvoice[0].id;
+          } else {
+            const dateRef = resolveDateRef(invoiceRefRaw, date);
+            if(dateRef){
+              const byDate = state.purchases.filter(p=>p.supplierId===supplierMatch.id && p.date===dateRef && purchaseOutstanding(p.id)>0.001);
+              if(byDate.length===1) purchaseId = byDate[0].id;
+            }
+          }
+        }
+        if(purchaseId && isNaN(resolvedAmount)) resolvedAmount = Math.round(purchaseOutstanding(purchaseId)*100)/100;
+        if(isNaN(resolvedAmount) || resolvedAmount<=0){
+          errors.push(`第${lineNo}行：金额没填，而且"${invoiceRefRaw}"在系统里对不到一张唯一、还有欠款的采购单，没办法自动算金额，这行先跳过`);
+          return;
+        }
+        if(!purchaseId && invoiceRefRaw){
+          note = note ? `${note} [参考:${invoiceRefRaw}]` : `[参考:${invoiceRefRaw}]`;
+        }
+        toAdd.push({date, supplierNameRaw, purchaseId, amount:resolvedAmount, payMethod, note});
       });
       if(toAdd.length===0){ alert('没有成功解析到任何一笔付款：\n\n' + errors.join('\n')); fileInput.value=''; return; }
       let msg = `准备导入 ${toAdd.length} 笔付款记录`;
@@ -1639,16 +1678,10 @@ function importPaymentsReport(fileInput){
         const dates = [];
         toAdd.forEach(item=>{
           const supplierId = findOrCreateSupplierId(item.supplierNameRaw);
-          let purchaseId = null;
-          if(item.invoiceRefRaw){
-            const matches = state.purchases.filter(p=>p.supplierId===supplierId && (p.invoiceNumber||'').trim().toLowerCase()===item.invoiceRefRaw.toLowerCase());
-            if(matches.length===1) purchaseId = matches[0].id;
-            else item.note = item.note ? `${item.note} [参考:${item.invoiceRefRaw}]` : `[参考:${item.invoiceRefRaw}]`;
-          }
           const pid = uid();
-          const invoicePur = purchaseId ? state.purchases.find(p=>p.id===purchaseId) : null;
-          state.payments.push({id:pid, date:item.date, supplierId, amount:item.amount, note:item.note, payMethod:item.payMethod, purchaseId, importBatch:batchId});
-          const invoiceNote = invoicePur ? ` · Invoice ${invoicePur.invoiceNumber||'(无号)'}` : '';
+          const invoicePur = item.purchaseId ? state.purchases.find(p=>p.id===item.purchaseId) : null;
+          state.payments.push({id:pid, date:item.date, supplierId, amount:item.amount, note:item.note, payMethod:item.payMethod, purchaseId:item.purchaseId, importBatch:batchId});
+          const invoiceNote = invoicePur ? ` · Invoice ${invoicePur.invoiceNumber||'(无号，按日期'+invoicePur.date+'匹配)'}` : '';
           state.cashflow.push({id:uid(), date:item.date, type:'out', category:'供应商付款', amount:item.amount, payMethod:item.payMethod, note:`${supplierName(supplierId)}${invoiceNote}${item.note?' · '+item.note:''}`, auto:true, _paymentId:pid});
           batchAmount += item.amount;
           dates.push(item.date);
