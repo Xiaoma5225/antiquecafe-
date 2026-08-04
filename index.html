@@ -1187,9 +1187,11 @@ function renderPayment(){
         <tr><th>日期</th><th>供应商</th><th class="num">金额</th><th></th></tr>
         ${filteredPayments.slice().reverse().map(pay=>{
           const pur = pay.purchaseId ? state.purchases.find(x=>x.id===pay.purchaseId) : null;
+          const isOverpay = pay.note && pay.note.includes('超额付款');
+          const restNote = isOverpay ? pay.note.replace('超额付款','').replace(/^\s*·\s*|\s*·\s*$/g,'').trim() : pay.note;
           return `<tr>
             <td class="muted">${pay.date}</td>
-            <td>${supplierName(pay.supplierId)}${pur&&pur.invoiceNumber?`<div class="muted" style="font-size:11px">Invoice #${pur.invoiceNumber}</div>`:''}${pay.payMethod?`<div class="muted" style="font-size:11px">${pay.payMethod}</div>`:''}${pay.note?`<div class="muted" style="font-size:11px">${pay.note}</div>`:''}</td>
+            <td>${supplierName(pay.supplierId)}${pur&&pur.invoiceNumber?`<div class="muted" style="font-size:11px">Invoice #${pur.invoiceNumber}</div>`:''}${pay.payMethod?`<div class="muted" style="font-size:11px">${pay.payMethod}</div>`:''}${isOverpay?`<div style="font-size:14px; font-weight:700; color:var(--rust); margin-top:2px;">⚠ 超额付款 RM${fmtPlain(pay.amount)}</div>${restNote?`<div class="muted" style="font-size:11px">${restNote}</div>`:''}`:(pay.note?`<div class="muted" style="font-size:11px">${pay.note}</div>`:'')}</td>
             <td class="num">${fmtPlain(pay.amount)}</td>
             <td><button class="btn-danger-text" onclick="deletePayment('${pay.id}')">删</button></td>
           </tr>`;
