@@ -1004,6 +1004,30 @@ function renderPurchase(){
       ${editingPurchase?`<button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditPurchase()">取消编辑</button>`:''}
     </div>
 
+    <div class="card">
+      <h3>批量导入采购单（CSV）</h3>
+      <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">先下载模板，按格式填好每一项采购（供应商没有会自动新建；关联产品要跟"成本"页里的产品名一模一样，可以填多个、用"、"分开，用来自动算成本），再上传回来，系统会按"公司+供应商+Invoice号+日期"自动把同一单的品项合并成一张采购单。</div>
+      <div class="grid2">
+        <button class="btn-ghost" onclick="downloadPurchaseImportTemplate()">⬇ 下载CSV模板</button>
+        <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
+          ⬆ 上传采购单
+          <input type="file" accept=".csv" style="display:none" onchange="importPurchasesReport(this)">
+        </label>
+      </div>
+      ${(state.importBatches||[]).filter(b=>b.type==='purchase').length? `
+      <hr class="receipt-divider">
+      <div class="muted" style="font-size:12px; margin-bottom:8px;">最近批量导入（导错、导重复了可以整批删掉）</div>
+      ${(state.importBatches||[]).filter(b=>b.type==='purchase').slice().reverse().map(b=>`
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--line, #eee);">
+          <div style="font-size:12.5px;">
+            <div>${b.fileName||'CSV导入'} <span class="muted">· ${b.dateRange||''}</span></div>
+            <div class="muted" style="font-size:11px;">${b.count} 张采购单・RM ${fmt(b.amount)}</div>
+          </div>
+          <button class="btn-danger-text" onclick="deleteImportBatch('${b.id}')">删除整批</button>
+        </div>`).join('')}
+      ` : ''}
+    </div>
+
     ${catList.length? `
     <div class="card">
       <h3>本月采购类别分布 <span class="n">${mkP}</span></h3>
@@ -1834,10 +1858,10 @@ function renderSales(){
           <input type="file" accept=".csv" style="display:none" onchange="importSalesReport(this)">
         </label>
       </div>
-      ${(state.importBatches||[]).length? `
+      ${(state.importBatches||[]).filter(b=>!b.type||b.type==='sales').length? `
       <hr class="receipt-divider">
       <div class="muted" style="font-size:12px; margin-bottom:8px;">最近批量导入（导错、导重复了可以整批删掉）</div>
-      ${(state.importBatches||[]).slice().reverse().map(b=>`
+      ${(state.importBatches||[]).filter(b=>!b.type||b.type==='sales').slice().reverse().map(b=>`
         <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--line, #eee);">
           <div style="font-size:12.5px;">
             <div>${b.fileName||'CSV导入'} <span class="muted">· ${b.dateRange||''}</span></div>
@@ -1953,14 +1977,17 @@ function deleteSale(id){
    这批当时自动新增的产品不会被删除（怕别的销售记录也在用），只是不会再被用到而已。 */
 function deleteImportBatch(batchId){
   const batch = (state.importBatches||[]).find(b=>b.id===batchId);
-  const n = state.sales.filter(s=>s.importBatch===batchId).length;
-  if(!n){ alert('这批导入已经没有对应的销售记录了（可能已经被删过）'); mutate(()=>{ state.importBatches=(state.importBatches||[]).filter(b=>b.id!==batchId); }); return; }
-  if(!confirm(`确定删除这批导入的 ${n} 笔销售记录吗？（${batch?batch.fileName:''}）此操作无法撤销。`)) return;
+  const isPurchase = batch && batch.type==='purchase';
+  const n = isPurchase ? state.purchases.filter(p=>p.importBatch===batchId).length : state.sales.filter(s=>s.importBatch===batchId).length;
+  const unit = isPurchase ? '张采购单' : '笔销售记录';
+  if(!n){ alert(`这批导入已经没有对应的${isPurchase?'采购单':'销售记录'}了（可能已经被删过）`); mutate(()=>{ state.importBatches=(state.importBatches||[]).filter(b=>b.id!==batchId); }); return; }
+  if(!confirm(`确定删除这批导入的 ${n} ${unit}吗？（${batch?batch.fileName:''}）此操作无法撤销。`)) return;
   mutate(()=>{
-    state.sales = state.sales.filter(s=>s.importBatch!==batchId);
+    if(isPurchase) state.purchases = state.purchases.filter(p=>p.importBatch!==batchId);
+    else state.sales = state.sales.filter(s=>s.importBatch!==batchId);
     state.importBatches = (state.importBatches||[]).filter(b=>b.id!==batchId);
   });
-  alert(`已删除这批的 ${n} 笔销售记录`);
+  alert(`已删除这批的 ${n} ${unit}`);
 }
 
 /* ---------------- 批量导入销售报告（CSV）---------------- */
@@ -2077,9 +2104,110 @@ function importSalesReport(fileInput){
         });
         const minDate = dates.length? dates.reduce((a,b)=>a<b?a:b) : todayStr();
         const maxDate = dates.length? dates.reduce((a,b)=>a>b?a:b) : todayStr();
-        state.importBatches.push({id:batchId, fileName:importedFileName, importedAt:Date.now(), count:toAdd.length, amount:batchAmount, dateRange: minDate===maxDate? minDate : `${minDate} ~ ${maxDate}`});
+        state.importBatches.push({id:batchId, type:'sales', fileName:importedFileName, importedAt:Date.now(), count:toAdd.length, amount:batchAmount, dateRange: minDate===maxDate? minDate : `${minDate} ~ ${maxDate}`});
       });
       alert(`已成功导入 ${toAdd.length} 笔销售记录${newProducts.length? `，自动新增了 ${newProducts.length} 个产品`:''}${errors.length? `，${errors.length} 行被跳过`:''}\n\n如果之后发现这批导入有问题，可以去"销售"页的"最近批量导入"里把这整批一次性删掉。`);
+    }catch(err){
+      alert('文件解析失败，请确认是不是用系统模板格式的CSV文件。\n' + err.message);
+    }
+    fileInput.value = '';
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+/* ---------------- 批量导入采购单（CSV）---------------- */
+/* 格式跟"采购"页导出的采购记录 CSV 一样（日期,公司,供应商,Invoice号,品名,类别,数量,单位,单价,总价,关联产品），
+   方便直接拿收据/发票整理成这个格式导入。同一张单（公司+供应商+Invoice号+日期都一样）的多个品项会自动合并成一张采购单，
+   供应商找不到会自动新建（跟手动填采购单一样），关联产品要跟"成本"页产品名一模一样，可以填多个、用"、"分开。 */
+function downloadPurchaseImportTemplate(){
+  const header = ['日期','公司','供应商','Invoice号','品名','类别(选填，默认食材)','数量','单位(选填)','单价(选填)','总价','关联产品(选填，可填多个用、分开)'];
+  const example = ['2026-08-03', COMPANIES[0], 'BILLION SHOPPING CENTRE', 'BLCH2621514007111', 'OLD GINGER (BENTONG)', '食材', '1.892', 'KG', '7.99', '15.12', ''];
+  downloadCSV('采购单导入模板.csv', header, [example]);
+}
+function importPurchasesReport(fileInput){
+  const file = fileInput.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    try{
+      const rows = parseCSV(String(e.target.result));
+      if(rows.length<2){ alert('文件里没有找到数据行，请确认是不是用模板格式填的'); fileInput.value=''; return; }
+      const dataRows = rows.slice(1);
+      const errors = [];
+      const groups = {}; // key -> {date, company, supplierName, invoiceNumber, items:[]}
+      const groupOrder = [];
+      dataRows.forEach((r,idx)=>{
+        const lineNo = idx+2;
+        if(!r.some(v=>(v||'').trim()!=='')) return;
+        const date = normalizeDateStr(r[0]);
+        const companyRaw = (r[1]||'').trim();
+        const supplierNameRaw = (r[2]||'').trim();
+        const invoiceNumber = (r[3]||'').trim();
+        const itemName = (r[4]||'').trim();
+        let category = (r[5]||'').trim();
+        const qty = Number(r[6]);
+        const unit = (r[7]||'').trim();
+        const unitPriceRaw = (r[8]||'').trim();
+        const totalRaw = (r[9]||'').trim();
+        const linkedRaw = (r[10]||'').trim();
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ errors.push(`第${lineNo}行：日期"${r[0]||''}"看不懂，请用 2026-08-01 这种格式`); return; }
+        if(!supplierNameRaw){ errors.push(`第${lineNo}行：缺少供应商名称`); return; }
+        if(!itemName){ errors.push(`第${lineNo}行：缺少品名`); return; }
+        if(!qty || qty<=0 || isNaN(qty)){ errors.push(`第${lineNo}行：数量不对`); return; }
+        if(!category || !PURCHASE_CATEGORIES.includes(category)){
+          if(category) errors.push(`第${lineNo}行：类别"${category}"不认得，先当"食材"处理`);
+          category = '食材';
+        }
+        let company = '';
+        if(companyRaw){
+          if(COMPANIES.includes(companyRaw)) company = companyRaw;
+          else errors.push(`第${lineNo}行：公司"${companyRaw}"不认得（可选：${COMPANIES.join('、')}），这行会先不分公司导入`);
+        }
+        let unitPrice = unitPriceRaw!=='' ? Number(unitPriceRaw) : NaN;
+        let totalCost = totalRaw!=='' ? Number(totalRaw) : NaN;
+        if(isNaN(totalCost) && !isNaN(unitPrice)) totalCost = Math.round(qty*unitPrice*100)/100;
+        if(isNaN(unitPrice) && !isNaN(totalCost) && qty) unitPrice = Math.round((totalCost/qty)*100)/100;
+        if(isNaN(totalCost)){ errors.push(`第${lineNo}行："单价"和"总价"至少要填一个`); return; }
+        const linkedNames = linkedRaw ? linkedRaw.split(/[、,;\/]/).map(s=>s.trim()).filter(Boolean) : [];
+        const productIds = [];
+        linkedNames.forEach(nm=>{
+          const p = state.products.find(x=>x.name.toLowerCase()===nm.toLowerCase());
+          if(p) productIds.push(p.id);
+          else errors.push(`第${lineNo}行：关联产品"${nm}"在"成本"页找不到，这个关联会先跳过`);
+        });
+        const key = [company, supplierNameRaw.toLowerCase(), invoiceNumber.toLowerCase(), date].join('|');
+        if(!groups[key]){
+          groups[key] = {date, company, supplierNameRaw, invoiceNumber, items:[]};
+          groupOrder.push(key);
+        }
+        groups[key].items.push({id:uid(), name:itemName, category, qty, unit, unitPrice: isNaN(unitPrice)?0:unitPrice, totalCost, productIds});
+      });
+      const purchaseGroups = groupOrder.map(k=>groups[k]).filter(g=>g.items.length);
+      if(purchaseGroups.length===0){ alert('没有成功解析到任何一笔采购：\n\n' + errors.join('\n')); fileInput.value=''; return; }
+      const totalItems = purchaseGroups.reduce((a,g)=>a+g.items.length,0);
+      let msg = `准备导入 ${purchaseGroups.length} 张采购单（共 ${totalItems} 项品项）`;
+      if(errors.length) msg += `\n\n另外有 ${errors.length} 处问题：\n\n` + errors.join('\n');
+      msg += '\n\n确定继续导入吗？';
+      if(!confirm(msg)){ fileInput.value=''; return; }
+      const batchId = uid();
+      const importedFileName = (file && file.name) || 'CSV导入';
+      mutate(()=>{
+        if(!state.importBatches) state.importBatches = [];
+        let batchAmount = 0;
+        const dates = [];
+        purchaseGroups.forEach(g=>{
+          const supplierId = findOrCreateSupplierId(g.supplierNameRaw);
+          const totalAmount = g.items.reduce((a,i)=>a+Number(i.totalCost||0),0);
+          state.purchases.push({id:uid(), date:g.date, supplierId, items:g.items, totalAmount, invoiceNumber:g.invoiceNumber, company:g.company, importBatch:batchId});
+          g.items.forEach(i=>learnIngredientLink(i.name, i.productIds, {unit:i.unit, unitPrice:i.unitPrice}));
+          batchAmount += totalAmount;
+          dates.push(g.date);
+        });
+        const minDate = dates.length? dates.reduce((a,b)=>a<b?a:b) : todayStr();
+        const maxDate = dates.length? dates.reduce((a,b)=>a>b?a:b) : todayStr();
+        state.importBatches.push({id:batchId, type:'purchase', fileName:importedFileName, importedAt:Date.now(), count:purchaseGroups.length, amount:batchAmount, dateRange: minDate===maxDate? minDate : `${minDate} ~ ${maxDate}`});
+      });
+      alert(`已成功导入 ${purchaseGroups.length} 张采购单（共 ${totalItems} 项）${errors.length? `，${errors.length} 处被跳过或先不分类`:''}\n\n如果之后发现这批导入有问题，可以去"采购"页的"最近批量导入"里把这整批一次性删掉。`);
     }catch(err){
       alert('文件解析失败，请确认是不是用系统模板格式的CSV文件。\n' + err.message);
     }
