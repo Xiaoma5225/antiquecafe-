@@ -965,6 +965,7 @@ let purCompany = COMPANIES[0];
 let editingPurchaseId = null;
 let payPayMethod = PAY_METHODS[0];
 let payPurchaseIds = [];
+let payHistoryFilterDate = '';
 
 function renderPurchase(){
   const el = document.getElementById('tab-purchase');
@@ -1171,22 +1172,37 @@ function renderPayment(){
     </div>
 
     <div class="card">
-      <h3>最近付款记录</h3>
-      ${state.payments.length? `<table>
+      <h3>付款记录</h3>
+      <div class="grid2" style="margin-bottom:10px">
+        <div><label>按日期查看</label><input type="date" id="payHistDate" value="${payHistoryFilterDate}" onchange="setPayHistoryFilterDate(this.value)"></div>
+        <div style="display:flex; align-items:flex-end;"><button class="btn-ghost" style="width:100%" onclick="setPayHistoryFilterDate('')">显示全部</button></div>
+      </div>
+      ${(()=>{
+        const filteredPayments = payHistoryFilterDate ? state.payments.filter(p=>p.date===payHistoryFilterDate) : state.payments;
+        const total = filteredPayments.reduce((a,p)=>a+Number(p.amount||0),0);
+        if(!filteredPayments.length) return `<div class="empty">${payHistoryFilterDate? '这天没有付款记录' : '还没有付款记录'}</div>`;
+        return `
+        <div class="muted" style="font-size:12.5px; margin-bottom:8px;">共 ${filteredPayments.length} 笔・合计 <b class="mono">RM${fmtPlain(total)}</b></div>
+        <table>
         <tr><th>日期</th><th>供应商</th><th class="num">金额</th><th></th></tr>
-        ${state.payments.slice().reverse().slice(0,5).map(pay=>{
+        ${filteredPayments.slice().reverse().map(pay=>{
           const pur = pay.purchaseId ? state.purchases.find(x=>x.id===pay.purchaseId) : null;
           return `<tr>
             <td class="muted">${pay.date}</td>
-            <td>${supplierName(pay.supplierId)}${pur&&pur.invoiceNumber?`<div class="muted" style="font-size:11px">Invoice #${pur.invoiceNumber}</div>`:''}${pay.payMethod?`<div class="muted" style="font-size:11px">${pay.payMethod}</div>`:''}</td>
+            <td>${supplierName(pay.supplierId)}${pur&&pur.invoiceNumber?`<div class="muted" style="font-size:11px">Invoice #${pur.invoiceNumber}</div>`:''}${pay.payMethod?`<div class="muted" style="font-size:11px">${pay.payMethod}</div>`:''}${pay.note?`<div class="muted" style="font-size:11px">${pay.note}</div>`:''}</td>
             <td class="num">${fmtPlain(pay.amount)}</td>
             <td><button class="btn-danger-text" onclick="deletePayment('${pay.id}')">删</button></td>
           </tr>`;
         }).join('')}
-      </table>` : `<div class="empty">还没有付款记录</div>`}
+        </table>`;
+      })()}
     </div>
   `;
   if(draft.paySupplier) onPaySupplierInput();
+}
+function setPayHistoryFilterDate(val){
+  payHistoryFilterDate = val;
+  renderPayment();
 }
 
 function renderPurchaseItemRows(){
