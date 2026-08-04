@@ -1147,6 +1147,30 @@ function renderPayment(){
     </div>
 
     <div class="card">
+      <h3>批量导入付款记录（CSV）</h3>
+      <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">格式跟"导出付款记录"一样：日期,供应商,Invoice号,金额,付款方式,备注。供应商没有会自动新建；Invoice号如果刚好对上系统里某张采购单会自动帮那张单挂上已付款，对不上就只是记在备注里，不影响这笔付款本身。每笔付款会自动生成一笔对应的"供应商付款"收支流水。</div>
+      <div class="grid2">
+        <button class="btn-ghost" onclick="downloadPaymentImportTemplate()">⬇ 下载CSV模板</button>
+        <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
+          ⬆ 上传付款记录
+          <input type="file" accept=".csv" style="display:none" onchange="importPaymentsReport(this)">
+        </label>
+      </div>
+      ${(state.importBatches||[]).filter(b=>b.type==='payment').length? `
+      <hr class="receipt-divider">
+      <div class="muted" style="font-size:12px; margin-bottom:8px;">最近批量导入（导错、导重复了可以整批删掉）</div>
+      ${(state.importBatches||[]).filter(b=>b.type==='payment').slice().reverse().map(b=>`
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--line, #eee);">
+          <div style="font-size:12.5px;">
+            <div>${b.fileName||'CSV导入'} <span class="muted">· ${b.dateRange||''}</span></div>
+            <div class="muted" style="font-size:11px;">${b.count} 笔付款・RM ${fmt(b.amount)}</div>
+          </div>
+          <button class="btn-danger-text" onclick="deleteImportBatch('${b.id}')">删除整批</button>
+        </div>`).join('')}
+      ` : ''}
+    </div>
+
+    <div class="card">
       <h3>最近付款记录</h3>
       ${state.payments.length? `<table>
         <tr><th>日期</th><th>供应商</th><th class="num">金额</th><th></th></tr>
@@ -1560,6 +1584,86 @@ function submitPayment(){
 function setPayPayMethod(val){
   payPayMethod = val;
   document.querySelectorAll('#payMethodGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
+}
+
+/* ---------------- 批量导入付款记录（CSV）---------------- */
+/* 格式跟"导出付款记录"一样：日期,供应商,Invoice号,金额,付款方式,备注。
+   供应商找不到会自动新建（跟采购导入一样）；Invoice号如果能在系统里找到同一供应商、一模一样号码的采购单，
+   就自动把这笔付款连去那张采购单（这样"欠供应商货款"才会正确扣掉）；找不到就当笼统还款，
+   原本填的号码会保留在备注里，不会不见。每笔都会照手动记账一样自动生成一笔"供应商付款"收支流水。 */
+function downloadPaymentImportTemplate(){
+  const header = ['日期','供应商','Invoice号(选填)','金额','付款方式(选填，默认银行转账)','备注(选填)'];
+  const example = ['2026-08-04','BCLC ENTERPRISE','20440','360','银行转账',''];
+  downloadCSV('付款记录导入模板.csv', header, [example]);
+}
+function importPaymentsReport(fileInput){
+  const file = fileInput.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    try{
+      const rows = parseCSV(String(e.target.result));
+      if(rows.length<2){ alert('文件里没有找到数据行，请确认是不是用模板格式填的'); fileInput.value=''; return; }
+      const dataRows = rows.slice(1);
+      const errors = [];
+      const toAdd = [];
+      dataRows.forEach((r,idx)=>{
+        const lineNo = idx+2;
+        if(!r.some(v=>(v||'').trim()!=='')) return;
+        const date = normalizeDateStr(r[0]);
+        const supplierNameRaw = (r[1]||'').trim();
+        const invoiceRefRaw = (r[2]||'').trim();
+        const amount = Number(r[3]);
+        const payMethodRaw = (r[4]||'').trim();
+        let note = (r[5]||'').trim();
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ errors.push(`第${lineNo}行：日期"${r[0]||''}"看不懂，请用 2026-08-01 这种格式`); return; }
+        if(!supplierNameRaw){ errors.push(`第${lineNo}行：缺少供应商名称`); return; }
+        if(!amount || amount<=0 || isNaN(amount)){ errors.push(`第${lineNo}行：金额不对`); return; }
+        let payMethod = '银行转账';
+        if(payMethodRaw){
+          if(PAY_METHODS.includes(payMethodRaw)) payMethod = payMethodRaw;
+          else errors.push(`第${lineNo}行：付款方式"${payMethodRaw}"不认得，先当"银行转账"处理`);
+        }
+        toAdd.push({date, supplierNameRaw, invoiceRefRaw, amount, payMethod, note});
+      });
+      if(toAdd.length===0){ alert('没有成功解析到任何一笔付款：\n\n' + errors.join('\n')); fileInput.value=''; return; }
+      let msg = `准备导入 ${toAdd.length} 笔付款记录`;
+      if(errors.length) msg += `\n\n另外有 ${errors.length} 处问题：\n\n` + errors.join('\n');
+      msg += '\n\n确定继续导入吗？';
+      if(!confirm(msg)){ fileInput.value=''; return; }
+      const batchId = uid();
+      const importedFileName = (file && file.name) || 'CSV导入';
+      mutate(()=>{
+        if(!state.importBatches) state.importBatches = [];
+        let batchAmount = 0;
+        const dates = [];
+        toAdd.forEach(item=>{
+          const supplierId = findOrCreateSupplierId(item.supplierNameRaw);
+          let purchaseId = null;
+          if(item.invoiceRefRaw){
+            const matches = state.purchases.filter(p=>p.supplierId===supplierId && (p.invoiceNumber||'').trim().toLowerCase()===item.invoiceRefRaw.toLowerCase());
+            if(matches.length===1) purchaseId = matches[0].id;
+            else item.note = item.note ? `${item.note} [参考:${item.invoiceRefRaw}]` : `[参考:${item.invoiceRefRaw}]`;
+          }
+          const pid = uid();
+          const invoicePur = purchaseId ? state.purchases.find(p=>p.id===purchaseId) : null;
+          state.payments.push({id:pid, date:item.date, supplierId, amount:item.amount, note:item.note, payMethod:item.payMethod, purchaseId, importBatch:batchId});
+          const invoiceNote = invoicePur ? ` · Invoice ${invoicePur.invoiceNumber||'(无号)'}` : '';
+          state.cashflow.push({id:uid(), date:item.date, type:'out', category:'供应商付款', amount:item.amount, payMethod:item.payMethod, note:`${supplierName(supplierId)}${invoiceNote}${item.note?' · '+item.note:''}`, auto:true, _paymentId:pid});
+          batchAmount += item.amount;
+          dates.push(item.date);
+        });
+        const minDate = dates.length? dates.reduce((a,b)=>a<b?a:b) : todayStr();
+        const maxDate = dates.length? dates.reduce((a,b)=>a>b?a:b) : todayStr();
+        state.importBatches.push({id:batchId, type:'payment', fileName:importedFileName, importedAt:Date.now(), count:toAdd.length, amount:batchAmount, dateRange: minDate===maxDate? minDate : `${minDate} ~ ${maxDate}`});
+      });
+      alert(`已成功导入 ${toAdd.length} 笔付款记录${errors.length? `，${errors.length} 处被跳过或先默认处理`:''}\n\n如果之后发现这批导入有问题，可以去"付款"页的"最近批量导入"里把这整批一次性删掉。`);
+    }catch(err){
+      alert('文件解析失败，请确认是不是用系统模板格式的CSV文件。\n' + err.message);
+    }
+    fileInput.value = '';
+  };
+  reader.readAsText(file, 'UTF-8');
 }
 
 /* ================= 产品成本 Tab ================= */
@@ -1977,14 +2081,24 @@ function deleteSale(id){
    这批当时自动新增的产品不会被删除（怕别的销售记录也在用），只是不会再被用到而已。 */
 function deleteImportBatch(batchId){
   const batch = (state.importBatches||[]).find(b=>b.id===batchId);
-  const isPurchase = batch && batch.type==='purchase';
-  const n = isPurchase ? state.purchases.filter(p=>p.importBatch===batchId).length : state.sales.filter(s=>s.importBatch===batchId).length;
-  const unit = isPurchase ? '张采购单' : '笔销售记录';
-  if(!n){ alert(`这批导入已经没有对应的${isPurchase?'采购单':'销售记录'}了（可能已经被删过）`); mutate(()=>{ state.importBatches=(state.importBatches||[]).filter(b=>b.id!==batchId); }); return; }
+  const type = batch ? (batch.type||'sales') : 'sales';
+  const n = type==='purchase' ? state.purchases.filter(p=>p.importBatch===batchId).length
+    : type==='payment' ? state.payments.filter(p=>p.importBatch===batchId).length
+    : state.sales.filter(s=>s.importBatch===batchId).length;
+  const unit = type==='purchase' ? '张采购单' : type==='payment' ? '笔付款记录' : '笔销售记录';
+  const noun = type==='purchase' ? '采购单' : type==='payment' ? '付款记录' : '销售记录';
+  if(!n){ alert(`这批导入已经没有对应的${noun}了（可能已经被删过）`); mutate(()=>{ state.importBatches=(state.importBatches||[]).filter(b=>b.id!==batchId); }); return; }
   if(!confirm(`确定删除这批导入的 ${n} ${unit}吗？（${batch?batch.fileName:''}）此操作无法撤销。`)) return;
   mutate(()=>{
-    if(isPurchase) state.purchases = state.purchases.filter(p=>p.importBatch!==batchId);
-    else state.sales = state.sales.filter(s=>s.importBatch!==batchId);
+    if(type==='purchase'){
+      state.purchases = state.purchases.filter(p=>p.importBatch!==batchId);
+    } else if(type==='payment'){
+      const removedIds = new Set(state.payments.filter(p=>p.importBatch===batchId).map(p=>p.id));
+      state.payments = state.payments.filter(p=>p.importBatch!==batchId);
+      state.cashflow = state.cashflow.filter(c=>!(c.auto && c._paymentId && removedIds.has(c._paymentId)));
+    } else {
+      state.sales = state.sales.filter(s=>s.importBatch!==batchId);
+    }
     state.importBatches = (state.importBatches||[]).filter(b=>b.id!==batchId);
   });
   alert(`已删除这批的 ${n} ${unit}`);
