@@ -1011,8 +1011,8 @@ function renderPurchase(){
       <div class="grid2">
         <button class="btn-ghost" onclick="downloadPurchaseImportTemplate()">⬇ 下载CSV模板</button>
         <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
-          ⬆ 上传采购单
-          <input type="file" accept=".csv" style="display:none" onchange="importPurchasesReport(this)">
+          ⬆ 上传采购单（可多选）
+          <input type="file" accept=".csv" multiple style="display:none" onchange="importPurchasesReport(this)">
         </label>
       </div>
       ${(state.importBatches||[]).filter(b=>b.type==='purchase').length? `
@@ -1153,8 +1153,8 @@ function renderPayment(){
       <div class="grid2">
         <button class="btn-ghost" onclick="downloadPaymentImportTemplate()">⬇ 下载CSV模板</button>
         <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
-          ⬆ 上传付款记录
-          <input type="file" accept=".csv" style="display:none" onchange="importPaymentsReport(this)">
+          ⬆ 上传付款记录（可多选）
+          <input type="file" accept=".csv" multiple style="display:none" onchange="importPaymentsReport(this)">
         </label>
       </div>
       ${(state.importBatches||[]).filter(b=>b.type==='payment').length? `
@@ -1617,14 +1617,18 @@ function downloadPaymentImportTemplate(){
   downloadCSV('付款记录导入模板.csv', header, [example1, example2, example3]);
 }
 function importPaymentsReport(fileInput){
-  const file = fileInput.files[0];
-  if(!file) return;
-  const reader = new FileReader();
-  reader.onload = (e)=>{
+  const files = fileInput.files;
+  if(!files || !files.length) return;
+  readFilesAsText(files).then(fileTexts=>{
     try{
-      const rows = parseCSV(String(e.target.result));
-      if(rows.length<2){ alert('文件里没有找到数据行，请确认是不是用模板格式填的'); fileInput.value=''; return; }
-      const dataRows = rows.slice(1);
+      const allRows = [];
+      fileTexts.forEach(ft=>{
+        const rows = parseCSV(ft.text);
+        if(rows.length<2) return;
+        rows.slice(1).forEach((r,idx)=>allRows.push({r, tag:ft.name, lineNo:idx+2}));
+      });
+      if(allRows.length===0){ alert('这些文件里都没有找到数据行，请确认是不是用模板格式填的'); fileInput.value=''; return; }
+      const multi = fileTexts.length>1;
       const errors = [];
       const toAdd = [];
       /* Invoice号 那格支持：
@@ -1646,8 +1650,8 @@ function importPaymentsReport(fileInput){
         const year = paymentDateStr.slice(0,4);
         return `${year}-${month}-${day}`;
       }
-      dataRows.forEach((r,idx)=>{
-        const lineNo = idx+2;
+      allRows.forEach(({r, tag, lineNo})=>{
+        const loc = multi ? `${tag} 第${lineNo}行` : `第${lineNo}行`;
         if(!r.some(v=>(v||'').trim()!=='')) return;
         const date = normalizeDateStr(r[0]);
         const supplierNameRaw = (r[1]||'').trim();
@@ -1656,13 +1660,13 @@ function importPaymentsReport(fileInput){
         const amount = amountRaw!=='' ? Number(amountRaw) : NaN;
         const payMethodRaw = (r[4]||'').trim();
         const baseNote = (r[5]||'').trim();
-        if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ errors.push(`第${lineNo}行：日期"${r[0]||''}"看不懂，请用 2026-08-01 这种格式`); return; }
-        if(!supplierNameRaw){ errors.push(`第${lineNo}行：缺少供应商名称`); return; }
-        if(amountRaw!=='' && (isNaN(amount) || amount<=0)){ errors.push(`第${lineNo}行：金额不对`); return; }
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ errors.push(`${loc}：日期"${r[0]||''}"看不懂，请用 2026-08-01 这种格式`); return; }
+        if(!supplierNameRaw){ errors.push(`${loc}：缺少供应商名称`); return; }
+        if(amountRaw!=='' && (isNaN(amount) || amount<=0)){ errors.push(`${loc}：金额不对`); return; }
         let payMethod = '银行转账';
         if(payMethodRaw){
           if(PAY_METHODS.includes(payMethodRaw)) payMethod = payMethodRaw;
-          else errors.push(`第${lineNo}行：付款方式"${payMethodRaw}"不认得，先当"银行转账"处理`);
+          else errors.push(`${loc}：付款方式"${payMethodRaw}"不认得，先当"银行转账"处理`);
         }
         const supplierMatch = state.suppliers.find(s=>s.name.toLowerCase()===supplierNameRaw.toLowerCase());
         const refs = invoiceRefRaw ? invoiceRefRaw.split(/[、,;]/).map(s=>s.trim()).filter(Boolean) : [];
@@ -1691,7 +1695,7 @@ function importPaymentsReport(fileInput){
           if(refs.length===1 && matchedPurchaseIds.length===1){
             total = Math.round(purchaseOutstanding(matchedPurchaseIds[0])*100)/100;
           } else {
-            errors.push(`第${lineNo}行：填了多个参考(${refs.join('、')||'无'})但没填总额，没办法自动分配，这行先跳过`);
+            errors.push(`${loc}：填了多个参考(${refs.join('、')||'无'})但没填总额，没办法自动分配，这行先跳过`);
             return;
           }
         }
@@ -1713,12 +1717,12 @@ function importPaymentsReport(fileInput){
         }
       });
       if(toAdd.length===0){ alert('没有成功解析到任何一笔付款：\n\n' + errors.join('\n')); fileInput.value=''; return; }
-      let msg = `准备导入 ${toAdd.length} 笔付款记录`;
+      let msg = multi ? `准备从 ${fileTexts.length} 个文件里导入 ${toAdd.length} 笔付款记录` : `准备导入 ${toAdd.length} 笔付款记录`;
       if(errors.length) msg += `\n\n另外有 ${errors.length} 处问题：\n\n` + errors.join('\n');
       msg += '\n\n确定继续导入吗？';
       if(!confirm(msg)){ fileInput.value=''; return; }
       const batchId = uid();
-      const importedFileName = (file && file.name) || 'CSV导入';
+      const importedFileName = multi ? `${fileTexts.length}个文件（${fileTexts.map(f=>f.name).join('、')}）` : (fileTexts[0] ? fileTexts[0].name : 'CSV导入');
       mutate(()=>{
         if(!state.importBatches) state.importBatches = [];
         let batchAmount = 0;
@@ -1742,8 +1746,10 @@ function importPaymentsReport(fileInput){
       alert('文件解析失败，请确认是不是用系统模板格式的CSV文件。\n' + err.message);
     }
     fileInput.value = '';
-  };
-  reader.readAsText(file, 'UTF-8');
+  }).catch(err=>{
+    alert('文件读取失败：' + err.message);
+    fileInput.value = '';
+  });
 }
 
 /* ================= 产品成本 Tab ================= */
@@ -2038,8 +2044,8 @@ function renderSales(){
       <div class="grid2">
         <button class="btn-ghost" onclick="downloadSalesImportTemplate()">⬇ 下载CSV模板</button>
         <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
-          ⬆ 上传销售报告
-          <input type="file" accept=".csv" style="display:none" onchange="importSalesReport(this)">
+          ⬆ 上传销售报告（可多选）
+          <input type="file" accept=".csv" multiple style="display:none" onchange="importSalesReport(this)">
         </label>
       </div>
       ${(state.importBatches||[]).filter(b=>!b.type||b.type==='sales').length? `
@@ -2213,6 +2219,16 @@ function parseCSV(text){
   if(field!=='' || row.length){ row.push(field); rows.push(row); }
   return rows.filter(r=>!(r.length===1 && r[0].trim()===''));
 }
+/* 一次选多个 CSV 文件一起读，全部读完再一起处理（批量导入销售/采购/付款都共用这个）。
+   任何一个文件读取失败都会整个中断，避免读到一半、只导入一部分文件的数据。 */
+function readFilesAsText(fileList){
+  return Promise.all(Array.from(fileList).map(file=>new Promise((resolve,reject)=>{
+    const reader = new FileReader();
+    reader.onload = e=>resolve({name:file.name, text:String(e.target.result)});
+    reader.onerror = ()=>reject(new Error('读取文件失败：'+file.name));
+    reader.readAsText(file, 'UTF-8');
+  })));
+}
 /* 尽量把常见几种日期写法都转成系统统一用的 YYYY-MM-DD */
 function normalizeDateStr(str){
   const s = (str||'').trim();
@@ -2225,20 +2241,24 @@ function normalizeDateStr(str){
   return s;
 }
 function importSalesReport(fileInput){
-  const file = fileInput.files[0];
-  if(!file) return;
-  const reader = new FileReader();
-  reader.onload = (e)=>{
+  const files = fileInput.files;
+  if(!files || !files.length) return;
+  readFilesAsText(files).then(fileTexts=>{
     try{
-      const rows = parseCSV(String(e.target.result));
-      if(rows.length<2){ alert('文件里没有找到数据行，请确认是不是用模板格式填的'); fileInput.value=''; return; }
-      const dataRows = rows.slice(1); // 跳过表头
+      const allRows = []; // {r, tag, lineNo}
+      fileTexts.forEach(ft=>{
+        const rows = parseCSV(ft.text);
+        if(rows.length<2) return; // 这个文件没有数据行，跳过（多文件时不算致命错误）
+        rows.slice(1).forEach((r,idx)=>allRows.push({r, tag:ft.name, lineNo:idx+2}));
+      });
+      if(allRows.length===0){ alert('这些文件里都没有找到数据行，请确认是不是用模板格式填的'); fileInput.value=''; return; }
       const toAdd = [];
       const errors = [];
       const newProducts = []; // 本次导入需要自动新增的产品（去重）
       const newProductByKey = {}; // key: 产品名小写 -> 待新增的产品对象
-      dataRows.forEach((r,idx)=>{
-        const lineNo = idx+2;
+      const multi = fileTexts.length>1;
+      allRows.forEach(({r, tag, lineNo})=>{
+        const loc = multi ? `${tag} 第${lineNo}行` : `第${lineNo}行`;
         if(!r.some(v=>(v||'').trim()!=='')) return; // 空行跳过
         const date = normalizeDateStr(r[0]);
         const productName = (r[1]||'').trim();
@@ -2246,8 +2266,8 @@ function importSalesReport(fileInput){
         const priceRaw = (r[3]||'').trim();
         const payMethodRaw = (r[4]||'').trim();
         const companyRaw = (r[5]||'').trim();
-        if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ errors.push(`第${lineNo}行：日期"${r[0]||''}"看不懂，请用 2026-08-01 这种格式`); return; }
-        if(!productName){ errors.push(`第${lineNo}行：缺少产品名称`); return; }
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ errors.push(`${loc}：日期"${r[0]||''}"看不懂，请用 2026-08-01 这种格式`); return; }
+        if(!productName){ errors.push(`${loc}：缺少产品名称`); return; }
         let product = state.products.find(p=>p.name.toLowerCase()===productName.toLowerCase());
         if(!product){
           // 找不到就自动建一个新产品（无成本项，售价用这笔的单价，之后要自己去"成本"页补充食材成本）
@@ -2259,26 +2279,26 @@ function importSalesReport(fileInput){
             newProducts.push(product);
           }
         }
-        if(!qty || qty<=0 || isNaN(qty)){ errors.push(`第${lineNo}行：数量不对`); return; }
+        if(!qty || qty<=0 || isNaN(qty)){ errors.push(`${loc}：数量不对`); return; }
         const price = priceRaw!=='' ? Number(priceRaw) : Number(product.price||0);
-        if(isNaN(price)){ errors.push(`第${lineNo}行：单价不对`); return; }
+        if(isNaN(price)){ errors.push(`${loc}：单价不对`); return; }
         if(product._isNew && !product._priceSet && price>0){ product.price = price; product._priceSet = true; }
         const payMethod = payMethodRaw || '其他';
         let company = '';
         if(companyRaw){
           if(COMPANIES.includes(companyRaw)) company = companyRaw;
-          else errors.push(`第${lineNo}行：公司"${companyRaw}"不认得（可选：${COMPANIES.join('、')}），这行会先不分公司导入`);
+          else errors.push(`${loc}：公司"${companyRaw}"不认得（可选：${COMPANIES.join('、')}），这行会先不分公司导入`);
         }
         toAdd.push({date, product, qty, price, payMethod, company});
       });
       if(toAdd.length===0){ alert('没有成功解析到任何一笔销售记录：\n\n' + errors.join('\n')); fileInput.value=''; return; }
-      let msg = `准备导入 ${toAdd.length} 笔销售记录`;
+      let msg = multi ? `准备从 ${fileTexts.length} 个文件里导入 ${toAdd.length} 笔销售记录` : `准备导入 ${toAdd.length} 笔销售记录`;
       if(newProducts.length) msg += `\n\n其中 ${newProducts.length} 个产品在"成本"页找不到，会自动新增（暂无成本项，售价用导入数据里的单价，之后请自己去"成本"页补充食材成本）：\n` + newProducts.map(p=>`${p.name}（¥${fmt(p.price)}）`).join('、');
       if(errors.length) msg += `\n\n另外有 ${errors.length} 行有问题：\n\n` + errors.join('\n') + '\n\n这些行不会被导入。';
       msg += '\n\n确定继续导入吗？';
       if(!confirm(msg)){ fileInput.value=''; return; }
       const batchId = uid();
-      const importedFileName = (file && file.name) || 'CSV导入';
+      const importedFileName = multi ? `${fileTexts.length}个文件（${fileTexts.map(f=>f.name).join('、')}）` : (fileTexts[0] ? fileTexts[0].name : 'CSV导入');
       mutate(()=>{
         if(!state.importBatches) state.importBatches = [];
         newProducts.forEach(np=>{
@@ -2305,8 +2325,10 @@ function importSalesReport(fileInput){
       alert('文件解析失败，请确认是不是用系统模板格式的CSV文件。\n' + err.message);
     }
     fileInput.value = '';
-  };
-  reader.readAsText(file, 'UTF-8');
+  }).catch(err=>{
+    alert('文件读取失败：' + err.message);
+    fileInput.value = '';
+  });
 }
 
 /* ---------------- 批量导入采购单（CSV）---------------- */
@@ -2319,19 +2341,23 @@ function downloadPurchaseImportTemplate(){
   downloadCSV('采购单导入模板.csv', header, [example]);
 }
 function importPurchasesReport(fileInput){
-  const file = fileInput.files[0];
-  if(!file) return;
-  const reader = new FileReader();
-  reader.onload = (e)=>{
+  const files = fileInput.files;
+  if(!files || !files.length) return;
+  readFilesAsText(files).then(fileTexts=>{
     try{
-      const rows = parseCSV(String(e.target.result));
-      if(rows.length<2){ alert('文件里没有找到数据行，请确认是不是用模板格式填的'); fileInput.value=''; return; }
-      const dataRows = rows.slice(1);
+      const allRows = [];
+      fileTexts.forEach(ft=>{
+        const rows = parseCSV(ft.text);
+        if(rows.length<2) return;
+        rows.slice(1).forEach((r,idx)=>allRows.push({r, tag:ft.name, lineNo:idx+2}));
+      });
+      if(allRows.length===0){ alert('这些文件里都没有找到数据行，请确认是不是用模板格式填的'); fileInput.value=''; return; }
+      const multi = fileTexts.length>1;
       const errors = [];
       const groups = {}; // key -> {date, company, supplierName, invoiceNumber, items:[]}
       const groupOrder = [];
-      dataRows.forEach((r,idx)=>{
-        const lineNo = idx+2;
+      allRows.forEach(({r, tag, lineNo})=>{
+        const loc = multi ? `${tag} 第${lineNo}行` : `第${lineNo}行`;
         if(!r.some(v=>(v||'').trim()!=='')) return;
         const date = normalizeDateStr(r[0]);
         const companyRaw = (r[1]||'').trim();
@@ -2344,30 +2370,30 @@ function importPurchasesReport(fileInput){
         const unitPriceRaw = (r[8]||'').trim();
         const totalRaw = (r[9]||'').trim();
         const linkedRaw = (r[10]||'').trim();
-        if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ errors.push(`第${lineNo}行：日期"${r[0]||''}"看不懂，请用 2026-08-01 这种格式`); return; }
-        if(!supplierNameRaw){ errors.push(`第${lineNo}行：缺少供应商名称`); return; }
-        if(!itemName){ errors.push(`第${lineNo}行：缺少品名`); return; }
-        if(!qty || qty<=0 || isNaN(qty)){ errors.push(`第${lineNo}行：数量不对`); return; }
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ errors.push(`${loc}：日期"${r[0]||''}"看不懂，请用 2026-08-01 这种格式`); return; }
+        if(!supplierNameRaw){ errors.push(`${loc}：缺少供应商名称`); return; }
+        if(!itemName){ errors.push(`${loc}：缺少品名`); return; }
+        if(!qty || qty<=0 || isNaN(qty)){ errors.push(`${loc}：数量不对`); return; }
         if(!category || !PURCHASE_CATEGORIES.includes(category)){
-          if(category) errors.push(`第${lineNo}行：类别"${category}"不认得，先当"食材"处理`);
+          if(category) errors.push(`${loc}：类别"${category}"不认得，先当"食材"处理`);
           category = '食材';
         }
         let company = '';
         if(companyRaw){
           if(COMPANIES.includes(companyRaw)) company = companyRaw;
-          else errors.push(`第${lineNo}行：公司"${companyRaw}"不认得（可选：${COMPANIES.join('、')}），这行会先不分公司导入`);
+          else errors.push(`${loc}：公司"${companyRaw}"不认得（可选：${COMPANIES.join('、')}），这行会先不分公司导入`);
         }
         let unitPrice = unitPriceRaw!=='' ? Number(unitPriceRaw) : NaN;
         let totalCost = totalRaw!=='' ? Number(totalRaw) : NaN;
         if(isNaN(totalCost) && !isNaN(unitPrice)) totalCost = Math.round(qty*unitPrice*100)/100;
         if(isNaN(unitPrice) && !isNaN(totalCost) && qty) unitPrice = Math.round((totalCost/qty)*100)/100;
-        if(isNaN(totalCost)){ errors.push(`第${lineNo}行："单价"和"总价"至少要填一个`); return; }
+        if(isNaN(totalCost)){ errors.push(`${loc}："单价"和"总价"至少要填一个`); return; }
         const linkedNames = linkedRaw ? linkedRaw.split(/[、,;\/]/).map(s=>s.trim()).filter(Boolean) : [];
         const productIds = [];
         linkedNames.forEach(nm=>{
           const p = state.products.find(x=>x.name.toLowerCase()===nm.toLowerCase());
           if(p) productIds.push(p.id);
-          else errors.push(`第${lineNo}行：关联产品"${nm}"在"成本"页找不到，这个关联会先跳过`);
+          else errors.push(`${loc}：关联产品"${nm}"在"成本"页找不到，这个关联会先跳过`);
         });
         const key = [company, supplierNameRaw.toLowerCase(), invoiceNumber.toLowerCase(), date].join('|');
         if(!groups[key]){
@@ -2379,12 +2405,12 @@ function importPurchasesReport(fileInput){
       const purchaseGroups = groupOrder.map(k=>groups[k]).filter(g=>g.items.length);
       if(purchaseGroups.length===0){ alert('没有成功解析到任何一笔采购：\n\n' + errors.join('\n')); fileInput.value=''; return; }
       const totalItems = purchaseGroups.reduce((a,g)=>a+g.items.length,0);
-      let msg = `准备导入 ${purchaseGroups.length} 张采购单（共 ${totalItems} 项品项）`;
+      let msg = multi ? `准备从 ${fileTexts.length} 个文件里导入 ${purchaseGroups.length} 张采购单（共 ${totalItems} 项品项）` : `准备导入 ${purchaseGroups.length} 张采购单（共 ${totalItems} 项品项）`;
       if(errors.length) msg += `\n\n另外有 ${errors.length} 处问题：\n\n` + errors.join('\n');
       msg += '\n\n确定继续导入吗？';
       if(!confirm(msg)){ fileInput.value=''; return; }
       const batchId = uid();
-      const importedFileName = (file && file.name) || 'CSV导入';
+      const importedFileName = multi ? `${fileTexts.length}个文件（${fileTexts.map(f=>f.name).join('、')}）` : (fileTexts[0] ? fileTexts[0].name : 'CSV导入');
       mutate(()=>{
         if(!state.importBatches) state.importBatches = [];
         let batchAmount = 0;
@@ -2406,8 +2432,10 @@ function importPurchasesReport(fileInput){
       alert('文件解析失败，请确认是不是用系统模板格式的CSV文件。\n' + err.message);
     }
     fileInput.value = '';
-  };
-  reader.readAsText(file, 'UTF-8');
+  }).catch(err=>{
+    alert('文件读取失败：' + err.message);
+    fileInput.value = '';
+  });
 }
 
 /* ================= 收支 Tab ================= */
