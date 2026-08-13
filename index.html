@@ -287,6 +287,8 @@ let state = {
 let loaded = false;
 let recentActivityFilterDate = '';
 let overviewMonthFilter = '';
+let overviewDateFilter = '';
+let overviewViewMode = 'month'; // 'month' 或 'day'
 
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function todayStr(){ return new Date().toISOString().slice(0,10); }
@@ -334,12 +336,12 @@ function vizLegend(items){
    不改这一步，程序会自动只用本机存储（不需要登录），不影响正常使用。
 */
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.firebasestorage.app",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyD9tmObAp5KeuBu3iQ359fHYqEv4d8RSCM",
+  authDomain: "antique-cafe-accon.firebaseapp.com",
+  projectId: "antique-cafe-accon",
+  storageBucket: "antique-cafe-accon.firebasestorage.app",
+  messagingSenderId: "321680945985",
+  appId: "1:321680945985:web:a21e369da929045cc0a7c0"
 };
 const cloudConfigured = firebaseConfig.apiKey && firebaseConfig.apiKey !== "YOUR_API_KEY";
 let cloudDocRef = null;
@@ -743,11 +745,18 @@ function productTotalMethodBreakdown(productId){
 /* 总额法产品的成本在"采购发生时"就认列（而不是按销售分摊），
    用于总览/销售页统计某月食材成本时补回这部分金额，company 可选，用来按公司过滤 */
 function monthTotalMethodPurchaseCost(mk, company){
+  return totalMethodPurchaseCost(d=>monthKey(d)===mk, company);
+}
+/* 跟上面算法一样，但按单一日期而不是整个月过滤（给总览页"按日期查看"用） */
+function dayTotalMethodPurchaseCost(dateStr, company){
+  return totalMethodPurchaseCost(d=>d===dateStr, company);
+}
+function totalMethodPurchaseCost(dateMatchFn, company){
   const totalIds = new Set(state.products.filter(p=>p.costMethod==='total').map(p=>p.id));
   if(totalIds.size===0) return 0;
   let total = 0;
   state.purchases.forEach(pu=>{
-    if(monthKey(pu.date)!==mk) return;
+    if(!dateMatchFn(pu.date)) return;
     if(company && pu.company!==company) return;
     (pu.items||[]).forEach(item=>{
       if(purchaseItemProductIds(item).some(id=>totalIds.has(id))) total += Number(item.totalCost||0);
@@ -867,10 +876,15 @@ function renderCashStrip(){
 function renderOverview(){
   const el = document.getElementById('tab-overview');
   const bal = cashBalance();
+  const isDayMode = overviewViewMode==='day';
   const mk = overviewMonthFilter || monthKey(todayKey());
-  const monthSales = state.sales.filter(s=>monthKey(s.date)===mk);
+  const selDate = overviewDateFilter || todayKey();
+  const periodLabel = isDayMode ? selDate : mk;
+  const monthSales = isDayMode
+    ? state.sales.filter(s=>s.date===selDate)
+    : state.sales.filter(s=>monthKey(s.date)===mk);
   const monthRevenue = monthSales.reduce((a,s)=>a+Number(s.amount||0),0);
-  const monthCost = monthSales.reduce((a,s)=>a+Number(s.cost||0),0) + monthTotalMethodPurchaseCost(mk);
+  const monthCost = monthSales.reduce((a,s)=>a+Number(s.cost||0),0) + (isDayMode ? dayTotalMethodPurchaseCost(selDate) : monthTotalMethodPurchaseCost(mk));
   const monthProfit = monthRevenue - monthCost;
   const marginPct = monthRevenue>0 ? (monthProfit/monthRevenue*100).toFixed(1) : '0.0';
 
@@ -884,10 +898,19 @@ function renderOverview(){
 
   el.innerHTML = `
     <div class="card">
-      <h3>经营概况 <span class="n">${mk}</span></h3>
+      <h3>经营概况 <span class="n">${periodLabel}</span></h3>
+      <div class="btn-group" style="margin-bottom:10px">
+        <button type="button" class="btn-toggle ${!isDayMode?'active':''}" onclick="setOverviewMode('month')">按月</button>
+        <button type="button" class="btn-toggle ${isDayMode?'active':''}" onclick="setOverviewMode('day')">按日期</button>
+      </div>
       <div class="grid2" style="margin-bottom:10px">
-        <div><label>选择月份</label><input type="month" id="overviewMonthPick" value="${mk}" onchange="setOverviewMonth(this.value)"></div>
-        <div style="display:flex; align-items:flex-end;"><button class="btn-ghost" style="width:100%" onclick="setOverviewMonth('')">回到本月</button></div>
+        ${isDayMode ? `
+          <div><label>选择日期</label><input type="date" id="overviewDatePick" value="${selDate}" onchange="setOverviewDate(this.value)"></div>
+          <div style="display:flex; align-items:flex-end;"><button class="btn-ghost" style="width:100%" onclick="setOverviewDate('')">回到今天</button></div>
+        ` : `
+          <div><label>选择月份</label><input type="month" id="overviewMonthPick" value="${mk}" onchange="setOverviewMonth(this.value)"></div>
+          <div style="display:flex; align-items:flex-end;"><button class="btn-ghost" style="width:100%" onclick="setOverviewMonth('')">回到本月</button></div>
+        `}
       </div>
       ${monthRevenue>0 ? `
         ${vizLegend([{color:'var(--rust)',label:'食材成本'},{color:'var(--green)',label:'毛利润'}])}
@@ -902,13 +925,13 @@ function renderOverview(){
     </div>
 
     <div class="card">
-      <h3>经营概况 <span class="n">${mk} · 按公司</span></h3>
+      <h3>经营概况 <span class="n">${periodLabel} · 按公司</span></h3>
       <table>
         <tr><th>公司</th><th class="num">销售额</th><th class="num">成本</th><th class="num">毛利</th></tr>
         ${COMPANIES.map(c=>{
           const cs = monthSales.filter(s=>s.company===c);
           const rev = cs.reduce((a,s)=>a+Number(s.amount||0),0);
-          const cost = cs.reduce((a,s)=>a+Number(s.cost||0),0) + monthTotalMethodPurchaseCost(mk, c);
+          const cost = cs.reduce((a,s)=>a+Number(s.cost||0),0) + (isDayMode ? dayTotalMethodPurchaseCost(selDate, c) : monthTotalMethodPurchaseCost(mk, c));
           return `<tr><td>${c}</td><td class="num">${fmtPlain(rev)}</td><td class="num">${fmtPlain(cost)}</td><td class="num">${fmtPlain(rev-cost)}</td></tr>`;
         }).join('')}
       </table>
@@ -963,6 +986,14 @@ function setRecentActivityFilter(val){
 }
 function setOverviewMonth(val){
   overviewMonthFilter = val;
+  renderOverview();
+}
+function setOverviewDate(val){
+  overviewDateFilter = val;
+  renderOverview();
+}
+function setOverviewMode(mode){
+  overviewViewMode = mode;
   renderOverview();
 }
 
