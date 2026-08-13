@@ -167,6 +167,25 @@
 
   .subtle-form summary{cursor:pointer; color:var(--green); font-size:13px; font-weight:600; padding:4px 0;}
 
+  .picker-field{
+    width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px;
+    background:#FFFDF9; color:var(--ink); font-size:14.5px; cursor:pointer;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .picker-popup{
+    position:absolute; z-index:15; margin-top:6px; background:var(--paper);
+    border:1px solid var(--border); border-radius:12px; padding:12px;
+    box-shadow:0 6px 24px rgba(43,38,32,0.18); width:260px; max-width:80vw;
+  }
+  .picker-nav{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; font-weight:600; font-size:14px;}
+  .picker-nav button{background:none; border:none; font-size:18px; color:var(--green); padding:2px 10px; cursor:pointer;}
+  .picker-grid.month-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:6px;}
+  .picker-grid.month-grid button{padding:8px 0; font-size:13px;}
+  .picker-grid.day-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:4px; text-align:center;}
+  .picker-grid.day-grid .dow{font-size:11px; color:var(--muted); padding:2px 0;}
+  .picker-grid.day-grid button{padding:6px 0; font-size:12.5px; border:none; background:none; border-radius:6px; cursor:pointer; color:var(--ink);}
+  .picker-grid.day-grid button.active{background:var(--green); color:#fff; font-weight:600;}
+
   @media (min-width:820px){
     body{padding-bottom:0;}
     .layout{display:flex; flex-direction:column; max-width:1080px; margin:0 auto;}
@@ -289,6 +308,9 @@ let recentActivityFilterDate = '';
 let overviewMonthFilter = '';
 let overviewDateFilter = '';
 let overviewViewMode = 'month'; // 'month' 或 'day'
+let overviewPickerOpen = false;
+let overviewPickerYear = null;
+let overviewPickerMonth = null;
 
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function todayStr(){ return new Date().toISOString().slice(0,10); }
@@ -905,10 +927,18 @@ function renderOverview(){
       </div>
       <div class="grid2" style="margin-bottom:10px">
         ${isDayMode ? `
-          <div><label>选择日期</label><input type="date" id="overviewDatePick" value="${selDate}" onchange="setOverviewDate(this.value)"></div>
+          <div style="position:relative;">
+            <label>选择日期</label>
+            <div class="picker-field" onclick="toggleOverviewPicker('day')"><span>${selDate}</span><span class="muted">▾</span></div>
+            ${overviewPickerOpen ? renderOverviewPickerPopup('day', mk, selDate) : ''}
+          </div>
           <div style="display:flex; align-items:flex-end;"><button class="btn-ghost" style="width:100%" onclick="setOverviewDate('')">回到今天</button></div>
         ` : `
-          <div><label>选择月份</label><input type="month" id="overviewMonthPick" value="${mk}" onchange="setOverviewMonth(this.value)"></div>
+          <div style="position:relative;">
+            <label>选择月份</label>
+            <div class="picker-field" onclick="toggleOverviewPicker('month')"><span>${mk}</span><span class="muted">▾</span></div>
+            ${overviewPickerOpen ? renderOverviewPickerPopup('month', mk, selDate) : ''}
+          </div>
           <div style="display:flex; align-items:flex-end;"><button class="btn-ghost" style="width:100%" onclick="setOverviewMonth('')">回到本月</button></div>
         `}
       </div>
@@ -986,15 +1016,90 @@ function setRecentActivityFilter(val){
 }
 function setOverviewMonth(val){
   overviewMonthFilter = val;
+  overviewPickerOpen = false;
   renderOverview();
 }
 function setOverviewDate(val){
   overviewDateFilter = val;
+  overviewPickerOpen = false;
   renderOverview();
 }
 function setOverviewMode(mode){
   overviewViewMode = mode;
+  overviewPickerOpen = false;
   renderOverview();
+}
+function pad2(n){ return String(n).padStart(2,'0'); }
+/* 点一下"选择月份/选择日期"那个框，弹出一个小面板，里面可以按年份翻页、
+   按月模式选月份、按日模式选具体某一天，选完自动收起来。 */
+function toggleOverviewPicker(mode){
+  if(overviewPickerOpen){ overviewPickerOpen = false; renderOverview(); return; }
+  const base = mode==='day' ? (overviewDateFilter||todayKey()) : (overviewMonthFilter||monthKey(todayKey()));
+  const parts = base.split('-');
+  overviewPickerYear = Number(parts[0]);
+  overviewPickerMonth = Number(parts[1]);
+  overviewPickerOpen = true;
+  renderOverview();
+}
+function shiftOverviewPickerYear(delta){
+  overviewPickerYear += delta;
+  renderOverview();
+}
+function shiftOverviewPickerMonth(delta){
+  let m = overviewPickerMonth + delta;
+  let y = overviewPickerYear;
+  if(m<1){ m=12; y--; } else if(m>12){ m=1; y++; }
+  overviewPickerMonth = m; overviewPickerYear = y;
+  renderOverview();
+}
+function pickOverviewMonth(year, month){
+  overviewMonthFilter = `${year}-${pad2(month)}`;
+  overviewPickerOpen = false;
+  renderOverview();
+}
+function pickOverviewDate(year, month, day){
+  overviewDateFilter = `${year}-${pad2(month)}-${pad2(day)}`;
+  overviewPickerOpen = false;
+  renderOverview();
+}
+function renderOverviewPickerPopup(mode, mk, selDate){
+  const year = overviewPickerYear;
+  if(mode==='month'){
+    return `<div class="picker-popup">
+      <div class="picker-nav">
+        <button type="button" onclick="shiftOverviewPickerYear(-1)">‹</button>
+        <span>${year}</span>
+        <button type="button" onclick="shiftOverviewPickerYear(1)">›</button>
+      </div>
+      <div class="picker-grid month-grid">
+        ${Array.from({length:12},(_,i)=>i+1).map(m=>{
+          const val = `${year}-${pad2(m)}`;
+          return `<button type="button" class="btn-toggle ${val===mk?'active':''}" onclick="pickOverviewMonth(${year},${m})">${m}月</button>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }
+  const month = overviewPickerMonth;
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const startWeekday = new Date(year, month-1, 1).getDay();
+  const cells = [];
+  for(let i=0;i<startWeekday;i++) cells.push('');
+  for(let d=1; d<=daysInMonth; d++) cells.push(d);
+  return `<div class="picker-popup">
+    <div class="picker-nav">
+      <button type="button" onclick="shiftOverviewPickerMonth(-1)">‹</button>
+      <span>${year}年${pad2(month)}月</span>
+      <button type="button" onclick="shiftOverviewPickerMonth(1)">›</button>
+    </div>
+    <div class="picker-grid day-grid">
+      ${['日','一','二','三','四','五','六'].map(w=>`<div class="dow">${w}</div>`).join('')}
+      ${cells.map(d=>{
+        if(d==='') return `<div></div>`;
+        const val = `${year}-${pad2(month)}-${pad2(d)}`;
+        return `<button type="button" class="${val===selDate?'active':''}" onclick="pickOverviewDate(${year},${month},${d})">${d}</button>`;
+      }).join('')}
+    </div>
+  </div>`;
 }
 
 /* ================= 采购 Tab（含供应商）================= */
