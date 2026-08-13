@@ -286,6 +286,7 @@ let state = {
 };
 let loaded = false;
 let recentActivityFilterDate = '';
+let overviewMonthFilter = '';
 
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function todayStr(){ return new Date().toISOString().slice(0,10); }
@@ -333,12 +334,12 @@ function vizLegend(items){
    不改这一步，程序会自动只用本机存储（不需要登录），不影响正常使用。
 */
 const firebaseConfig = {
-  apiKey: "AIzaSyD9tmObAp5KeuBu3iQ359fHYqEv4d8RSCM",
-  authDomain: "antique-cafe-accon.firebaseapp.com",
-  projectId: "antique-cafe-accon",
-  storageBucket: "antique-cafe-accon.firebasestorage.app",
-  messagingSenderId: "321680945985",
-  appId: "1:321680945985:web:a21e369da929045cc0a7c0"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.firebasestorage.app",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
 };
 const cloudConfigured = firebaseConfig.apiKey && firebaseConfig.apiKey !== "YOUR_API_KEY";
 let cloudDocRef = null;
@@ -866,7 +867,7 @@ function renderCashStrip(){
 function renderOverview(){
   const el = document.getElementById('tab-overview');
   const bal = cashBalance();
-  const mk = monthKey(todayKey());
+  const mk = overviewMonthFilter || monthKey(todayKey());
   const monthSales = state.sales.filter(s=>monthKey(s.date)===mk);
   const monthRevenue = monthSales.reduce((a,s)=>a+Number(s.amount||0),0);
   const monthCost = monthSales.reduce((a,s)=>a+Number(s.cost||0),0) + monthTotalMethodPurchaseCost(mk);
@@ -883,7 +884,11 @@ function renderOverview(){
 
   el.innerHTML = `
     <div class="card">
-      <h3>本月经营概况 <span class="n">${mk}</span></h3>
+      <h3>经营概况 <span class="n">${mk}</span></h3>
+      <div class="grid2" style="margin-bottom:10px">
+        <div><label>选择月份</label><input type="month" id="overviewMonthPick" value="${mk}" onchange="setOverviewMonth(this.value)"></div>
+        <div style="display:flex; align-items:flex-end;"><button class="btn-ghost" style="width:100%" onclick="setOverviewMonth('')">回到本月</button></div>
+      </div>
       ${monthRevenue>0 ? `
         ${vizLegend([{color:'var(--rust)',label:'食材成本'},{color:'var(--green)',label:'毛利润'}])}
         ${vizBar([{value:monthCost, color:'var(--rust)'}, {value:Math.max(monthProfit,0), color:'var(--green)'}], monthRevenue)}
@@ -897,7 +902,7 @@ function renderOverview(){
     </div>
 
     <div class="card">
-      <h3>本月经营概况 <span class="n">按公司</span></h3>
+      <h3>经营概况 <span class="n">${mk} · 按公司</span></h3>
       <table>
         <tr><th>公司</th><th class="num">销售额</th><th class="num">成本</th><th class="num">毛利</th></tr>
         ${COMPANIES.map(c=>{
@@ -954,6 +959,10 @@ function buildDailyTotals(){
 }
 function setRecentActivityFilter(val){
   recentActivityFilterDate = val;
+  renderOverview();
+}
+function setOverviewMonth(val){
+  overviewMonthFilter = val;
   renderOverview();
 }
 
