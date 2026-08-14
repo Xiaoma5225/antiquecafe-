@@ -2501,6 +2501,8 @@ function importPurchasesReport(fileInput){
       const errors = [];
       const groups = {}; // key -> {date, company, supplierName, invoiceNumber, items:[]}
       const groupOrder = [];
+      const newProducts = []; // 本次导入需要自动新增的产品（"成本"页找不到的关联产品，去重）
+      const newProductByKey = {}; // key: 产品名小写 -> 待新增的产品对象
       allRows.forEach(({r, tag, lineNo})=>{
         const loc = multi ? `${tag} 第${lineNo}行` : `第${lineNo}行`;
         if(!r.some(v=>(v||'').trim()!=='')) return;
@@ -2533,12 +2535,22 @@ function importPurchasesReport(fileInput){
         if(isNaN(totalCost) && !isNaN(unitPrice)) totalCost = Math.round(qty*unitPrice*100)/100;
         if(isNaN(unitPrice) && !isNaN(totalCost) && qty) unitPrice = Math.round((totalCost/qty)*100)/100;
         if(isNaN(totalCost)){ errors.push(`${loc}："单价"和"总价"至少要填一个`); return; }
-        const linkedNames = linkedRaw ? linkedRaw.split(/[、,;\/]/).map(s=>s.trim()).filter(Boolean) : [];
+        /* 分隔符不能用"/"——产品名本身可能带"(小/SMALL)"这种规格后缀，用"/"切会把一个产品名切成两半 */
+        const linkedNames = linkedRaw ? linkedRaw.split(/[、,;]/).map(s=>s.trim()).filter(Boolean) : [];
         const productIds = [];
         linkedNames.forEach(nm=>{
-          const p = state.products.find(x=>x.name.toLowerCase()===nm.toLowerCase());
-          if(p) productIds.push(p.id);
-          else errors.push(`${loc}：关联产品"${nm}"在"成本"页找不到，这个关联会先跳过`);
+          let p = state.products.find(x=>x.name.toLowerCase()===nm.toLowerCase());
+          if(!p){
+            // "成本"页找不到就自动新增一个（无成本项，售价0，之后自己去"成本"页补），不再跳过这个关联
+            const key = nm.toLowerCase();
+            p = newProductByKey[key];
+            if(!p){
+              p = {id:uid(), name:nm, price:0, costItems:[], costMethod:'unit', _isNew:true};
+              newProductByKey[key] = p;
+              newProducts.push(p);
+            }
+          }
+          productIds.push(p.id);
         });
         const key = [company, supplierNameRaw.toLowerCase(), invoiceNumber.toLowerCase(), date].join('|');
         if(!groups[key]){
@@ -2551,6 +2563,7 @@ function importPurchasesReport(fileInput){
       if(purchaseGroups.length===0){ alert('没有成功解析到任何一笔采购：\n\n' + errors.join('\n')); fileInput.value=''; return; }
       const totalItems = purchaseGroups.reduce((a,g)=>a+g.items.length,0);
       let msg = multi ? `准备从 ${fileTexts.length} 个文件里导入 ${purchaseGroups.length} 张采购单（共 ${totalItems} 项品项）` : `准备导入 ${purchaseGroups.length} 张采购单（共 ${totalItems} 项品项）`;
+      if(newProducts.length) msg += `\n\n其中 ${newProducts.length} 个关联产品在"成本"页找不到，会自动新增（暂无成本项/售价0，之后请自己去"成本"页补充）：\n` + newProducts.map(p=>p.name).join('、');
       if(errors.length) msg += `\n\n另外有 ${errors.length} 处问题：\n\n` + errors.join('\n');
       msg += '\n\n确定继续导入吗？';
       if(!confirm(msg)){ fileInput.value=''; return; }
@@ -2558,6 +2571,9 @@ function importPurchasesReport(fileInput){
       const importedFileName = multi ? `${fileTexts.length}个文件（${fileTexts.map(f=>f.name).join('、')}）` : (fileTexts[0] ? fileTexts[0].name : 'CSV导入');
       mutate(()=>{
         if(!state.importBatches) state.importBatches = [];
+        newProducts.forEach(np=>{
+          state.products.push({id:np.id, name:np.name, price:np.price, costItems:[], costMethod:'unit'});
+        });
         let batchAmount = 0;
         const dates = [];
         purchaseGroups.forEach(g=>{
