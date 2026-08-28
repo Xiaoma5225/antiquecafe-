@@ -4,6 +4,18 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
 <title>掌柜账本 · 餐厅进销存</title>
+<!-- 加到主屏幕（iPhone PWA）相关标签：让 Safari「加入主屏幕」后以全屏App模式打开、用自订图标，不再有网址列 -->
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="掌柜账本">
+<meta name="theme-color" content="#2B2620">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon-v2.png">
+<link rel="apple-touch-icon" sizes="167x167" href="icons/apple-touch-icon-167-v2.png">
+<link rel="apple-touch-icon" sizes="152x152" href="icons/apple-touch-icon-152-v2.png">
+<link rel="icon" sizes="192x192" href="icons/icon-192-v2.png">
+<link rel="icon" sizes="512x512" href="icons/icon-512-v2.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -11,6 +23,10 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
   :root{
+    /* 页面本身固定走浅色主题，但没声明这个的话，手机/电脑开着"深色模式"时，Safari/Chrome
+       会把原生控件（datalist建议清单、日期选择器、select下拉、数字上下箭头）自己套上深色配色，
+       结果就是文字变成白色、但底色还是我们自己浅色的卡片，变成"白底白字"看不清。 */
+    color-scheme: light;
     --bg:#FAF6EE;
     --paper:#FFFFFF;
     --ink:#2B2620;
@@ -21,6 +37,15 @@
     --rust:#AE4A31;
     --rust-dim:#F5E6E0;
     --gold:#C9932E;
+    --gold-dim:#FBF0DA;
+    --teal:#2A8C8C;
+    --teal-dim:#DFF0EF;
+    --plum:#7B5EA7;
+    --plum-dim:#EDE6F5;
+    --sky:#3E7CB1;
+    --sky-dim:#E1EDF6;
+    --coral:#E0714A;
+    --coral-dim:#FBE6DC;
     --shadow: 0 1px 2px rgba(43,38,32,0.06), 0 4px 14px rgba(43,38,32,0.05);
   }
   *{box-sizing:border-box;}
@@ -34,7 +59,8 @@
   .mono{font-family:'IBM Plex Mono',monospace;}
   header.top{
     position:sticky; top:0; z-index:20;
-    background:var(--ink); color:#F5EFE2;
+    background:linear-gradient(135deg, #241F1A 0%, var(--ink) 45%, #1F5C4E 160%);
+    color:#F5EFE2;
     padding:14px 18px 16px;
   }
   header.top .row{display:flex; align-items:baseline; justify-content:space-between;}
@@ -44,9 +70,11 @@
     margin-top:10px; display:flex; gap:10px; overflow-x:auto; padding-bottom:2px;
   }
   .cash-chip{
-    flex:0 0 auto; background:rgba(255,255,255,0.07); border:1px dashed rgba(255,255,255,0.25);
-    border-radius:10px; padding:8px 12px; min-width:110px;
+    flex:0 0 auto; background:rgba(255,255,255,0.09); border:1px dashed rgba(255,255,255,0.28);
+    border-radius:10px; padding:8px 12px; min-width:110px; border-left:3px solid var(--gold);
   }
+  .cash-chip:nth-child(2){border-left-color:#8FD9BE;}
+  .cash-chip:nth-child(3){border-left-color:#F0A98E;}
   .cash-chip .lbl{font-size:10.5px; color:#C9BFA8; text-transform:uppercase; letter-spacing:.5px;}
   .cash-chip .val{font-family:'IBM Plex Mono',monospace; font-size:15px; font-weight:600; margin-top:2px;}
   .val.pos{color:#8FD9BE;} .val.neg{color:#F0A98E;}
@@ -59,9 +87,63 @@
   .card{
     background:var(--paper); border:1px solid var(--border); border-radius:14px;
     padding:16px; margin-bottom:14px; box-shadow:var(--shadow);
+    border-top:3px solid var(--gold);
   }
   .card h3{margin:0 0 12px; font-size:15.5px; font-weight:600; display:flex; align-items:center; gap:8px;}
   .card h3 .n{color:var(--muted); font-weight:500; font-size:12px;}
+  /* 每个分页给自己的一个主色调，卡片顶边用那个颜色，逛起来比较有层次感、不会每一页都长一样 */
+  #tab-purchase .card{border-top-color:var(--rust);}
+  #tab-cost .card{border-top-color:var(--sky);}
+  #tab-sales .card{border-top-color:var(--coral);}
+  #tab-inventory .card{border-top-color:var(--plum);}
+  #tab-cash .card{border-top-color:var(--teal);}
+  #tab-overview .card{border-top-color:var(--green);}
+  #tab-export .card, #tab-settings .card{border-top-color:var(--gold);}
+  #tab-home .card{border-top-color:var(--green);}
+
+  /* 首页：问候语卡 + 图标磁贴快捷入口 */
+  .greet-card{
+    background:linear-gradient(135deg, #26886F, var(--green)); color:#fff; border:none;
+    border-radius:16px; padding:16px; margin-bottom:14px; box-shadow:var(--shadow);
+  }
+  .greet-card .hi{font-family:'Fraunces',serif; font-size:18px; font-weight:600; margin:0 0 2px;}
+  .greet-card .date{font-size:11.5px; opacity:.82;}
+  .greet-card .snap-row{display:flex; gap:10px; margin-top:14px;}
+  .greet-card .snap-item{flex:1; background:rgba(255,255,255,0.14); border-radius:10px; padding:8px 10px;}
+  .greet-card .snap-item .l{font-size:10px; opacity:.78;}
+  .greet-card .snap-item .v{font-family:'IBM Plex Mono',monospace; font-size:14px; font-weight:600; margin-top:2px;}
+  .tile-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:10px;}
+  .tile{
+    display:flex; flex-direction:column; align-items:center; gap:8px; cursor:pointer;
+    padding:14px 4px 12px; border-radius:14px; background:#FFFDF9; border:1px solid var(--border);
+  }
+  .tile:active{opacity:.8;}
+  .tile .circ{width:46px; height:46px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:22px;}
+  .tile .lbl{font-size:12.5px; font-weight:600;}
+
+  /* 采购付款弹窗：提交采购单之后问"付款了没"，或从采购记录里补记付款 */
+  #payPopupOverlay{
+    display:none; position:fixed; inset:0; z-index:60; background:rgba(43,38,32,0.55);
+    align-items:center; justify-content:center; padding:16px;
+  }
+  .pay-sheet{
+    position:relative; width:100%; max-width:420px; background:var(--paper);
+    border-radius:18px; padding:20px 18px 22px;
+    box-shadow:0 12px 40px rgba(0,0,0,0.28);
+    max-height:calc(100vh - 32px); overflow-y:auto;
+  }
+  .pay-sheet .t{font-family:'Fraunces',serif; font-size:16px; font-weight:600; margin-bottom:2px;}
+  .pay-sheet .amt-line{font-size:12.5px; color:var(--muted); margin-bottom:14px;}
+  .pay-sheet-close{position:absolute; top:10px; right:10px; background:none; border:none; color:var(--muted); font-size:15px; padding:6px 8px;}
+  .pay-status-row{display:flex; gap:8px; margin-bottom:4px;}
+  .pay-status-row .btn-toggle{flex:1; padding:10px 8px;}
+  .pay-status-row .btn-toggle.active-unpaid{background:var(--rust-dim); border-color:var(--rust); color:var(--rust);}
+  .pay-status-row .btn-toggle.active-paid{background:var(--green-dim); border-color:var(--green); color:var(--green);}
+  .pay-fade-block{margin-top:12px; padding-top:12px; border-top:1px dashed var(--border);}
+  .pay-methods-row{display:flex; gap:6px; margin-top:6px;}
+  .pay-methods-row .btn-toggle{flex:1; padding:8px 4px; font-size:12px;}
+  .pay-methods-row .btn-toggle.method-active{background:var(--green); border-color:var(--green); color:#fff;}
+  .btn-pay-small{background:linear-gradient(135deg,#26886F,var(--green)); color:#fff; padding:8px 14px; border-radius:8px; font-size:12.5px; font-weight:600;}
 
   label{display:block; font-size:12px; color:var(--muted); margin:10px 0 4px;}
   label:first-of-type{margin-top:0;}
@@ -74,11 +156,12 @@
   .grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
   .grid3{display:grid; grid-template-columns:1.3fr 0.8fr 0.8fr; gap:8px;}
 
-  button{
+  button, label.btn-ghost, label.btn-main{
     font-family:inherit; cursor:pointer; border:none; border-radius:8px;
     font-size:14px; font-weight:600; padding:10px 14px;
+    display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box;
   }
-  .btn-main{background:var(--green); color:#fff; width:100%; margin-top:12px;}
+  .btn-main{background:linear-gradient(135deg, #26886F, var(--green)); color:#fff; width:100%; margin-top:12px;}
   .btn-main:active{opacity:.85;}
   .btn-ghost{background:transparent; border:1px solid var(--border); color:var(--ink);}
   .btn-line{background:none; border:none; color:var(--green); font-size:13px; padding:4px 0; text-align:left;}
@@ -105,6 +188,29 @@
   .viz-bar .seg{height:100%; transition:width .2s ease;}
   .viz-legend{display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--muted); margin-bottom:2px;}
   .viz-legend .dot{display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; vertical-align:middle;}
+  /* 本月采购类别分布：甜甜圈图 + 可以按开看明细的图例 */
+  .cat-donut-wrap{display:flex; align-items:center; gap:14px;}
+  .cat-donut{width:92px; height:92px; border-radius:50%; flex:0 0 92px; position:relative;}
+  .cat-donut .center{position:absolute; inset:14px; background:var(--paper); border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center;}
+  .cat-donut .center .amt{font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600; line-height:1.2;}
+  .cat-donut .center .lbl{font-size:9px; color:var(--muted); margin-top:1px;}
+  .cat-legend2{flex:1; min-width:0; display:flex; flex-direction:column;}
+  .cat-legend-row{border-bottom:1px solid var(--border);}
+  .cat-legend-row:last-child{border-bottom:none;}
+  .cat-legend-row summary{display:flex; align-items:center; justify-content:space-between; gap:6px; cursor:pointer; list-style:none; padding:5px 0; font-size:12.5px;}
+  .cat-legend-row summary::-webkit-details-marker{display:none;}
+  .cat-legend-row .left{display:flex; align-items:center; gap:6px; min-width:0;}
+  .cat-legend-row .dot{width:8px; height:8px; border-radius:50%; flex:0 0 8px;}
+  .cat-legend-row .name{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .cat-legend-row .right{display:flex; align-items:baseline; gap:5px; flex:0 0 auto; white-space:nowrap;}
+  .cat-legend-row .pct{color:var(--muted); font-size:10.5px;}
+  .cat-legend-row .chev{color:var(--muted); font-size:9px; transition:transform .15s ease;}
+  .cat-legend-row[open] .chev{transform:rotate(180deg);}
+  .cat-detail{padding:0 0 8px 14px;}
+  .cat-detail .di{display:flex; justify-content:space-between; gap:8px; font-size:11px; padding:3px 0; border-bottom:1px dashed var(--border);}
+  .cat-detail .di:last-child{border-bottom:none;}
+  .cat-detail .di .l{color:var(--muted); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-right:6px;}
+  .cat-detail .di .r{flex:0 0 auto;}
   .supplier-card{border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:8px;}
   .supplier-card .row{display:flex; justify-content:space-between; align-items:center;}
   .invoice-pick{
@@ -112,6 +218,21 @@
     border:1px solid var(--border); border-radius:10px; padding:8px 12px; margin-bottom:6px; background:#FFFDF9;
   }
   .invoice-pick.active{border-color:var(--green); background:var(--green-dim);}
+  .pur-hist-row{border-bottom:1px solid #F0EAdd; padding:9px 0;}
+  .pur-hist-row:last-child{border-bottom:none;}
+  .pur-hist-row summary{display:flex; justify-content:space-between; align-items:center; gap:8px; cursor:pointer; list-style:none;}
+  .pur-hist-row summary::-webkit-details-marker{display:none;}
+  .phr-left{min-width:0;}
+  .phr-supplier{font-size:14px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .phr-date{font-size:11px; color:var(--muted); margin-top:1px;}
+  .phr-right{display:flex; align-items:center; gap:8px; flex:0 0 auto;}
+  .phr-amount{font-family:'IBM Plex Mono',monospace; font-weight:600; white-space:nowrap; text-align:right;}
+  .phr-amount .owe{display:block; font-size:10.5px; font-weight:600; color:var(--rust);}
+  .phr-chev{color:var(--muted); font-size:11px; transition:transform .15s ease;}
+  .pur-hist-row[open] .phr-chev{transform:rotate(180deg);}
+  .phr-detail{margin-top:10px;}
+  .phr-sub{padding:4px 0;}
+  .phr-detail .muted{font-size:12px;}
   .day-viz{display:grid; grid-template-columns:70px 1fr 1fr; gap:8px; align-items:center; margin-bottom:8px; font-size:12px;}
   .day-viz .bars{display:flex; flex-direction:column; gap:3px;}
 
@@ -121,6 +242,9 @@
     width:34px; height:34px; border-radius:50%;
     display:flex; align-items:center; justify-content:center;
     box-shadow:0 3px 10px rgba(0,0,0,0.2);
+  }
+  #accountMenu{
+    position:fixed; top:52px; right:14px; z-index:51; width:min(200px, calc(100vw - 28px));
   }
   #backupFab{
     position:fixed; right:14px; bottom:88px; z-index:40;
@@ -162,8 +286,20 @@
     flex:1; background:none; display:flex; flex-direction:column; align-items:center; gap:2px;
     color:var(--muted); font-size:10.5px; font-weight:600; padding:6px 2px; border-radius:10px;
   }
-  nav.bottom button .ic{font-size:19px;}
+  nav.bottom button .ic{
+    font-size:15px; width:26px; height:26px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--border); transition:transform .15s ease;
+  }
+  nav.bottom button[data-tab="home"] .ic{background:var(--green-dim);}
+  nav.bottom button[data-tab="purchase"] .ic{background:var(--rust-dim);}
+  nav.bottom button[data-tab="cost"] .ic{background:var(--sky-dim);}
+  nav.bottom button[data-tab="sales"] .ic{background:var(--coral-dim);}
+  nav.bottom button[data-tab="inventory"] .ic{background:var(--plum-dim);}
+  nav.bottom button[data-tab="cash"] .ic{background:var(--teal-dim);}
+  nav.bottom button[data-tab="overview"] .ic{background:var(--green-dim);}
   nav.bottom button.active{color:var(--green); background:var(--green-dim);}
+  nav.bottom button.active .ic{transform:scale(1.1);}
 
   .subtle-form summary{cursor:pointer; color:var(--green); font-size:13px; font-weight:600; padding:4px 0;}
 
@@ -198,7 +334,7 @@
       flex:0 0 auto; flex-direction:row; justify-content:center; gap:9px;
       padding:12px 22px; margin-bottom:0; font-size:15.5px;
     }
-    nav.bottom button .ic{font-size:22px;}
+    nav.bottom button .ic{font-size:18px; width:32px; height:32px;}
     main{flex:1; padding:22px 26px; max-width:820px; margin:0 auto; width:100%;}
     header.top{display:none;}
     .header-desktop{max-width:none; margin:0; padding:18px 26px 0;}
@@ -207,7 +343,17 @@
 </head>
 <body>
 
-<div id="accountBadge" class="account-badge" style="display:none;" onclick="doLogout()" title="点一下登出"></div>
+<div id="accountBadge" class="account-badge" style="display:none;" onclick="toggleAccountMenu()" title="账号"></div>
+<div id="accountMenu" style="display:none;">
+  <div class="card" style="margin:0; box-shadow:0 6px 24px rgba(43,38,32,0.18); padding:8px;">
+    <button class="btn-line" style="width:100%; padding:8px 10px;" onclick="toggleAccountMenu(); switchToTab('export');">📤 导出数据</button>
+    <button class="btn-line" style="width:100%; padding:8px 10px;" onclick="toggleAccountMenu(); switchToTab('settings');">⚙️ 设置</button>
+    <hr class="receipt-divider" style="margin:4px 0;">
+    <button class="btn-line" style="width:100%; padding:8px 10px; color:var(--rust);" onclick="toggleAccountMenu(); doLogout();">🚪 登出</button>
+  </div>
+</div>
+
+<div id="payPopupOverlay" onclick="closePurchasePayPopup()"></div>
 
 <header class="top">
   <div class="row">
@@ -231,26 +377,27 @@
 <div id="appBody" style="display:none;">
 <div class="layout">
 <nav class="bottom" id="bottomNav">
-  <button data-tab="overview" class="active"><span class="ic">📊</span>总览</button>
+  <button data-tab="home" class="active"><span class="ic">🏠</span>首页</button>
   <button data-tab="purchase"><span class="ic">🛒</span>采购</button>
-  <button data-tab="payment"><span class="ic">💳</span>付款</button>
-  <button data-tab="cost"><span class="ic">🧮</span>成本</button>
+  <button data-tab="cost"><span class="ic">🧮</span>产品</button>
   <button data-tab="sales"><span class="ic">💰</span>销售</button>
   <button data-tab="inventory"><span class="ic">📦</span>库存</button>
   <button data-tab="cash"><span class="ic">📒</span>收支</button>
-  <button data-tab="export"><span class="ic">📤</span>导出</button>
+  <button data-tab="overview"><span class="ic">📊</span>总览</button>
 </nav>
 
 <main>
 
-  <section class="tab-panel active" id="tab-overview"></section>
+  <section class="tab-panel active" id="tab-home"></section>
   <section class="tab-panel" id="tab-purchase"></section>
-  <section class="tab-panel" id="tab-payment"></section>
   <section class="tab-panel" id="tab-cost"></section>
   <section class="tab-panel" id="tab-sales"></section>
   <section class="tab-panel" id="tab-inventory"></section>
   <section class="tab-panel" id="tab-cash"></section>
+  <section class="tab-panel" id="tab-overview"></section>
+  <!-- 导出/设置不放在底部导航，藏在右上角的账号头像里，点开选单进去 -->
   <section class="tab-panel" id="tab-export"></section>
+  <section class="tab-panel" id="tab-settings"></section>
 
 </main>
 </div>
@@ -290,6 +437,197 @@ const INCOME_CATEGORIES = ['Cash','TNG','FoodPanda'];
 const EXPENSE_CATEGORIES = ['房租','水电','人工','杂项支出','提款','其他'];
 const PAY_METHODS = ['现金','信用卡','银行转账'];
 const COMPANIES = ['Antique Cafe','Shan Xian Hotpot'];
+/* 采购单里，每个品项现在可以individually指定所属公司（item.company），没指定的话就跟随整张
+   采购单的公司（purchase.company）——这个函数统一算出某个品项"实际算谁的"，其他地方（成本分摊、
+   库存统计…）一律改用这个，不要再直接读 item.company 或 purchase.company。 */
+function effCompany(item, purchase){
+  return (item && item.company) || (purchase && purchase.company) || '';
+}
+/* 公司名字太长，塞进采购品项那排小小的下拉选单会挤爆，这里显示用简称 */
+function companyShort(c){
+  if(c==='Antique Cafe') return 'Antique';
+  if(c==='Shan Xian Hotpot') return 'Shan Xian';
+  return c;
+}
+/* 2026-08：POS 官方菜单基准数据。从 POS 系统导出的 menu.xlsx 整理而成，共 162 项正式餐品
+   （规格/口味变体已经拆开，比如"菜园鸡煲"拆成小/大两个独立品项，方便各自算成本）。
+   每项所属公司不是瞎猜的：是拿 2026年7月真实销售记录，反查每个 POS 分类实际算哪家
+   公司核对过的（全部 16 个分类各自 100% 对应单一公司，没有混着卖的分类）。
+   用途：产品成本页的「从 POS 菜单同步餐品」按钮会拿这份数据去补现有产品的分类/编号/
+   所属公司（不会动已经填好的食材成本和售价，也不会删掉任何现有产品），或者建立
+   还没建档的新产品。 */
+const MENU_CATEGORIES = ['面包 TOAST','面类 NOODLES','饮料 BEVERAGE','玉米系列 Corn Series','SET','SOUP BASED','丸类 Assorted','小吃 Sides','手工饺子','海鲜类','粉面类','肉类','菌类','蔬菜类','豆品','饮品'];
+const POS_MENU = [
+  {name:'太空包 APOLLO BUN', category:'面包 TOAST', code:'AB00', price:3.9, company:'Antique Cafe'},
+  {name:'台湾香肠粒 Taiwan Hot Dog Ball', category:'丸类 Assorted', code:'AS01', price:8.0, company:'Shan Xian Hotpot'},
+  {name:'海鲜豆腐 Seafood Tao Fu', category:'丸类 Assorted', code:'AS02', price:8.0, company:'Shan Xian Hotpot'},
+  {name:'爆浆猪肉丸 Bursting Pork Ball', category:'丸类 Assorted', code:'AS03', price:10.0, company:'Shan Xian Hotpot'},
+  {name:'猪肉丸 Pork Ball', category:'丸类 Assorted', code:'AS04', price:8.0, company:'Shan Xian Hotpot'},
+  {name:'芋头条 Yam', category:'丸类 Assorted', code:'AS05', price:8.0, company:'Shan Xian Hotpot'},
+  {name:'芝士豆腐 Cheese Tao Fu', category:'丸类 Assorted', code:'AS06', price:8.0, company:'Shan Xian Hotpot'},
+  {name:'蟹柳 Crab Stick', category:'丸类 Assorted', code:'AS07', price:8.0, company:'Shan Xian Hotpot'},
+  {name:'西刀鱼丸 White Fish Ball', category:'丸类 Assorted', code:'AS08', price:8.0, company:'Shan Xian Hotpot'},
+  {name:'香芋芋丸 Taro Fish Ball', category:'丸类 Assorted', code:'AS09', price:8.0, company:'Shan Xian Hotpot'},
+  {name:'鱼腐 Fish Curd', category:'丸类 Assorted', code:'AS10', price:10.0, company:'Shan Xian Hotpot'},
+  {name:'鸟蛋 Bird Egg', category:'丸类 Assorted', code:'AS11', price:15.0, company:'Shan Xian Hotpot'},
+  {name:'鸡蛋 Chicken Egg', category:'丸类 Assorted', code:'AS12', price:1.5, company:'Shan Xian Hotpot'},
+  {name:'三秒响铃卷 Deep fried ring roll', category:'豆品', code:'BEAN01', price:12.0, company:'Shan Xian Hotpot'},
+  {name:'包浆豆腐', category:'豆品', code:'BEAN02', price:12.0, company:'Shan Xian Hotpot'},
+  {name:'白豆腐 Tau Fu', category:'豆品', code:'BEAN03', price:5.0, company:'Shan Xian Hotpot'},
+  {name:'腐皮 Beancurd', category:'豆品', code:'BEAN04', price:8.0, company:'Shan Xian Hotpot'},
+  {name:'豆腐仆 Tau fu bok', category:'豆品', code:'BEAN05', price:5.0, company:'Shan Xian Hotpot'},
+  {name:'炸枝竹 FRIED TOFU SKIN', category:'豆品', code:'BEAN06', price:8.0, company:'Shan Xian Hotpot'},
+  {name:'Carlsberg', category:'饮品', code:'BV02', price:22.0, company:'Shan Xian Hotpot'},
+  {name:'一百号 100 plus', category:'饮品', code:'BV04', price:4.0, company:'Shan Xian Hotpot'},
+  {name:'中国茶（一壶/每人）', category:'饮品', code:'BV05', price:2.0, company:'Shan Xian Hotpot'},
+  {name:'西洋菜罗汉果 Herbal Tea', category:'饮品', code:'BV06', price:4.0, company:'Shan Xian Hotpot'},
+  {name:'可口可乐 Coke', category:'饮品', code:'BV07', price:4.0, company:'Shan Xian Hotpot'},
+  {name:'唐茶 Chinese Tea', category:'饮品', code:'BV08', price:3.0, company:'Shan Xian Hotpot'},
+  {name:'柠檬茶 Lemon Tea', category:'饮品', code:'BV09', price:4.5, company:'Shan Xian Hotpot'},
+  {name:'王老吉 Wang Lao Ji', category:'饮品', code:'BV10', price:6.0, company:'Shan Xian Hotpot'},
+  {name:'百香果果汁 Passion Fruit Juice', category:'饮品', code:'BV11', price:12.0, company:'Shan Xian Hotpot'},
+  {name:'矿泉水 Mineral Water（Shan Xian Hotpot）', category:'饮品', code:'BV12', price:2.0, company:'Shan Xian Hotpot'},
+  {name:'老虎啤酒 Tiger Beer', category:'饮品', code:'BV13', price:22.0, company:'Shan Xian Hotpot'},
+  {name:'草莓冰沙 Strawberry Frappe', category:'饮品', code:'BV14', price:12.0, company:'Shan Xian Hotpot'},
+  {name:'酸梅汤 Sour Plum Soup', category:'饮品', code:'BV15', price:4.5, company:'Shan Xian Hotpot'},
+  {name:'金桔 Sour Plum', category:'饮品', code:'BV16', price:4.5, company:'Shan Xian Hotpot'},
+  {name:'黑狗 Guinness', category:'饮品', code:'BV17', price:23.0, company:'Shan Xian Hotpot'},
+  {name:'HEINEKEN', category:'饮品', code:'BV01', price:24.0, company:'Shan Xian Hotpot'},
+  {name:'牛角包 CROSSAINT', category:'面包 TOAST', code:'C00', price:6.9, company:'Antique Cafe'},
+  {name:'啦啦煲 Lala Pot', category:'SOUP BASED', code:'CS01', price:29.0, company:'Shan Xian Hotpot'},
+  {name:'花胶粥底汤 Collagen Porridge Pot', category:'SOUP BASED', code:'CS02A', price:20.0, company:'Shan Xian Hotpot'},
+  {name:'花胶海鲜煲 Seafood Collagen Porridge', category:'SOUP BASED', code:'CS02B', price:69.0, company:'Shan Xian Hotpot'},
+  {name:'菜园鸡煲 Kampung Chicken Pot (小/SMALL)', category:'SOUP BASED', code:'CS03', price:38.0, company:'Shan Xian Hotpot'},
+  {name:'菜园鸡煲 Kampung Chicken Pot (大/BIG)', category:'SOUP BASED', code:'CS03', price:58.0, company:'Shan Xian Hotpot'},
+  {name:'羊腩煲 Mutton Belly Pot (小/SMALL)', category:'SOUP BASED', code:'CS04', price:58.0, company:'Shan Xian Hotpot'},
+  {name:'羊腩煲 Mutton Belly Pot (大/BIG)', category:'SOUP BASED', code:'CS04', price:78.0, company:'Shan Xian Hotpot'},
+  {name:'东阴汤 Tom Yum', category:'SOUP BASED', code:'CS05', price:15.0, company:'Shan Xian Hotpot'},
+  {name:'鸡汤 Chicken Soup', category:'SOUP BASED', code:'CS06', price:10.0, company:'Shan Xian Hotpot'},
+  {name:'药材汤 Herbal Soup', category:'SOUP BASED', code:'CS07', price:15.0, company:'Shan Xian Hotpot'},
+  {name:'羊腩 Mutton Belly (羊腩煲）', category:'肉类', code:'M08', price:28.0, company:'Shan Xian Hotpot'},
+  {name:'KOPI', category:'饮料 BEVERAGE', code:'D01A', price:3.2, company:'Antique Cafe'},
+  {name:'KOPI O', category:'饮料 BEVERAGE', code:'D01B', price:3.2, company:'Antique Cafe'},
+  {name:'KOPI C', category:'饮料 BEVERAGE', code:'D01C', price:3.2, company:'Antique Cafe'},
+  {name:'TEH', category:'饮料 BEVERAGE', code:'D02A', price:3.2, company:'Antique Cafe'},
+  {name:'TEH O', category:'饮料 BEVERAGE', code:'D02B', price:3.2, company:'Antique Cafe'},
+  {name:'TEH C', category:'饮料 BEVERAGE', code:'D02C', price:3.2, company:'Antique Cafe'},
+  {name:'CHAM', category:'饮料 BEVERAGE', code:'D03A', price:3.2, company:'Antique Cafe'},
+  {name:'CHAM C', category:'饮料 BEVERAGE', code:'D03B', price:3.2, company:'Antique Cafe'},
+  {name:'NESCAFE', category:'饮料 BEVERAGE', code:'D04A', price:3.2, company:'Antique Cafe'},
+  {name:'NESCAFE C', category:'饮料 BEVERAGE', code:'D04B', price:3.2, company:'Antique Cafe'},
+  {name:'LEMON TEA', category:'饮料 BEVERAGE', code:'D05', price:3.2, company:'Antique Cafe'},
+  {name:'HONEY LEMON', category:'饮料 BEVERAGE', code:'D06', price:3.7, company:'Antique Cafe'},
+  {name:'MILO', category:'饮料 BEVERAGE', code:'D07A', price:3.5, company:'Antique Cafe'},
+  {name:'MILO KOSONG', category:'饮料 BEVERAGE', code:'D07B', price:3.5, company:'Antique Cafe'},
+  {name:'TEH O LIMAU', category:'饮料 BEVERAGE', code:'D08', price:3.2, company:'Antique Cafe'},
+  {name:'POMELO HONEY', category:'饮料 BEVERAGE', code:'D09', price:4.5, company:'Antique Cafe'},
+  {name:'SOUR PLUM', category:'饮料 BEVERAGE', code:'D10', price:4.5, company:'Antique Cafe'},
+  {name:'NESTUM', category:'饮料 BEVERAGE', code:'D11', price:3.2, company:'Antique Cafe'},
+  {name:'COKE', category:'饮料 BEVERAGE', code:'D12A', price:3.5, company:'Antique Cafe'},
+  {name:'100 PLUS', category:'饮料 BEVERAGE', code:'D12B', price:3.5, company:'Antique Cafe'},
+  {name:'HERBAL TEA', category:'饮料 BEVERAGE', code:'D13', price:2.5, company:'Antique Cafe'},
+  {name:'SKY JUICE', category:'饮料 BEVERAGE', code:'D14', price:0.5, company:'Antique Cafe'},
+  {name:'BLACK COFFEE', category:'饮料 BEVERAGE', code:'D15', price:6.9, company:'Antique Cafe'},
+  {name:'唐茶普尔 PU ER', category:'饮料 BEVERAGE', code:'D16', price:2.0, company:'Antique Cafe'},
+  {name:'柠檬水 LEMON KOSONG', category:'饮料 BEVERAGE', code:'D17', price:2.5, company:'Antique Cafe'},
+  {name:'矿泉水 MINERAL WATER（Antique Cafe）', category:'饮料 BEVERAGE', code:'D18', price:2.0, company:'Antique Cafe'},
+  {name:'白菜饺子 Cabbage Dumpling', category:'手工饺子', code:'DP01', price:10.0, company:'Shan Xian Hotpot'},
+  {name:'芹菜饺子 Celery Dumpling', category:'手工饺子', code:'DP02', price:10.0, company:'Shan Xian Hotpot'},
+  {name:'韭菜饺子 Chives Dumpling', category:'手工饺子', code:'DP03', price:10.0, company:'Shan Xian Hotpot'},
+  {name:'鲤鱼蛋饺 Egg Dumplings', category:'手工饺子', code:'DP04', price:15.0, company:'Shan Xian Hotpot'},
+  {name:'杏鲍菇 King Oyster Mushroom', category:'菌类', code:'J01', price:5.0, company:'Shan Xian Hotpot'},
+  {name:'金针菇 Enoki', category:'菌类', code:'J02', price:5.0, company:'Shan Xian Hotpot'},
+  {name:'香菇 Mushroom', category:'菌类', code:'J03', price:5.0, company:'Shan Xian Hotpot'},
+  {name:'鲍鱼菇 Grey Oyster Mushroom', category:'菌类', code:'J04', price:5.0, company:'Shan Xian Hotpot'},
+  {name:'三花趾', category:'肉类', code:'M01', price:30.0, company:'Shan Xian Hotpot'},
+  {name:'五花腩肉片 Pork Belly Slices', category:'肉类', code:'M02', price:10.0, company:'Shan Xian Hotpot'},
+  {name:'匙仁 Chi Ren', category:'肉类', code:'M03', price:30.0, company:'Shan Xian Hotpot'},
+  {name:'匙柄 Chi Bing', category:'肉类', code:'M04', price:30.0, company:'Shan Xian Hotpot'},
+  {name:'午餐肉 Luncheon Meat', category:'肉类', code:'M05', price:15.0, company:'Shan Xian Hotpot'},
+  {name:'吊龙 Diao Long', category:'肉类', code:'M06', price:30.0, company:'Shan Xian Hotpot'},
+  {name:'毛肚', category:'肉类', code:'M07', price:25.0, company:'Shan Xian Hotpot'},
+  {name:'澳洲羊肉片 Australian Mutton Slices', category:'肉类', code:'M09', price:10.0, company:'Shan Xian Hotpot'},
+  {name:'特级猪肉片 Premium Pork Slices', category:'肉类', code:'M11', price:10.0, company:'Shan Xian Hotpot'},
+  {name:'肥牛 Fei Niu', category:'肉类', code:'M12', price:30.0, company:'Shan Xian Hotpot'},
+  {name:'肥肠', category:'肉类', code:'M13', price:29.0, company:'Shan Xian Hotpot'},
+  {name:'西班牙黑毛猪五花肉 Iberico Pork Belly Slices', category:'肉类', code:'M14', price:18.0, company:'Shan Xian Hotpot'},
+  {name:'鸭肠 Duck Intestine', category:'肉类', code:'M16', price:25.0, company:'Shan Xian Hotpot'},
+  {name:'黑毛猪猪颈肉 Iberico Pork Jowl Slices', category:'肉类', code:'M17', price:18.0, company:'Shan Xian Hotpot'},
+  {name:'爪哇面 MEE JAWA', category:'面类 NOODLES', code:'N01', price:10.0, company:'Antique Cafe'},
+  {name:'啊嘛古早味虾面 ANTIQUE TASTE PRAWN MEE', category:'面类 NOODLES', code:'N02', price:12.9, company:'Antique Cafe'},
+  {name:'猪肉粉 (汤) PORK NOODLES (SOUP)', category:'面类 NOODLES', code:'N03', price:12.9, company:'Antique Cafe'},
+  {name:'猪肉粉 (干) PORK NOODLES (DRY)', category:'面类 NOODLES', code:'N04', price:13.9, company:'Antique Cafe'},
+  {name:'特大猪肉粉 (汤) SPECIAL PORK NOODLES (SOUP)', category:'面类 NOODLES', code:'N05', price:19.9, company:'Antique Cafe'},
+  {name:'特大猪肉粉 (干) SPECIAL PORK NOODLES (DRY)', category:'面类 NOODLES', code:'N06', price:20.9, company:'Antique Cafe'},
+  {name:'干捞自制叉烧面 (干) DRY HOME MADE CHAR SIEW MEE', category:'面类 NOODLES', code:'N08', price:13.9, company:'Antique Cafe'},
+  {name:'干捞面 (干) DRY MEE', category:'面类 NOODLES', code:'N09', price:10.9, company:'Antique Cafe'},
+  {name:'猪肉汤 PORK SOUP', category:'面类 NOODLES', code:'N03A', price:11.0, company:'Antique Cafe'},
+  {name:'YeeMee', category:'粉面类', code:'RN01', price:2.0, company:'Shan Xian Hotpot'},
+  {name:'乌冬面 Udon', category:'粉面类', code:'RN02', price:4.0, company:'Shan Xian Hotpot'},
+  {name:'快熟面 Instant Noodles', category:'粉面类', code:'RN03', price:2.0, company:'Shan Xian Hotpot'},
+  {name:'手工面 Handmade Nodles', category:'粉面类', code:'RN04', price:5.0, company:'Shan Xian Hotpot'},
+  {name:'米粉 Mee Hoon', category:'粉面类', code:'RN05', price:2.0, company:'Shan Xian Hotpot'},
+  {name:'饭 Rice', category:'粉面类', code:'RN06', price:2.0, company:'Shan Xian Hotpot'},
+  {name:'油条虾滑', category:'小吃 Sides', code:'S01', price:18.0, company:'Shan Xian Hotpot'},
+  {name:'配套 SET', category:'SET', code:'S01', price:30.0, company:'Shan Xian Hotpot'},
+  {name:'火辣台湾香肠 Hot and Spicy Hotdog', category:'小吃 Sides', code:'S02', price:10.0, company:'Shan Xian Hotpot'},
+  {name:'炸午餐肉 Fried Luncheon Meat', category:'小吃 Sides', code:'S03', price:18.0, company:'Shan Xian Hotpot'},
+  {name:'炸腐皮 Crispy Fish Tofu Skin', category:'小吃 Sides', code:'S04', price:10.0, company:'Shan Xian Hotpot'},
+  {name:'辣子鸡 Spicy Chicken', category:'小吃 Sides', code:'S05', price:19.0, company:'Shan Xian Hotpot'},
+  {name:'香脆金针菇 Crispy Enoki', category:'小吃 Sides', code:'S06', price:10.0, company:'Shan Xian Hotpot'},
+  {name:'香脆金钱肉干 Crispy Gold Coin Pork', category:'小吃 Sides', code:'S07', price:10.0, company:'Shan Xian Hotpot'},
+  {name:'香脆鲍鱼菇 Crispy Abalone Mushroom', category:'小吃 Sides', code:'S08', price:10.0, company:'Shan Xian Hotpot'},
+  {name:'啦啦 Lala', category:'海鲜类', code:'SF01', price:18.0, company:'Shan Xian Hotpot'},
+  {name:'深海明虾 Deep Sea Prawn', category:'海鲜类', code:'SF02', price:29.0, company:'Shan Xian Hotpot'},
+  {name:'虾滑 Shrimp Paste', category:'海鲜类', code:'SF03', price:18.0, company:'Shan Xian Hotpot'},
+  {name:'野生石斑鱼片 Grouper Fish Slice', category:'海鲜类', code:'SF04', price:29.0, company:'Shan Xian Hotpot'},
+  {name:'野生红枣鱼片 Red Snapper Fish Slice', category:'海鲜类', code:'SF06', price:29.0, company:'Shan Xian Hotpot'},
+  {name:'海南面包 HAINAN TOAST', category:'面包 TOAST', code:'T00', price:4.9, company:'Antique Cafe'},
+  {name:'自制司康 HOMEMADE SCONE (1粒/1PCS)', category:'面包 TOAST', code:'T15', price:3.9, company:'Antique Cafe'},
+  {name:'半生熟菜园蛋 HALF BOILED KAMPUNG EGG (2粒/2PCS)', category:'面包 TOAST', code:'T16', price:4.0, company:'Antique Cafe'},
+  {name:'冬笋 Winter Bamboo Shoots', category:'蔬菜类', code:'VEGE01', price:5.0, company:'Shan Xian Hotpot'},
+  {name:'包菜 Cabbage', category:'蔬菜类', code:'VEGE02', price:5.0, company:'Shan Xian Hotpot'},
+  {name:'土豆片 Potato Slice', category:'蔬菜类', code:'VEGE03', price:5.0, company:'Shan Xian Hotpot'},
+  {name:'大白菜 Chinese Cabbage', category:'蔬菜类', code:'VEGE04', price:5.0, company:'Shan Xian Hotpot'},
+  {name:'小白菜 Xiu Bak Choi', category:'蔬菜类', code:'VEGE05', price:5.0, company:'Shan Xian Hotpot'},
+  {name:'油麦胆 Romaine Lettuce', category:'蔬菜类', code:'VEGE06', price:5.0, company:'Shan Xian Hotpot'},
+  {name:'生菜 Lettuce', category:'蔬菜类', code:'VEGE07', price:5.0, company:'Shan Xian Hotpot'},
+  {name:'白萝卜 White Radish', category:'蔬菜类', code:'VEGE08', price:5.0, company:'Shan Xian Hotpot'},
+  {name:'茼蒿 Crown Daisy', category:'蔬菜类', code:'VEGE09', price:5.0, company:'Shan Xian Hotpot'},
+  {name:'菜心 Choi Sam', category:'蔬菜类', code:'VEGE10', price:5.0, company:'Shan Xian Hotpot'},
+  {name:'西洋菜 Water Cress', category:'蔬菜类', code:'VEGE11', price:5.0, company:'Shan Xian Hotpot'},
+  {name:'Cameron Corn (Ready to Eat) (Purple 1条 1 Piece)', category:'玉米系列 Corn Series', code:'', price:20.0, company:'Antique Cafe'},
+  {name:'Cameron Corn (Ready to Eat) (Purple Bundle 3条)', category:'玉米系列 Corn Series', code:'', price:39.0, company:'Antique Cafe'},
+  {name:'Cameron Corn (Ready to Eat) (White 1条 1 Piece)', category:'玉米系列 Corn Series', code:'', price:20.0, company:'Antique Cafe'},
+  {name:'Cameron Corn (Ready to Eat) (White Bundle 3条)', category:'玉米系列 Corn Series', code:'', price:39.0, company:'Antique Cafe'},
+  {name:'Cameron Corn (Ready to Eat) (Yellow White 1条 1 Piece)', category:'玉米系列 Corn Series', code:'', price:20.0, company:'Antique Cafe'},
+  {name:'Cameron Corn (Ready to Eat) (Yellow White Bundle 3条)', category:'玉米系列 Corn Series', code:'', price:39.0, company:'Antique Cafe'},
+  {name:'乌鸡肉片 Black Chicken Slice', category:'肉类', code:'M18', price:10.0, company:'Shan Xian Hotpot'},
+  {name:'番茄汤 Tomato Soup', category:'SOUP BASED', code:'CS08', price:15.0, company:'Shan Xian Hotpot'},
+  {name:'麻辣汤 Mala Soup', category:'SOUP BASED', code:'CS09', price:20.0, company:'Shan Xian Hotpot'},
+  {name:'猪筋丸 Pork Tendon Ball', category:'丸类 Assorted', code:'AS13', price:8.0, company:'Shan Xian Hotpot'},
+  {name:'[NEW] 滑鸡鲜虾河粉【限量20碗】Chicken Hor Fun with Fresh Prawn【Limited 20 Bowls】', category:'面类 NOODLES', code:'N07', price:19.9, company:'Antique Cafe'},
+  {name:'深海苏东 Deep Sea Sotong', category:'海鲜类', code:'SF05', price:29.0, company:'Shan Xian Hotpot'},
+  {name:'冬菜肉碎 Dong Chai Minced Pork', category:'肉类', code:'M15', price:15.0, company:'Shan Xian Hotpot'},
+  {name:'玉米粒 Corn Kernels (Ready to Eat) (一包 1 Pack)', category:'玉米系列 Corn Series', code:'', price:7.5, company:'Antique Cafe'},
+  {name:'玉米粒 Corn Kernels (Ready to Eat) (Bundle 2 Pack)', category:'玉米系列 Corn Series', code:'', price:15.0, company:'Antique Cafe'},
+  {name:'玉米粒 Corn Kernels (Ready to Eat) (Bundle 6 Pack)', category:'玉米系列 Corn Series', code:'', price:39.0, company:'Antique Cafe'},
+  {name:'小段玉米 Sliced Corn (Ready to Eat) (1包 1 Pack)', category:'玉米系列 Corn Series', code:'', price:7.5, company:'Antique Cafe'},
+  {name:'小段玉米 Sliced Corn (Ready to Eat) (Bundle 3 Pack)', category:'玉米系列 Corn Series', code:'', price:22.5, company:'Antique Cafe'},
+  {name:'小段玉米 Sliced Corn (Ready to Eat) (Bundle 6 Pack)', category:'玉米系列 Corn Series', code:'', price:39.0, company:'Antique Cafe'},
+  {name:'【新推出】药膳菜园鸡煲', category:'SOUP BASED', code:'CS10', price:88.0, company:'Shan Xian Hotpot'},
+  {name:'猪肩肉片 Iberico Pork Shoulder', category:'肉类', code:'', price:18.0, company:'Shan Xian Hotpot'},
+  {name:'肋眼牛肉片 Ribeye Beef Slice', category:'肉类', code:'', price:18.0, company:'Shan Xian Hotpot'},
+  {name:'牛肉丸 Beef Ball 4pcs', category:'丸类 Assorted', code:'', price:12.0, company:'Shan Xian Hotpot'},
+  /* 以下 4 项没有出现在 POS 系统导出的官方 menu.xlsx 里（可能是导出当下漏掉、或后来才在 POS 里加的），
+     但核对 8 月采购单的「关联产品」栏位 + 7 月真实销售记录，确认是真的在卖的 Antique Cafe 产品，
+     价格取 7 月销售记录里最常出现的单价，补进来让「同步」功能也一起处理到。 */
+  {name:'叉烧一个位 CHAR SIEW 1 PAX', category:'面类 NOODLES', code:'', price:15.0, company:'Antique Cafe'},
+  {name:'薄脆 BOK BOK CUI', category:'面类 NOODLES', code:'', price:1.0, company:'Antique Cafe'},
+  {name:'STRAWBERRY JAM ONE BOTTLE', category:'面包 TOAST', code:'', price:18.0, company:'Antique Cafe'},
+  {name:'小段玉米 Sliced Corn (Ready to Eat) (Bundle 9 Pack)', category:'玉米系列 Corn Series', code:'', price:39.9, company:'Antique Cafe'}
+];
+
 let state = {
   initialCash: 0,
   suppliers: [],
@@ -301,7 +639,9 @@ let state = {
   customExpenseCategories: [],
   ingredients: [],
   importBatches: [],
-  stockAdjustments: []
+  stockAdjustments: [],
+  recipes: [],
+  recipeBatchLogs: [] // "这批腌好了，分成幾包" 按钮生成的完成记录，每条记着扣了哪些原料库存、加了几包成品
 };
 let loaded = false;
 let recentActivityFilterDate = '';
@@ -337,6 +677,9 @@ function vizBar(segments, maxOverride){
 function vizLegend(items){
   return `<div class="viz-legend">${items.map(i=>`<span><span class="dot" style="background:${i.color}"></span>${i.label}</span>`).join('')}</div>`;
 }
+/* 采购类别分布甜甜圈图配色：固定顺序的一组颜色，类别数超过颜色数就循环使用 */
+const CAT_COLOR_PALETTE = ['var(--rust)','var(--gold)','var(--sky)','var(--plum)','var(--teal)','var(--coral)','var(--green)'];
+function catColor(idx){ return CAT_COLOR_PALETTE[idx % CAT_COLOR_PALETTE.length]; }
 
 /* ============ 跨设备云同步 + 密码登录（Firebase）============
    1. 去 https://console.firebase.google.com 建一个免费项目
@@ -345,13 +688,17 @@ function vizLegend(items){
       然后到 Authentication → Users，点「Add user」，为每个要登入的人建一个账号
       （这里不做公开注册，只有你手动加进去的邮箱密码才能登入）
    4. 项目设置 → 你的应用 → 网页应用，复制得到的 firebaseConfig，粘贴替换下面这个占位对象
-   5. Firestore 的「规则」分页贴上（现在改成共享账本：任何登录过的账号都能读写同一份数据，
-      方便多个人——比如你和店里另一个账号——共用同一套记账）：
+   5. Firestore 的「规则」分页贴上（共享账本：任何登录过的账号都能读写同一份数据；
+      2026-08 起数据改成拆开存成一笔笔记录，放在 /ledger/shared 底下的子集合里，
+      规则要连子集合也一起放行，不然会读写失败）：
       rules_version = '2';
       service cloud.firestore {
         match /databases/{database}/documents {
           match /ledger/{docId} {
             allow read, write: if request.auth != null;
+            match /{collection}/{itemId} {
+              allow read, write: if request.auth != null;
+            }
           }
         }
       }
@@ -368,6 +715,15 @@ const firebaseConfig = {
 const cloudConfigured = firebaseConfig.apiKey && firebaseConfig.apiKey !== "YOUR_API_KEY";
 let cloudDocRef = null;
 let cloudReady = false;
+/* 2026-08：账本不再整份存成一个大文件（之前光一个半月的数据就快 650KB，快撞到 Firestore
+   单一文件 1MB 的上限，而且改一笔小的也要整份重传，云同步会越用越慢）。
+   改成每种记录各自存成"子集合"，每一笔是自己的一个文件，存/收都只动真的变了的那几笔。
+   下面这些变量用来记住"上一次已经跟云端对齐的样子"，saveState() 存档时会拿现在的
+   state 跟这个做比对，只把真的有差异的记录写回云端。 */
+let firestoreDb = null;
+const SUBCOLLECTIONS = ['suppliers','purchases','payments','products','sales','cashflow','ingredients','importBatches','stockAdjustments','recipes','recipeBatchLogs'];
+let lastSynced = {};
+SUBCOLLECTIONS.forEach(k=>{ lastSynced[k] = new Map(); });
 
 function setSyncStatus(text){
   const el = document.getElementById('syncStatus');
@@ -432,45 +788,118 @@ function doLogout(){
   if(!confirm('确定要登出吗？')) return;
   firebase.auth().signOut();
 }
+function toggleAccountMenu(){
+  const menu = document.getElementById('accountMenu');
+  if(!menu) return;
+  menu.style.display = menu.style.display==='block' ? 'none' : 'block';
+}
+document.addEventListener('click', (e)=>{
+  const menu = document.getElementById('accountMenu');
+  if(!menu || menu.style.display!=='block') return;
+  if(menu.contains(e.target) || e.target.closest('#accountBadge')) return;
+  menu.style.display = 'none';
+});
 
 /* 共享账本：不再用每个人自己的 uid 当文档 ID，而是固定用一个共享文档，
    这样不同的登录账号（比如你和 wanyi9595@hotmail.com）都能读写同一份数据。
-   Firestore 规则要相应改成"任何登录过的账号都能读写 /ledger/shared"（见部署说明）。 */
+   Firestore 规则要相应改成"任何登录过的账号都能读写 /ledger/shared 以及它底下的子集合"（见部署说明）。 */
 const SHARED_LEDGER_ID = 'shared';
+function collRef(key){ return firestoreDb.collection('ledger').doc(SHARED_LEDGER_ID).collection(key); }
+/* 把旧版"整份存成一个大文件"里的资料，第一次搬进新的子集合结构。
+   用记录自己的 id 当文件 ID，所以就算不小心跑第二次、或者两台设备同时触发，也不会重复搬（只是覆盖成一样的内容），很安全。
+   搬完把主文件里那几个大数组栏位清掉（FieldValue.delete()），主文件就会变得很小，并标记 subcollectionsMigrated，之后不会再跑一次。 */
+function migrateToSubcollectionsIfNeeded(sharedRef, remoteMeta){
+  if(remoteMeta.subcollectionsMigrated) return Promise.resolve();
+  const chunks = [];
+  SUBCOLLECTIONS.forEach(key=>{
+    const arr = Array.isArray(remoteMeta[key]) ? remoteMeta[key] : [];
+    arr.forEach(rec=>{ if(rec && rec.id) chunks.push({key, rec}); });
+  });
+  let p = Promise.resolve();
+  for(let i=0; i<chunks.length; i+=450){
+    const batchItems = chunks.slice(i, i+450);
+    p = p.then(()=>{
+      const b = firestoreDb.batch();
+      batchItems.forEach(({key,rec})=> b.set(collRef(key).doc(rec.id), rec));
+      return b.commit();
+    });
+  }
+  return p.then(()=>{
+    const clearFields = {subcollectionsMigrated:true};
+    SUBCOLLECTIONS.forEach(key=>{ clearFields[key] = firebase.firestore.FieldValue.delete(); });
+    return sharedRef.set(clearFields, {merge:true});
+  });
+}
+/* 主文件（/ledger/shared）现在只留小字段：期初现金、自订支出分类、最后更新时间、迁移标记。 */
+function attachMetaListener(sharedRef){
+  sharedRef.onSnapshot((snap)=>{
+    cloudReady = true;
+    if(!snap.exists) return;
+    if(snap.metadata && snap.metadata.hasPendingWrites) return; // 自己刚写入的回声，跳过
+    const remote = snap.data();
+    if(remote.initialCash!=null) state.initialCash = remote.initialCash;
+    if(remote.customExpenseCategories) state.customExpenseCategories = remote.customExpenseCategories;
+    scheduleRenderAfterSync();
+  }, (err)=>{ console.error(err); setSyncStatus('云同步失败，暂时仅用本机存储'); });
+}
+/* 9个子集合各自监听，每次云端有变动只会收到"哪几笔新增/改动/删除"（docChanges），
+   不是每次都整批重新下载全部记录，数据再多也不会变慢。 */
+function attachSubcollectionListeners(){
+  SUBCOLLECTIONS.forEach(key=>{
+    collRef(key).onSnapshot((snap)=>{
+      if(snap.metadata && snap.metadata.hasPendingWrites) return; // 自己刚写入的回声，跳过
+      const arr = state[key] || (state[key]=[]);
+      const byId = new Map(arr.map(r=>[r.id, r]));
+      let changed = false;
+      snap.docChanges().forEach(ch=>{
+        const id = ch.doc.id;
+        if(ch.type==='removed'){
+          if(byId.has(id)){ byId.delete(id); changed = true; }
+          lastSynced[key].delete(id);
+        }else{
+          const rec = ch.doc.data();
+          byId.set(id, rec);
+          lastSynced[key].set(id, JSON.stringify(rec));
+          changed = true;
+        }
+      });
+      state[key] = Array.from(byId.values());
+      if(changed) scheduleRenderAfterSync();
+    }, (err)=>{ console.error(key+' 同步失败', err); });
+  });
+}
+/* 一次登录后，9个子集合+主文件的监听常常会在短时间内各自触发一次（尤其是刚打开App的时候），
+   这里做个小小的防抖，等这一波都到齐了再统一 reconcile + 重画一次，不用收到一条就重画一次。 */
+let renderSyncTimer = null;
+function scheduleRenderAfterSync(){
+  if(renderSyncTimer) clearTimeout(renderSyncTimer);
+  renderSyncTimer = setTimeout(()=>{
+    const changed1 = reconcileCashflow();
+    const changed2 = reconcileIngredients();
+    if(changed1 || changed2) saveState();
+    renderAll();
+    setSyncStatus('云同步：已连接 ✓（共享账本）');
+  }, 200);
+}
 function initCloudSync(user){
   try{
     setSyncStatus('云同步：连接中…');
-    const sharedRef = firebase.firestore().collection('ledger').doc(SHARED_LEDGER_ID);
+    firestoreDb = firebase.firestore();
+    const sharedRef = firestoreDb.collection('ledger').doc(SHARED_LEDGER_ID);
     cloudDocRef = sharedRef;
     sharedRef.get().then(sharedSnap=>{
-      if(sharedSnap.exists) return;
+      if(sharedSnap.exists) return sharedSnap.data();
       // 共享文档还不存在：第一次从旧版「每个账号自己的文档」搬过来一次，之后就都用共享的了
-      return firebase.firestore().collection('ledger').doc(user.uid).get().then(oldSnap=>{
-        if(oldSnap.exists) return sharedRef.set(oldSnap.data());
+      return firestoreDb.collection('ledger').doc(user.uid).get().then(oldSnap=>{
+        const data = oldSnap.exists ? oldSnap.data() : {};
+        return sharedRef.set(data).then(()=>data);
       });
-    }).catch(err=>console.error('共享账本迁移失败', err))
+    }).catch(err=>{ console.error('共享账本迁移失败', err); return {}; })
+      .then(remoteMeta=> migrateToSubcollectionsIfNeeded(sharedRef, remoteMeta||{}).catch(err=>{ console.error('拆分存档迁移失败', err); }))
       .finally(()=>{
-        cloudDocRef.onSnapshot((snap)=>{
-          cloudReady = true;
-          if(snap.exists){
-            const remote = snap.data();
-            if(!state.updatedAt || (remote.updatedAt||0) >= (state.updatedAt||0)){
-              state = Object.assign(state, remote);
-              const changed1 = reconcileCashflow();
-              const changed2 = reconcileIngredients();
-              if(changed1 || changed2) saveState();
-              renderAll();
-            }
-            setSyncStatus('云同步：已连接 ✓（共享账本）');
-          }else{
-            // 云端还没有数据，把本机现有数据推上去作为初始版本
-            pushToCloud();
-            setSyncStatus('云同步：已连接 ✓（首次上传）');
-          }
-        }, (err)=>{
-          console.error(err);
-          setSyncStatus('云同步失败，暂时仅用本机存储');
-        });
+        attachMetaListener(sharedRef);
+        attachSubcollectionListeners();
+        setSyncStatus('云同步：已连接 ✓（共享账本）');
       });
   }catch(e){
     console.error(e);
@@ -478,8 +907,45 @@ function initCloudSync(user){
   }
 }
 function pushToCloud(){
-  if(!cloudDocRef) return;
-  cloudDocRef.set(state).catch(err=>console.error('云同步写入失败', err));
+  if(!cloudDocRef || !firestoreDb) return;
+  cloudDocRef.set({
+    initialCash: state.initialCash||0,
+    customExpenseCategories: state.customExpenseCategories||[],
+    updatedAt: state.updatedAt,
+    subcollectionsMigrated: true
+  }, {merge:true}).catch(err=>console.error('云同步写入失败', err));
+  SUBCOLLECTIONS.forEach(key=> syncCollectionDiff(key));
+}
+/* 拿现在的 state[key] 跟"上次已知已经跟云端一致"的样子（lastSynced）比对，
+   只把真的新增/改过的记录 set()、真的被删掉的记录 delete()，不动完全没变的那些。 */
+function syncCollectionDiff(key){
+  const arr = state[key] || [];
+  const map = lastSynced[key] || (lastSynced[key] = new Map());
+  const seen = new Set();
+  const ops = [];
+  arr.forEach(rec=>{
+    if(!rec || !rec.id) return;
+    seen.add(rec.id);
+    const json = JSON.stringify(rec);
+    if(map.get(rec.id) !== json) ops.push({type:'set', id:rec.id, rec, json});
+  });
+  map.forEach((_json, id)=>{ if(!seen.has(id)) ops.push({type:'delete', id}); });
+  if(!ops.length) return;
+  const ref = collRef(key);
+  for(let i=0; i<ops.length; i+=450){
+    const chunk = ops.slice(i, i+450);
+    const batch = firestoreDb.batch();
+    chunk.forEach(op=>{
+      if(op.type==='set') batch.set(ref.doc(op.id), op.rec);
+      else batch.delete(ref.doc(op.id));
+    });
+    batch.commit().then(()=>{
+      chunk.forEach(op=>{
+        if(op.type==='set') map.set(op.id, op.json);
+        else map.delete(op.id);
+      });
+    }).catch(err=>console.error(key+' 同步写入失败', err));
+  }
 }
 
 function saveState(){
@@ -537,7 +1003,7 @@ function exportPurchasesCSV(){
   state.purchases.forEach(p=>{
     (p.items||[]).forEach(i=>{
       const linkedNames = purchaseItemProductIds(i).map(id=>{ const pr = state.products.find(x=>x.id===id); return pr?pr.name:''; }).filter(Boolean).join('、');
-      rows.push([p.date, p.company||'', supplierName(p.supplierId), p.invoiceNumber||'', i.name, i.category||'', i.qty, i.unit||'', i.unitPrice||'', i.totalCost, linkedNames]);
+      rows.push([p.date, effCompany(i,p), supplierName(p.supplierId), p.invoiceNumber||'', i.name, i.category||'', i.qty, i.unit||'', i.unitPrice||'', i.totalCost, linkedNames]);
     });
   });
   downloadCSV(`采购记录_${todayStr()}.csv`, header, rows);
@@ -557,7 +1023,7 @@ function exportSalesCSV(){
 }
 function exportCashflowCSV(){
   const header = ['日期','公司','类型','分类','付款方式','金额','备注'];
-  const rows = state.cashflow.map(c=>[c.date, c.company||'', c.type==='in'?'收入':'支出', c.category, c.payMethod||'', c.amount, c.note||'']);
+  const rows = state.cashflow.map(c=>[c.date, cashflowCompany(c), c.type==='in'?'收入':'支出', c.category, c.payMethod||'', c.amount, c.note||'']);
   downloadCSV(`收支流水_${todayStr()}.csv`, header, rows);
 }
 function exportSupplierDebtCSV(){
@@ -678,6 +1144,17 @@ function removeSalesCashflow(){
 
 /* ---------------- 计算辅助 ---------------- */
 function supplierName(id){ const s = state.suppliers.find(x=>x.id===id); return s? s.name : '未知供应商'; }
+/* 自动生成的"供应商付款"流水记录没有存 company 字段（付款本身可能对应多张不同公司的采购单）。
+   这里不改写入逻辑，改成读取/筛选的时候动态回溯：流水→付款记录（_paymentId）→采购单（purchaseId）→采购单的 company。
+   手动记的收支流水本来就有 company 字段，直接用那个。 */
+function cashflowCompany(c){
+  if(c.company) return c.company;
+  if(!c._paymentId) return '';
+  const pay = state.payments.find(p=>p.id===c._paymentId);
+  if(!pay || !pay.purchaseId) return '';
+  const pu = state.purchases.find(x=>x.id===pay.purchaseId);
+  return (pu && pu.company) || '';
+}
 function findOrCreateSupplierId(typedName){
   const name = (typedName||'').trim();
   if(!name) return null;
@@ -779,8 +1256,8 @@ function totalMethodPurchaseCost(dateMatchFn, company){
   let total = 0;
   state.purchases.forEach(pu=>{
     if(!dateMatchFn(pu.date)) return;
-    if(company && pu.company!==company) return;
     (pu.items||[]).forEach(item=>{
+      if(company && effCompany(item,pu)!==company) return;
       if(purchaseItemProductIds(item).some(id=>totalIds.has(id))) total += Number(item.totalCost||0);
     });
   });
@@ -827,6 +1304,99 @@ function supplierUnpaidInvoices(supplierId){
     .map(p=>({p, outstanding: purchaseOutstanding(p.id)}))
     .filter(x=>x.outstanding>0.001)
     .sort((a,b)=>a.p.date.localeCompare(b.p.date));
+}
+/* ---------------- 采购付款弹窗 ----------------
+   两个入口共用同一个组件：
+   1) 新增采购单存好之后自动跳出来，askStatus=true，先问"未付款/已付款"，选了已付款才展开金额+方式。
+   2) 采购记录列表里，未付清的发票旁边有个「💰 付款」按钮，askStatus=false，直接展开金额+方式（默认现金）。
+   两种情况下采购单本身都已经存进 state 了，这个弹窗只负责另外补一笔付款记录，取消/不选都不影响已存的采购单。 */
+let payPopupState = null;
+function openPurchasePayPopup(purchaseId, askStatus){
+  const pu = state.purchases.find(p=>p.id===purchaseId);
+  if(!pu) return;
+  const outstanding = purchaseOutstanding(purchaseId);
+  payPopupState = {
+    purchaseId,
+    askStatus: !!askStatus,
+    status: askStatus ? null : 'paid',
+    amount: outstanding>0.001 ? Math.round(outstanding*100)/100 : Number(pu.totalAmount||0),
+    method: PAY_METHODS[0]
+  };
+  renderPayPopup();
+}
+function closePurchasePayPopup(){
+  payPopupState = null;
+  renderPayPopup();
+}
+function setPurchasePayPopupStatus(status){
+  if(!payPopupState) return;
+  payPopupState.status = status;
+  renderPayPopup();
+}
+function setPurchasePayPopupMethod(method){
+  if(!payPopupState) return;
+  payPopupState.method = method;
+  renderPayPopup();
+}
+function onPurchasePayPopupAmountInput(val){
+  if(!payPopupState) return;
+  payPopupState.amount = val;
+}
+function confirmPurchasePayPopup(){
+  if(!payPopupState) return;
+  const pu = state.purchases.find(p=>p.id===payPopupState.purchaseId);
+  if(!pu){ closePurchasePayPopup(); return; }
+  const amount = Number(payPopupState.amount)||0;
+  if(amount<=0){ alert('请输入付款金额'); return; }
+  const method = payPopupState.method || PAY_METHODS[0];
+  const date = todayStr();
+  mutate(()=>{
+    const pid = uid();
+    state.payments.push({id:pid, date, supplierId:pu.supplierId, amount, note:'', payMethod:method, purchaseId:pu.id});
+    const invoiceNote = pu.invoiceNumber ? ` · Invoice ${pu.invoiceNumber}` : '';
+    state.cashflow.push({id:uid(), date, type:'out', category:'供应商付款', amount, payMethod:method, note:`${supplierName(pu.supplierId)}${invoiceNote}`, auto:true, _paymentId:pid});
+  });
+  payPopupState = null;
+  renderPayPopup();
+  renderPurchase();
+}
+function renderPayPopup(){
+  const el = document.getElementById('payPopupOverlay');
+  if(!el) return;
+  if(!payPopupState){ el.style.display='none'; el.innerHTML=''; return; }
+  const pu = state.purchases.find(p=>p.id===payPopupState.purchaseId);
+  if(!pu){ el.style.display='none'; el.innerHTML=''; payPopupState=null; return; }
+  const s = payPopupState;
+  const showAmountBlock = s.status==='paid';
+  el.style.display='flex';
+  el.innerHTML = `
+    <div class="pay-sheet" onclick="event.stopPropagation()">
+      <button type="button" class="pay-sheet-close" onclick="closePurchasePayPopup()">✕</button>
+      <div class="t">这笔采购 RM${fmtPlain(pu.totalAmount)}</div>
+      <div class="amt-line">${supplierName(pu.supplierId)} · ${pu.date}</div>
+      ${s.askStatus ? `
+      <div class="pay-status-row">
+        <button type="button" class="btn-toggle ${s.status==='unpaid'?'active-unpaid':''}" onclick="setPurchasePayPopupStatus('unpaid')">未付款</button>
+        <button type="button" class="btn-toggle ${s.status==='paid'?'active-paid':''}" onclick="setPurchasePayPopupStatus('paid')">已付款</button>
+      </div>` : ''}
+      ${showAmountBlock ? `
+      <div class="pay-fade-block">
+        <label style="margin-top:0;">付款金额</label>
+        <input type="number" step="0.01" value="${s.amount}" oninput="onPurchasePayPopupAmountInput(this.value)">
+        <label>付款方式</label>
+        <div class="pay-methods-row">
+          ${PAY_METHODS.map(m=>`<button type="button" class="btn-toggle ${s.method===m?'method-active':''}" onclick="setPurchasePayPopupMethod('${m}')">${m}</button>`).join('')}
+        </div>
+      </div>` : ''}
+      ${s.status==='unpaid' ? `
+      <button class="btn-ghost" style="width:100%; margin-top:14px;" onclick="closePurchasePayPopup()">完成</button>
+      ` : showAmountBlock ? `
+      <div style="display:flex; gap:8px; margin-top:14px;">
+        <button class="btn-ghost" style="flex:1;" onclick="closePurchasePayPopup()">取消</button>
+        <button class="btn-main" style="flex:1; margin-top:0;" onclick="confirmPurchasePayPopup()">✅ 确认付款</button>
+      </div>` : ''}
+    </div>
+  `;
 }
 function supplierCardHtml(s,t){
   return `<div class="supplier-card">
@@ -895,6 +1465,47 @@ function renderCashStrip(){
 }
 
 /* ================= 总览 Tab ================= */
+/* 首页：一句问候语 + 本月营收/毛利小摘要 + 三个最常用入口（采购/付款/销售总览）做成图标磁贴，
+   开app第一眼就能直接点进去记账，不用先滑到"总览"页才看得到"快捷操作"。现金结余顶部常驻的
+   现金条已经有了，这里不重复放，画面比较干净。"总览"页原本的快捷操作按钮保留着，两边都能用。 */
+function greetingText(){
+  const h = new Date().getHours();
+  if(h<11) return '早安';
+  if(h<14) return '午安';
+  if(h<18) return '下午好';
+  return '晚安';
+}
+function todayFullLabel(){
+  const d = new Date();
+  const wd = ['日','一','二','三','四','五','六'][d.getDay()];
+  return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 · 星期${wd}`;
+}
+function renderHome(){
+  const el = document.getElementById('tab-home');
+  const mk = monthKey(todayKey());
+  const monthSales = state.sales.filter(s=>monthKey(s.date)===mk);
+  const monthRevenue = monthSales.reduce((a,s)=>a+Number(s.amount||0),0);
+  const monthCost = monthSales.reduce((a,s)=>a+Number(s.cost||0),0) + monthTotalMethodPurchaseCost(mk);
+  const monthProfit = monthRevenue - monthCost;
+  el.innerHTML = `
+    <div class="greet-card">
+      <div class="hi">${greetingText()}，掌柜 👋</div>
+      <div class="date">${todayFullLabel()}</div>
+      <div class="snap-row">
+        <div class="snap-item"><div class="l">本月营收</div><div class="v">RM ${fmtPlain(monthRevenue)}</div></div>
+        <div class="snap-item"><div class="l">本月毛利</div><div class="v">RM ${fmtPlain(monthProfit)}</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>快捷入口</h3>
+      <div class="tile-grid">
+        <div class="tile" onclick="goToTab('purchase')"><div class="circ" style="background:var(--rust-dim); color:var(--rust);">🛒</div><div class="lbl">采购</div></div>
+        <div class="tile" onclick="quickRecordIncome()"><div class="circ" style="background:var(--green-dim); color:var(--green);">💰</div><div class="lbl">记录收入</div></div>
+        <div class="tile" onclick="quickRecordExpense()"><div class="circ" style="background:var(--teal-dim); color:var(--teal);">🧾</div><div class="lbl">记录支出</div></div>
+      </div>
+    </div>
+  `;
+}
 function renderOverview(){
   const el = document.getElementById('tab-overview');
   const bal = cashBalance();
@@ -919,6 +1530,14 @@ function renderOverview(){
     : dailyTotals.slice(0,10);
 
   el.innerHTML = `
+    <div class="card">
+      <h3>快捷操作</h3>
+      <div class="grid2">
+        <button class="btn-main" style="margin-top:0" onclick="goToTab('purchase')">🛒 记一笔采购</button>
+        <button class="btn-main" style="margin-top:0; background:var(--rust)" onclick="quickRecordIncome()">💰 记录收入</button>
+      </div>
+    </div>
+
     <div class="card">
       <h3>经营概况 <span class="n">${periodLabel}</span></h3>
       <div class="btn-group" style="margin-bottom:10px">
@@ -978,7 +1597,7 @@ function renderOverview(){
     <div class="card">
       <h3>最近动态 <span class="n">每日收支</span></h3>
       <div class="grid2" style="margin-bottom:10px">
-        <div><label>按日期查看</label><input type="date" id="recentActDate" value="${recentActivityFilterDate}" onchange="setRecentActivityFilter(this.value)"></div>
+        <div><label>按日期查看</label><input type="date" id="recentActDate" value="${recentActivityFilterDate}" onchange="setRecentActivityFilter(this.value); this.blur();"></div>
         <div style="display:flex; align-items:flex-end;"><button class="btn-ghost" style="width:100%" onclick="setRecentActivityFilter('')">最近10天</button></div>
       </div>
       ${filteredDaily.length? `
@@ -1103,29 +1722,72 @@ function renderOverviewPickerPopup(mode, mk, selDate){
 }
 
 /* ================= 采购 Tab（含供应商）================= */
-let tempPurchaseItems = [{id:uid(), name:'', category:'食材', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
+let tempPurchaseItems = [{id:uid(), name:'', category:'食材', company:'', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
+let currentSupplierHistory = []; // 目前填的这个供应商，之前拿过哪些品项（品名/类别/单位/单价），给"点一下自动加一行"用
 let purHistoryFilterDate = '';
 let purHistoryFilterCompany = '';
 let purCompany = COMPANIES[0];
 let editingPurchaseId = null;
+/* ---- 半成品/配方（比如"腌肉碎"：买肉碎/五花肉这类原料时，自动按比例带出腌料成本）----
+   放在"采购"页里当一个子页签。逻辑：配方 = "触发原料名"（比如"肉碎"）+ 每单位触发原料要配的
+   腌料清单（比如每1kg肉碎要配 蒜蓉0.05kg、生抽0.1L...）。之后不管是在采购单手动输入品名，
+   还是用CSV批量导入采购单，只要品名跟某个配方的触发原料名对上（去空格、不分大小写），系统会
+   自动按这笔实际买的数量等比例算出腌料成本，另外生成一笔"采购单"存进 state.purchases（品项=
+   配方里的每样腌料，数量=触发数量×配方比例，单价=配方设定的单价，关联产品=沿用触发那一项的
+   关联产品），完全沿用app原本的单位成本法/总额法算法，不用改动那两个算法。供应商固定用虚拟
+   供应商"内部半成品制作"，不会跟真实供应商的欠款/已付统计混在一起（不需要付款，欠款栏可以无视）。
+   这笔自动生成的采购单会记住是被哪一笔真实采购触发的（triggeredBy），如果那笔真实采购被编辑/
+   删除，自动腌料那笔也会跟着重新生成/删除，不会留下对不上的孤儿记录，也不会因为重复编辑而越堆越多。
+   注意：如果同一道菜的腌料原料使用者自己也另外单独采购、并手动关联到同一个产品，会跟这里自动
+   算出来的腌料成本重复计入——用了自动配方之后，同一批腌料就不用再手动关联了。 */
+const RECIPE_SUPPLIER_NAME = '内部半成品制作';
+let purSubView = 'main'; // 'main' = 原本的采购单画面，'recipe' = 半成品配方画面
+let tempRecipe = null; // 目前正在新增/编辑的配方草稿，null 表示没在编辑
 let payPayMethod = PAY_METHODS[0];
 let payPurchaseIds = [];
 let payHistoryFilterDate = '';
 
 function renderPurchase(){
   const el = document.getElementById('tab-purchase');
+  const purSubTabHtml = `
+    <div class="btn-group" style="margin-bottom:14px;">
+      <button type="button" class="btn-toggle ${purSubView==='main'?'active':''}" onclick="setPurSubView('main')">🛒 采购单</button>
+      <button type="button" class="btn-toggle ${purSubView==='payment'?'active':''}" onclick="setPurSubView('payment')">💳 付款</button>
+      <button type="button" class="btn-toggle ${purSubView==='recipe'?'active':''}" onclick="setPurSubView('recipe')">🧑‍🍳 半成品配方</button>
+    </div>`;
+  if(purSubView==='payment'){
+    el.innerHTML = purSubTabHtml + renderPaymentSectionHtml();
+    const paySupplierEl = document.getElementById('paySupplier');
+    if(paySupplierEl && paySupplierEl.value.trim()) onPaySupplierInput();
+    return;
+  }
+  if(purSubView==='recipe'){
+    el.innerHTML = purSubTabHtml + renderRecipeSectionHtml();
+    return;
+  }
   const editingPurchase = editingPurchaseId ? state.purchases.find(x=>x.id===editingPurchaseId) : null;
-  const draft = editingPurchase ? {} : captureFormValues(['purSupplier','purDate','purInvoiceNumber','supName','supPhone','bulkSupplierText']);
+  const draft = editingPurchase ? {} : captureFormValues(['purSupplier','purDate','purInvoiceNumber','supTitle','supPhone','bulkSupplierText']);
   let filteredPurchases = purHistoryFilterDate ? state.purchases.filter(p=>p.date===purHistoryFilterDate) : state.purchases;
-  if(purHistoryFilterCompany) filteredPurchases = filteredPurchases.filter(p=>p.company===purHistoryFilterCompany);
+  if(purHistoryFilterCompany) filteredPurchases = filteredPurchases.filter(p=>(p.items||[]).some(it=>effCompany(it,p)===purHistoryFilterCompany));
   const mkP = monthKey(todayKey());
   const catTotals = {};
-  state.purchases.filter(p=>monthKey(p.date)===mkP && (!purHistoryFilterCompany || p.company===purHistoryFilterCompany)).forEach(p=>{
-    p.items.forEach(i=>{ catTotals[i.category||'食材'] = (catTotals[i.category||'食材']||0) + Number(i.totalCost||0); });
+  const catItems = {}; // 类别 -> 这个月属于这个类别的每一笔品项明细，给甜甜圈图的图例展开用
+  state.purchases.filter(p=>monthKey(p.date)===mkP).forEach(p=>{
+    p.items.forEach(i=>{
+      if(purHistoryFilterCompany && effCompany(i,p)!==purHistoryFilterCompany) return;
+      const cat = i.category||'食材';
+      catTotals[cat] = (catTotals[cat]||0) + Number(i.totalCost||0);
+      if(!catItems[cat]) catItems[cat] = [];
+      catItems[cat].push({date:p.date, supplierName:supplierName(p.supplierId), name:i.name, qty:i.qty, unit:i.unit||'', totalCost:Number(i.totalCost||0)});
+    });
   });
+  Object.values(catItems).forEach(list=>list.sort((a,b)=>(b.date||'').localeCompare(a.date||'')));
   const catList = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]);
-  const catMax = catList.length? catList[0][1] : 1;
-  el.innerHTML = `
+  const catGrandTotal = catList.reduce((a,[,amt])=>a+amt,0) || 1;
+  const supplierInputVal = editingPurchase ? supplierName(editingPurchase.supplierId) : (draft.purSupplier||'');
+  const matchedSupplierForHistory = state.suppliers.find(s=>s.name.trim().toLowerCase()===supplierInputVal.trim().toLowerCase());
+  currentSupplierHistory = matchedSupplierForHistory ? supplierPurchaseHistory(matchedSupplierForHistory.id) : [];
+  el.innerHTML = purSubTabHtml + `
     <div class="card">
       <h3>${editingPurchase? '✏️ 编辑采购单' : '新增采购单'}</h3>
       <label>公司</label>
@@ -1137,10 +1799,11 @@ function renderPurchase(){
       </datalist>
       <div class="grid2" style="margin-top:10px">
         <div><label>供应商</label>
-          <input list="supplierNames" id="purSupplier" placeholder="输入或选择供应商" autocomplete="off" value="${editingPurchase? supplierName(editingPurchase.supplierId) : (draft.purSupplier||'')}">
+          <input list="supplierNames" id="purSupplier" placeholder="输入或选择供应商" autocomplete="off" value="${supplierInputVal}" onchange="onPurSupplierChange(this.value)">
         </div>
-        <div><label>采购日期</label><input type="date" id="purDate" value="${editingPurchase? editingPurchase.date : (draft.purDate||todayStr())}"></div>
+        <div><label>采购日期</label><input type="date" id="purDate" value="${editingPurchase? editingPurchase.date : (draft.purDate||todayStr())}" onchange="this.blur()"></div>
       </div>
+      <div id="purSupplierHistoryBox">${supplierHistoryBoxHtml()}</div>
       <label>Invoice 号码（选填）</label><input id="purInvoiceNumber" placeholder="例：INV-00123" value="${editingPurchase? (editingPurchase.invoiceNumber||'') : (draft.purInvoiceNumber||'')}">
       <label style="margin-top:14px">品项明细（同一供应商可一次拿多个不同产品）</label>
       <div id="purItemsWrap"></div>
@@ -1177,19 +1840,56 @@ function renderPurchase(){
     ${catList.length? `
     <div class="card">
       <h3>本月采购类别分布 <span class="n">${mkP}</span></h3>
-      ${catList.map(([cat,amt])=>`
-        <div style="margin-bottom:8px">
-          <div style="display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:2px;">
-            <span>${cat}</span><span class="mono">${fmtPlain(amt)}</span>
+      ${(()=>{
+        let cursor = 0;
+        const stops = catList.map(([cat,amt],idx)=>{
+          const start = cursor;
+          cursor += amt/catGrandTotal*100;
+          return `${catColor(idx)} ${start}% ${cursor}%`;
+        }).join(', ');
+        return `
+      <div class="cat-donut-wrap">
+        <div class="cat-donut" style="background:conic-gradient(${stops});">
+          <div class="center">
+            <div class="amt">${Math.round(catGrandTotal).toLocaleString('en-MY')}</div>
+            <div class="lbl">本月总额</div>
           </div>
-          ${vizBar([{value:amt, color:'var(--green)'}], catMax)}
-        </div>`).join('')}
+        </div>
+        <div class="cat-legend2">
+          ${catList.map(([cat,amt],idx)=>{
+            const pct = (amt/catGrandTotal*100).toFixed(1);
+            const items = catItems[cat]||[];
+            return `
+          <details class="cat-legend-row">
+            <summary>
+              <div class="left">
+                <span class="dot" style="background:${catColor(idx)}"></span>
+                <span class="name">${cat}</span>
+              </div>
+              <div class="right">
+                <span class="mono">${fmtPlain(amt)}</span>
+                <span class="pct">${pct}%</span>
+                <span class="chev">▾</span>
+              </div>
+            </summary>
+            <div class="cat-detail">
+              ${items.map(it=>`
+              <div class="di">
+                <span class="l">${it.date} · ${it.supplierName} · ${it.name}${it.qty?` ×${it.qty}${it.unit}`:''}</span>
+                <span class="r mono">${fmtPlain(it.totalCost)}</span>
+              </div>`).join('')}
+            </div>
+          </details>`;
+          }).join('')}
+        </div>
+      </div>`;
+      })()}
     </div>` : ''}
 
     <div class="card">
       <h3>供应商 <span class="n">${state.suppliers.length} 家</span></h3>
       <div class="grid2">
-        <div><label>供应商名称</label><input id="supName" placeholder="例：新鲜蔬果行" value="${draft.supName||''}"></div>
+        <div><label>供应商名称</label><input id="supTitle" placeholder="例：新鲜蔬果行" autocomplete="off" value="${draft.supTitle||''}"></div>
         <div><label>联系电话（选填）</label><input id="supPhone" placeholder="012-3456789" value="${draft.supPhone||''}"></div>
       </div>
       <button class="btn-main" onclick="addSupplier()">+ 添加供应商</button>
@@ -1221,7 +1921,7 @@ function renderPurchase(){
     <div class="card">
       <h3>采购历史</h3>
       <div class="grid2" style="margin-bottom:10px">
-        <div><label>按日期查看</label><input type="date" id="purHistDate" value="${purHistoryFilterDate}" onchange="setPurHistoryFilter(this.value)"></div>
+        <div><label>按日期查看</label><input type="date" id="purHistDate" value="${purHistoryFilterDate}" onchange="setPurHistoryFilter(this.value); this.blur();"></div>
         <div style="display:flex; align-items:flex-end;"><button class="btn-ghost" style="width:100%" onclick="setPurHistoryFilter('')">显示全部</button></div>
       </div>
       <label>按公司筛选</label>
@@ -1229,29 +1929,436 @@ function renderPurchase(){
         <button type="button" class="btn-toggle ${!purHistoryFilterCompany?'active':''}" onclick="setPurHistoryFilterCompany('')">全部</button>
         ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${purHistoryFilterCompany===c?'active':''}" onclick="setPurHistoryFilterCompany('${c}')">${c}</button>`).join('')}
       </div>
-      ${filteredPurchases.length? `<table>
-        <tr><th>日期</th><th>供应商</th><th>品项</th><th class="num">金额</th><th></th></tr>
-        ${filteredPurchases.slice().reverse().map(p=>`
-          <tr>
-            <td class="muted">${p.date}</td>
-            <td>${supplierName(p.supplierId)}
-              <select style="width:auto; margin-top:3px; padding:2px 4px; font-size:11px; border-radius:6px; ${!p.company?'color:var(--rust); border-color:var(--rust);':''}" onchange="updatePurchaseCompany('${p.id}', this.value)">
+      ${(()=>{
+        const groupsMap = new Map();
+        filteredPurchases.forEach(p=>{
+          if(!groupsMap.has(p.supplierId)) groupsMap.set(p.supplierId, []);
+          groupsMap.get(p.supplierId).push(p);
+        });
+        const groups = Array.from(groupsMap.entries()).map(([supplierId, list])=>{
+          const sorted = list.slice().sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+          const total = list.reduce((a,p)=>a+Number(p.totalAmount||0),0);
+          const outstanding = list.reduce((a,p)=>a+purchaseOutstanding(p.id),0);
+          return {supplierId, list:sorted, total, outstanding, latestDate: sorted[0]? sorted[0].date : ''};
+        });
+        groups.sort((a,b)=> (b.latestDate||'').localeCompare(a.latestDate||''));
+        if(!groups.length) return `<div class="empty">${purHistoryFilterDate||purHistoryFilterCompany? '没有符合条件的采购记录' : '还没有采购记录'}</div>`;
+        return `<div>
+        ${groups.map(g=>`
+        <details class="pur-hist-row">
+          <summary>
+            <div class="phr-left">
+              <div class="phr-supplier">${supplierName(g.supplierId)}</div>
+              <div class="phr-date">共 ${g.list.length} 笔 · 最近 ${g.latestDate}</div>
+            </div>
+            <div class="phr-right">
+              <div class="phr-amount">${fmtPlain(g.total)}${g.outstanding>0.001?`<span class="owe">未付 ${fmtPlain(g.outstanding)}</span>`:''}</div>
+              <span class="phr-chev">▾</span>
+            </div>
+          </summary>
+          <div class="phr-detail">
+            ${g.list.map((p,i)=>{
+              const outstanding = purchaseOutstanding(p.id);
+              return `
+            <div class="phr-sub">
+              <div style="display:flex; justify-content:space-between; align-items:baseline;">
+                <span class="muted">${p.date}</span>
+                <span class="num">${fmtPlain(p.totalAmount)}${outstanding>0.001?`<span class="owe">未付 ${fmtPlain(outstanding)}</span>`:''}</span>
+              </div>
+              <label style="margin-top:6px">整单默认公司${p.items.some(it=>it.company)?'（下面有品项个别设了公司，以品项为准）':''}</label>
+              <select style="${!p.company?'color:var(--rust); border-color:var(--rust);':''}" onchange="updatePurchaseCompany('${p.id}', this.value)">
                 <option value="" ${!p.company?'selected':''}>未选择公司</option>
                 ${COMPANIES.map(c=>`<option value="${c}" ${p.company===c?'selected':''}>${c}</option>`).join('')}
               </select>
-              ${p.invoiceNumber?`<div class="muted" style="font-size:11px">Invoice #${p.invoiceNumber}</div>`:''}</td>
-            <td class="muted" style="font-size:12px">${p.items.map(i=>i.name+' ×'+i.qty+(i.unit||'')+' ['+(i.category||'食材')+']').join('，')}</td>
-            <td class="num">${fmtPlain(p.totalAmount)}${purchaseOutstanding(p.id)>0.001?`<div class="muted" style="font-size:11px; color:var(--rust)">未付 ${fmtPlain(purchaseOutstanding(p.id))}</div>`:''}</td>
-            <td>
-              <button class="btn-ghost btn-small" onclick="startEditPurchase('${p.id}')">编辑</button>
-              <button class="btn-danger-text" onclick="deletePurchase('${p.id}')">删</button>
-            </td>
-          </tr>`).join('')}
-      </table>` : `<div class="empty">${purHistoryFilterDate||purHistoryFilterCompany? '没有符合条件的采购记录' : '还没有采购记录'}</div>`}
+              ${p.invoiceNumber?`<div class="muted" style="margin-top:8px">Invoice #${p.invoiceNumber}</div>`:''}
+              <div style="margin-top:8px">
+                ${p.items.map(it=>`
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; font-size:12px; padding:3px 0; border-bottom:1px dashed var(--border);">
+                  <span class="muted">${it.name} ×${it.qty}${it.unit||''} [${it.category||'食材'}]</span>
+                  <select style="width:auto; flex:0 0 96px; padding:2px 4px; font-size:11px; border-radius:6px;" onchange="updatePurItemCompany('${p.id}','${it.id}', this.value)">
+                    <option value="" ${!it.company?'selected':''}>跟随整单</option>
+                    ${COMPANIES.map(c=>`<option value="${c}" ${it.company===c?'selected':''}>${companyShort(c)}</option>`).join('')}
+                  </select>
+                </div>`).join('')}
+              </div>
+              <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                <button class="btn-ghost btn-small" onclick="startEditPurchase('${p.id}')">编辑</button>
+                <button class="btn-danger-text" onclick="deletePurchase('${p.id}')">删除</button>
+                ${outstanding>0.001? `<button class="btn-pay-small" style="margin-left:auto;" onclick="openPurchasePayPopup('${p.id}', false)">💰 付款</button>` : ''}
+              </div>
+            </div>${i<g.list.length-1?'<hr class="receipt-divider">':''}`;
+            }).join('')}
+          </div>
+        </details>`).join('')}
+      </div>`;
+      })()}
     </div>
   `;
   renderPurchaseItemRows();
 }
+
+/* ================= 半成品/配方（采购页子页签）================= */
+function setPurSubView(val){
+  purSubView = val;
+  tempRecipe = null;
+  renderPurchase();
+}
+function startNewRecipe(){
+  tempRecipe = {id:null, triggerName:'', triggerUnit:'', outputName:'', outputUnit:'包', components:[{id:uid(), name:'', ratioQty:'', unit:'', unitPrice:''}]};
+  renderPurchase();
+}
+function startEditRecipe(id){
+  const r = state.recipes.find(x=>x.id===id);
+  if(!r) return;
+  tempRecipe = {
+    id:r.id, triggerName:r.triggerName||'', triggerUnit:r.triggerUnit||'',
+    outputName:r.outputName||'', outputUnit:r.outputUnit||'包',
+    components:(r.components&&r.components.length)? r.components.map(c=>({id:uid(), name:c.name, ratioQty:c.ratioQty!=null?String(c.ratioQty):'', unit:c.unit||'', unitPrice:c.unitPrice!=null?String(c.unitPrice):''})) : [{id:uid(), name:'', ratioQty:'', unit:'', unitPrice:''}]
+  };
+  renderPurchase();
+}
+function cancelEditRecipe(){
+  tempRecipe = null;
+  renderPurchase();
+}
+function updateRecipeField(field, val){
+  if(!tempRecipe) return;
+  tempRecipe[field] = val;
+}
+function addRecipeComponentRow(){
+  if(!tempRecipe) return;
+  tempRecipe.components.push({id:uid(), name:'', ratioQty:'', unit:'', unitPrice:''});
+  renderPurchase();
+}
+function removeRecipeComponent(id){
+  if(!tempRecipe) return;
+  tempRecipe.components = tempRecipe.components.filter(c=>c.id!==id);
+  if(tempRecipe.components.length===0) tempRecipe.components.push({id:uid(), name:'', ratioQty:'', unit:'', unitPrice:''});
+  renderPurchase();
+}
+function updateRecipeComponent(id, field, val){
+  if(!tempRecipe) return;
+  const c = tempRecipe.components.find(x=>x.id===id);
+  if(!c) return;
+  c[field] = val;
+  const totalEl = document.getElementById('recipeTotalPreview');
+  if(totalEl){
+    const perUnit = tempRecipe.components.reduce((a,c2)=>a+(Number(c2.ratioQty)||0)*(Number(c2.unitPrice)||0),0);
+    totalEl.textContent = `每 1${tempRecipe.triggerUnit||''} ${tempRecipe.triggerName||'触发原料'} ≈ RM${fmtPlain(perUnit)} 腌料成本`;
+  }
+}
+function autoLinkRecipeComponentPrice(id){
+  if(!tempRecipe) return;
+  const c = tempRecipe.components.find(x=>x.id===id);
+  if(!c) return;
+  const ing = findIngredient(c.name);
+  if(!ing) return;
+  let changed = false;
+  if(ing.unit && !c.unit){ c.unit = ing.unit; changed = true; }
+  if(ing.unitPrice && !c.unitPrice){ c.unitPrice = String(ing.unitPrice); changed = true; }
+  if(changed) renderPurchase();
+}
+function submitRecipe(){
+  if(!tempRecipe) return;
+  const triggerName = (tempRecipe.triggerName||'').trim();
+  if(!triggerName){ alert('请填触发原料名称（比如：肉碎）——以后采购单里品名跟这个一样，就会自动带出腌料成本'); return; }
+  const comps = tempRecipe.components.filter(c=>c.name && c.ratioQty!=='' && c.unitPrice!=='').map(c=>({id:uid(), name:c.name.trim(), ratioQty:Number(c.ratioQty), unit:c.unit||'', unitPrice:Number(c.unitPrice)}));
+  if(!comps.length){ alert('请至少填一样腌料（品名、每单位用量、单价都要有）'); return; }
+  const idBeingEdited = tempRecipe.id;
+  const triggerUnitVal = tempRecipe.triggerUnit||'';
+  const outputNameVal = (tempRecipe.outputName||'').trim();
+  const outputUnitVal = (tempRecipe.outputUnit||'').trim() || '包';
+  const dupe = state.recipes.find(r=>r.id!==idBeingEdited && r.triggerName.trim().toLowerCase()===triggerName.toLowerCase());
+  if(dupe){ alert(`已经有一个配方的触发原料也叫"${triggerName}"了，同一个触发原料只能设一个配方（可以直接编辑那一个）`); return; }
+  mutate(()=>{
+    if(idBeingEdited){
+      const r = state.recipes.find(x=>x.id===idBeingEdited);
+      if(r){ r.triggerName = triggerName; r.triggerUnit = triggerUnitVal; r.components = comps; r.outputName = outputNameVal; r.outputUnit = outputUnitVal; }
+    } else {
+      state.recipes.push({id:uid(), triggerName, triggerUnit:triggerUnitVal, components:comps, outputName:outputNameVal, outputUnit:outputUnitVal});
+    }
+  });
+  tempRecipe = null;
+  renderPurchase();
+}
+function deleteRecipe(id){
+  if(!confirm('确定删除这个配方吗？（已经自动生成过的腌料采购记录不会被删除，只是以后再买这个原料不会再自动带出腌料成本）')) return;
+  mutate(()=>{ state.recipes = state.recipes.filter(r=>r.id!==id); });
+}
+/* ---- 自动腌料：一笔采购单确定/导入之后，扫描品项，凡是跟某个配方的"触发原料名"对上的，
+   就按比例算出腌料成本，另存一笔採购单（供应商=虚拟供应商，triggeredBy=触发它的那笔采购单id）。
+   编辑/CSV重新导入时会先清掉旧的自动腌料记录再重新生成，避免重复；删除触发采购单时也会
+   一并清掉，不留孤儿记录。 */
+function removeAutoMarinadeFor(purchaseId){
+  state.purchases = state.purchases.filter(p=>p.triggeredBy!==purchaseId);
+}
+function applyAutoMarinadeRecipes(newPurchases){
+  if(!newPurchases || !newPurchases.length || !state.recipes || !state.recipes.length) return;
+  const supplierId = findOrCreateSupplierId(RECIPE_SUPPLIER_NAME);
+  newPurchases.forEach(pur=>{
+    removeAutoMarinadeFor(pur.id);
+    const itemsByBucket = {}; // "recipeId|公司" -> {recipeId, company, items:{ name -> 汇总的腌料品项 }}
+    (pur.items||[]).forEach(item=>{
+      const itemName = (item.name||'').trim().toLowerCase();
+      if(!itemName) return;
+      const recipe = state.recipes.find(r=>(r.triggerName||'').trim().toLowerCase()===itemName);
+      if(!recipe || !recipe.components || !recipe.components.length) return;
+      const qty = Number(item.qty)||0;
+      if(qty<=0) return;
+      const itemCompany = effCompany(item, pur);
+      const bucketKey = recipe.id+'|'+itemCompany;
+      if(!itemsByBucket[bucketKey]) itemsByBucket[bucketKey] = {recipeId:recipe.id, company:itemCompany, items:{}};
+      const bucket = itemsByBucket[bucketKey].items;
+      recipe.components.forEach(c=>{
+        const addQty = Math.round(qty * (Number(c.ratioQty)||0) * 10000)/10000;
+        if(addQty<=0) return;
+        const addCost = Math.round(addQty * (Number(c.unitPrice)||0) * 100)/100;
+        const key = c.name.trim().toLowerCase();
+        if(!bucket[key]) bucket[key] = {id:uid(), name:c.name, category:'食材', qty:0, unit:c.unit, unitPrice:Number(c.unitPrice)||0, totalCost:0, productIds:[]};
+        bucket[key].qty = Math.round((bucket[key].qty + addQty)*10000)/10000;
+        bucket[key].totalCost = Math.round((bucket[key].totalCost + addCost)*100)/100;
+        (item.productIds||[]).forEach(pid=>{ if(!bucket[key].productIds.includes(pid)) bucket[key].productIds.push(pid); });
+      });
+    });
+    Object.values(itemsByBucket).forEach(({recipeId, company, items:bucket})=>{
+      const recipe = state.recipes.find(r=>r.id===recipeId);
+      const items = Object.values(bucket);
+      if(!items.length) return;
+      const totalAmount = Math.round(items.reduce((a,i)=>a+i.totalCost,0)*100)/100;
+      state.purchases.push({id:uid(), date:pur.date, supplierId, items, totalAmount, invoiceNumber:`自动腌料-${recipe.triggerName}`, company, triggeredBy:pur.id, recipeId:recipe.id});
+      items.forEach(i=>learnIngredientLink(i.name, i.productIds, {unit:i.unit, unitPrice:i.unitPrice}));
+    });
+  });
+}
+/* ---- "这批腌好了，分成幾包"：把一批已经买回来、也已经自动算出腌料成本的触发原料（比如20kg肉碎），
+   标记成"腌好了、包装成幾小包成品"——做两件事：1) 把肉碎本身、跟这批腌料（冬菜/酱油/胡椒粉/麻油…）
+   都记一笔"出库"，因为这些原料一旦腌下去就用光了，不会再是库存里的散装原料；2) 把包出来的成品
+   （比如"肉碎(腌制品)"）记一笔"入库"，这样库存页看到的才是"现在还有幾包能用"而不是一堆用不到的
+   散装食材数字。每条完成记录都存进 state.recipeBatchLogs，方便之后想撤销（比如包数记错了）。 */
+function effectiveOutputName(recipe){ return (recipe && recipe.outputName) || (recipe? recipe.triggerName+'(腌制品)' : '腌制品'); }
+function effectiveOutputUnit(recipe){ return (recipe && recipe.outputUnit) || '包'; }
+/* 汇总某一笔触发采购单，实际算出来的腌料品项（可能因为按公司分开而生出不只一笔自动采购，
+   这里不分公司、按品名合并起来，因为物理上腌东西不会因为帐上归两间公司就真的分两锅腌）。 */
+function recipeBatchComponentsFor(purchaseId, recipeId){
+  const map = {};
+  state.purchases.filter(p=>p.triggeredBy===purchaseId && p.recipeId===recipeId).forEach(p=>{
+    (p.items||[]).forEach(i=>{
+      const key = (i.name||'').trim().toLowerCase();
+      if(!key) return;
+      if(!map[key]) map[key] = {name:i.name.trim(), qty:0, unit:i.unit||''};
+      map[key].qty = Math.round((map[key].qty + Number(i.qty||0))*10000)/10000;
+    });
+  });
+  return Object.values(map);
+}
+/* 找出"已经买了触发原料、但还没按'这批腌好了'记录完成"的采购品项，给半成品配方页列出来处理用。
+   只看真正手动/导入记的采购（p.triggeredBy 为空），不看系统自动生成的那笔腌料采购本身。 */
+/* 同一张采购单里，肉碎这种触发原料常常会因为"每样商品分开选公司"而拆成好几行（比如15kg算Antique、
+   5kg算Shan Xian），但物理上腌东西不会真的分两锅腌——所以待处理批次是按"这张采购单+这个配方"
+   算一笔，把里面所有对得上触发原料名字的品项数量加总起来，而不是一行一行分开处理，
+   不然分开完成的话腌料出库量会重复扣（两次都扣整批的腌料，而不是各自那一份）。 */
+function pendingRecipeBatches(){
+  if(!state.recipes || !state.recipes.length) return [];
+  const doneKeys = new Set((state.recipeBatchLogs||[]).map(l=>l.purchaseId+'|'+l.recipeId));
+  const rows = [];
+  state.purchases.forEach(p=>{
+    if(p.triggeredBy) return; // 系统自动生成的腌料采购本身，不算"待处理批次"
+    state.recipes.forEach(recipe=>{
+      const key = (recipe.triggerName||'').trim().toLowerCase();
+      if(!key || !recipe.components || !recipe.components.length) return;
+      if(doneKeys.has(p.id+'|'+recipe.id)) return;
+      const matched = (p.items||[]).filter(item=>(item.name||'').trim().toLowerCase()===key && Number(item.qty)>0);
+      if(!matched.length) return;
+      const triggerQty = Math.round(matched.reduce((a,i)=>a+Number(i.qty||0),0)*10000)/10000;
+      const triggerUnit = matched[0].unit || recipe.triggerUnit || '';
+      const companies = new Set(matched.map(i=>effCompany(i,p)).filter(Boolean));
+      const company = companies.size===1 ? Array.from(companies)[0] : '';
+      rows.push({purchaseId:p.id, recipeId:recipe.id, date:p.date, supplierName:supplierName(p.supplierId), triggerName:recipe.triggerName, triggerQty, triggerUnit, company});
+    });
+  });
+  rows.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  return rows;
+}
+function completeRecipeBatch(purchaseId, recipeId){
+  const pu = state.purchases.find(p=>p.id===purchaseId);
+  const recipe = state.recipes.find(r=>r.id===recipeId);
+  if(!pu || !recipe){ alert('找不到对应的采购单或配方，可能已经被删除或改过了'); renderPurchase(); return; }
+  const key = (recipe.triggerName||'').trim().toLowerCase();
+  const matched = (pu.items||[]).filter(i=>(i.name||'').trim().toLowerCase()===key && Number(i.qty)>0);
+  if(!matched.length){ alert('这张采购单里找不到对得上的触发原料品项了，可能已经被改掉了'); renderPurchase(); return; }
+  const packInput = document.getElementById('batchPackQty_'+purchaseId+'_'+recipeId);
+  const packQty = packInput ? Number(packInput.value) : NaN;
+  if(!packQty || packQty<=0 || isNaN(packQty)){ alert('请先填这批分成了幾' + effectiveOutputUnit(recipe)); return; }
+  const outputName = effectiveOutputName(recipe);
+  const outputUnit = effectiveOutputUnit(recipe);
+  const triggerQty = Math.round(matched.reduce((a,i)=>a+Number(i.qty||0),0)*10000)/10000;
+  const triggerUnit = matched[0].unit || recipe.triggerUnit || '';
+  const companies = new Set(matched.map(i=>effCompany(i,pu)).filter(Boolean));
+  const company = companies.size===1 ? Array.from(companies)[0] : '';
+  const components = recipeBatchComponentsFor(purchaseId, recipeId);
+  const newAdjIds = [];
+  mutate(()=>{
+    if(!state.stockAdjustments) state.stockAdjustments = [];
+    // 触发原料本身出库（腌下去就用光了，不再是散装原料）——这张单里所有对得上的品项数量都合起来算一次
+    const triggerAdjId = uid();
+    state.stockAdjustments.push({id:triggerAdjId, date:pu.date, itemName:recipe.triggerName, qty:-Math.abs(triggerQty), note:`腌成 ${packQty}${outputUnit} ${outputName}`, company});
+    newAdjIds.push(triggerAdjId);
+    // 每样腌料也出库
+    components.forEach(c=>{
+      const adjId = uid();
+      state.stockAdjustments.push({id:adjId, date:pu.date, itemName:c.name, qty:-Math.abs(c.qty), note:`腌成 ${packQty}${outputUnit} ${outputName}`, company});
+      newAdjIds.push(adjId);
+    });
+    // 包出来的成品入库
+    const outAdjId = uid();
+    state.stockAdjustments.push({id:outAdjId, date:pu.date, itemName:outputName, qty:Math.abs(packQty), note:`由 ${triggerQty}${triggerUnit} ${recipe.triggerName} 腌制分装而成`, company});
+    newAdjIds.push(outAdjId);
+    if(!state.recipeBatchLogs) state.recipeBatchLogs = [];
+    state.recipeBatchLogs.push({id:uid(), recipeId, purchaseId, itemIds:matched.map(i=>i.id), date:pu.date, triggerName:recipe.triggerName, triggerQty, triggerUnit, packQty:Number(packQty), outputName, outputUnit, company, stockAdjIds:newAdjIds});
+  });
+  alert(`已记录：${recipe.triggerName} ${triggerQty}${triggerUnit} 腌成 ${packQty}${outputUnit} ${outputName}\n库存已经自动帮你把原料出库、成品入库，可以去"库存"页确认。`);
+  renderPurchase();
+}
+function undoRecipeBatch(logId){
+  const log = (state.recipeBatchLogs||[]).find(l=>l.id===logId);
+  if(!log) return;
+  if(!confirm(`确定撤销这笔批次记录吗？会把当时自动生成的出入库调整（原料出库 + ${log.outputName}入库 ${log.packQty}${log.outputUnit}）一起删掉。`)) return;
+  mutate(()=>{
+    const idSet = new Set(log.stockAdjIds||[]);
+    state.stockAdjustments = (state.stockAdjustments||[]).filter(a=>!idSet.has(a.id));
+    state.recipeBatchLogs = (state.recipeBatchLogs||[]).filter(l=>l.id!==logId);
+  });
+  renderPurchase();
+}
+/* 删除触发用的原始采购单时，一并撤销已经记过的批次完成记录（出入库调整也一起清掉），
+   避免留下对不上任何采购单的孤儿库存记录。 */
+function removeRecipeBatchLogsForPurchase(purchaseId){
+  const logs = (state.recipeBatchLogs||[]).filter(l=>l.purchaseId===purchaseId);
+  if(!logs.length) return;
+  const idSet = new Set(logs.flatMap(l=>l.stockAdjIds||[]));
+  state.stockAdjustments = (state.stockAdjustments||[]).filter(a=>!idSet.has(a.id));
+  state.recipeBatchLogs = (state.recipeBatchLogs||[]).filter(l=>l.purchaseId!==purchaseId);
+}
+/* ---- 渲染：半成品配方子页签整体画面 ---- */
+function recipeComponentRowsHtml(){
+  if(!tempRecipe) return '';
+  return tempRecipe.components.map(c=>`
+    <div class="pi-card">
+      <div class="pi-top">
+        <input list="recipeIngredientNames" placeholder="腌料品名" value="${c.name}" oninput="updateRecipeComponent('${c.id}','name',this.value)" onchange="autoLinkRecipeComponentPrice('${c.id}')">
+        ${tempRecipe.components.length>1? `<button class="rm" onclick="removeRecipeComponent('${c.id}')">×</button>` : '<span style="width:20px"></span>'}
+      </div>
+      <div class="pi-bottom" style="grid-template-columns:repeat(3,1fr);">
+        <input placeholder="每单位用量" type="number" step="0.0001" value="${c.ratioQty}" oninput="updateRecipeComponent('${c.id}','ratioQty',this.value)">
+        <input placeholder="单位" value="${c.unit}" oninput="updateRecipeComponent('${c.id}','unit',this.value)">
+        <input placeholder="单价RM" type="number" step="0.01" value="${c.unitPrice}" oninput="updateRecipeComponent('${c.id}','unitPrice',this.value)">
+      </div>
+    </div>
+  `).join('');
+}
+function recipeFormHtml(){
+  if(!tempRecipe) return '';
+  const perUnit = tempRecipe.components.reduce((a,c)=>a+(Number(c.ratioQty)||0)*(Number(c.unitPrice)||0),0);
+  return `
+    <div class="card">
+      <h3>${tempRecipe.id? '✏️ 编辑配方' : '新增自动腌料配方'}</h3>
+      <label>触发原料名称（采购单品名跟这个一样，就会自动带出腌料成本；比如：肉碎）</label>
+      <input id="recipeTrigText" list="recipeIngredientNames" placeholder="触发原料名称" autocomplete="off" value="${tempRecipe.triggerName}" oninput="updateRecipeField('triggerName', this.value)">
+      <label style="margin-top:10px">触发原料单位（比如：kg）</label>
+      <input id="recipeTriggerUnit" placeholder="例：kg" value="${tempRecipe.triggerUnit}" oninput="updateRecipeField('triggerUnit', this.value)">
+      <label style="margin-top:14px">每 1 单位触发原料要配的腌料（比如每1kg肉碎配多少蒜蓉、生抽…）</label>
+      <datalist id="recipeIngredientNames">
+        ${getIngredientNames().map(n=>`<option value="${n}">`).join('')}
+      </datalist>
+      <div id="recipeComponentsWrap">${recipeComponentRowsHtml()}</div>
+      <button class="btn-line" onclick="addRecipeComponentRow()">+ 添加一样腌料</button>
+      <div style="margin-top:8px; font-size:13px; color:var(--muted)" id="recipeTotalPreview">每 1${tempRecipe.triggerUnit||''} ${tempRecipe.triggerName||'触发原料'} ≈ RM${fmtPlain(perUnit)} 腌料成本</div>
+      <hr class="receipt-divider">
+      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:6px;">腌完之后你会重新包装成小包——下面填包出来的成品叫什么、单位是什么，之后在"这批腌好了"那边记录完成时，系统会自动帮你把原料出库、成品入库（不填的话有默认值）。</div>
+      <label>变成的成品名称（选填，比如：肉碎(腌制品)）</label>
+      <input placeholder="例：${tempRecipe.triggerName||'肉碎'}(腌制品)" value="${tempRecipe.outputName||''}" oninput="updateRecipeField('outputName', this.value)">
+      <label style="margin-top:10px">成品单位（比如：包）</label>
+      <input placeholder="例：包" value="${tempRecipe.outputUnit||''}" oninput="updateRecipeField('outputUnit', this.value)">
+      <button class="btn-main" onclick="submitRecipe()">${tempRecipe.id?'保存修改':'保存配方'}</button>
+      <button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditRecipe()">取消</button>
+    </div>
+  `;
+}
+function renderRecipeSectionHtml(){
+  let html = '';
+  if(tempRecipe) html += recipeFormHtml();
+  html += `
+    <div class="card">
+      <h3>自动腌料配方 <span class="n">${state.recipes.length} 个</span></h3>
+      <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">
+        像"腌肉碎"这种买回来的原料要先配腌料才会用到菜品上——在这里设好触发原料（比如"肉碎"）跟每单位要配的腌料清单，以后不管是在采购单手动输入"肉碎"，还是用CSV批量导入，只要品名对上，系统都会自动按买的数量等比例算出腌料成本，直接多记一笔进"${RECIPE_SUPPLIER_NAME}"名下（系统自动建的虚拟供应商，欠款栏可以无视，不用记付款），关联产品沿用那笔"肉碎"采购当时选的产品。<br>
+        注意：设了自动配方之后，同一批腌料就不用再手动另外采购/关联了，不然成本会重复计算两次。
+      </div>
+      ${!tempRecipe? `<button class="btn-main" onclick="startNewRecipe()">+ 新增自动腌料配方</button>` : ''}
+      <hr class="receipt-divider">
+      ${state.recipes.length? state.recipes.map(r=>{
+        const perUnit = (r.components||[]).reduce((a,c)=>a+Number(c.ratioQty||0)*Number(c.unitPrice||0),0);
+        return `
+        <div class="supplier-card">
+          <b>触发原料：${r.triggerName}${r.triggerUnit?' ('+r.triggerUnit+')':''}</b>
+          <div class="muted" style="font-size:11.5px; margin-top:2px;">每1${r.triggerUnit||''}配：${(r.components||[]).map(c=>c.name+' '+c.ratioQty+(c.unit||'')).join('、')||'（还没设腌料）'}</div>
+          <div class="muted" style="font-size:11.5px;">每1${r.triggerUnit||''}腌料成本约 RM${fmtPlain(perUnit)}</div>
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <button class="btn-ghost btn-small" style="flex:1;" onclick="startEditRecipe('${r.id}')">编辑</button>
+            <button class="btn-danger-text" onclick="deleteRecipe('${r.id}')">删除</button>
+          </div>
+        </div>`;
+      }).join('') : `<div class="empty">还没有自动腌料配方，点上面新增一个</div>`}
+    </div>
+
+    ${(()=>{
+      const pending = pendingRecipeBatches();
+      if(!pending.length) return '';
+      return `
+    <div class="card">
+      <h3>这批腌好了？ <span class="n">${pending.length} 笔待处理</span></h3>
+      <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">下面是买了触发原料、但还没记录"腌好分成幾包"的采购。填上这批实际包出来的数量，系统会自动帮你把肉碎跟腌料都出库、包好的成品入库，库存才会准。</div>
+      ${pending.map(p=>{
+        const recipe = state.recipes.find(r=>r.id===p.recipeId);
+        const outputUnit = effectiveOutputUnit(recipe);
+        const outputName = effectiveOutputName(recipe);
+        return `
+      <div class="supplier-card">
+        <div class="row">
+          <div><b>${p.triggerName}</b> ×${p.triggerQty}${p.triggerUnit} <span class="muted" style="font-size:11.5px;">· ${p.date} · ${p.supplierName}</span></div>
+        </div>
+        <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
+          <input id="batchPackQty_${p.purchaseId}_${p.recipeId}" type="number" step="0.01" placeholder="分成幾${outputUnit}" style="flex:1;">
+          <button class="btn-main" style="margin:0; width:auto; padding:9px 16px;" onclick="completeRecipeBatch('${p.purchaseId}','${p.recipeId}')">✅ 记录完成</button>
+        </div>
+        <div class="muted" style="font-size:11px; margin-top:4px;">完成后会：${p.triggerName} 出库 ${p.triggerQty}${p.triggerUnit}，腌料按比例一起出库，${outputName} 入库你填的数量</div>
+      </div>`;
+      }).join('')}
+    </div>`;
+    })()}
+
+    ${(state.recipeBatchLogs&&state.recipeBatchLogs.length)? `
+    <details class="pur-hist-row" style="border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:14px;">
+      <summary style="font-size:14px; font-weight:600;">
+        <span>已完成的批次记录</span>
+        <span class="chev">▾</span>
+      </summary>
+      <div style="margin-top:10px;">
+        ${state.recipeBatchLogs.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(l=>`
+        <div class="phr-sub">
+          <div style="display:flex; justify-content:space-between; align-items:baseline;">
+            <span class="muted">${l.date}</span>
+            <button class="btn-danger-text" onclick="undoRecipeBatch('${l.id}')">撤销</button>
+          </div>
+          <div style="font-size:13px; margin-top:2px;">${l.triggerName} ${l.triggerQty}${l.triggerUnit} → ${l.packQty}${l.outputUnit} ${l.outputName}</div>
+        </div>
+        <hr class="receipt-divider">`).join('')}
+      </div>
+    </details>` : ''}
+  `;
+  return html;
+}
+
 function setPurHistoryFilter(val){
   purHistoryFilterDate = val;
   renderPurchase();
@@ -1266,11 +2373,9 @@ function setPurCompany(val){
 }
 
 /* ================= 付款 Tab ================= */
-function renderPayment(){
-  const el = document.getElementById('tab-payment');
-  if(!el) return;
+function renderPaymentSectionHtml(){
   const draft = captureFormValues(['paySupplier','payDate','payAmount','payNote']);
-  el.innerHTML = `
+  return `
     <div class="card">
       <h3>供应商付款</h3>
       <datalist id="paySupplierNames">
@@ -1280,7 +2385,7 @@ function renderPayment(){
         <div><label>供应商</label>
           <input list="paySupplierNames" id="paySupplier" placeholder="输入或选择供应商" autocomplete="off" value="${draft.paySupplier||''}" oninput="onPaySupplierInput()">
         </div>
-        <div><label>付款日期</label><input type="date" id="payDate" value="${draft.payDate||todayStr()}"></div>
+        <div><label>付款日期</label><input type="date" id="payDate" value="${draft.payDate||todayStr()}" onchange="this.blur()"></div>
       </div>
       <div id="payInvoiceListWrap"></div>
       <label>付款金额</label><input type="number" step="0.01" id="payAmount" placeholder="0.00" value="${draft.payAmount||''}">
@@ -1319,7 +2424,7 @@ function renderPayment(){
     <div class="card">
       <h3>付款记录</h3>
       <div class="grid2" style="margin-bottom:10px">
-        <div><label>按日期查看</label><input type="date" id="payHistDate" value="${payHistoryFilterDate}" onchange="setPayHistoryFilterDate(this.value)"></div>
+        <div><label>按日期查看</label><input type="date" id="payHistDate" value="${payHistoryFilterDate}" onchange="setPayHistoryFilterDate(this.value); this.blur();"></div>
         <div style="display:flex; align-items:flex-end;"><button class="btn-ghost" style="width:100%" onclick="setPayHistoryFilterDate('')">显示全部</button></div>
       </div>
       ${(()=>{
@@ -1345,13 +2450,56 @@ function renderPayment(){
       })()}
     </div>
   `;
-  if(draft.paySupplier) onPaySupplierInput();
 }
 function setPayHistoryFilterDate(val){
   payHistoryFilterDate = val;
-  renderPayment();
+  renderPurchase();
 }
 
+/* 某个供应商历史上拿过哪些品项——同名品项只留最近一次的类别/单位/单价，按最近日期排前面。
+   用来在"采购"页选好供应商之后，列出常拿的东西，点一下就能加一行，只要填数量。 */
+function supplierPurchaseHistory(supplierId){
+  const map = {};
+  state.purchases.filter(p=>p.supplierId===supplierId).slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(p=>{
+    (p.items||[]).forEach(i=>{
+      if(!i.name) return;
+      const key = i.name.trim().toLowerCase();
+      map[key] = {name:i.name, category:i.category||'食材', unit:i.unit||'', unitPrice:Number(i.unitPrice||0), lastDate:p.date, productIds:purchaseItemProductIds(i)};
+    });
+  });
+  return Object.values(map).sort((a,b)=>b.lastDate.localeCompare(a.lastDate));
+}
+function supplierHistoryBoxHtml(){
+  if(!currentSupplierHistory.length) return '';
+  return `<div class="muted" style="font-size:11.5px; margin:10px 0 4px;">💡 这家供应商之前拿过这些，点一下自动加一行，只要填数量：</div>
+  <div class="btn-group" style="margin-bottom:6px;">
+    ${currentSupplierHistory.map((h,idx)=>`<button type="button" class="btn-toggle btn-small" onclick="quickAddSupplierItem(${idx})">${h.name}${h.unit?` · ${h.unit}`:''}${h.unitPrice?` · RM${fmtPlain(h.unitPrice)}`:''}</button>`).join('')}
+  </div>`;
+}
+function onPurSupplierChange(val){
+  const s = state.suppliers.find(x=>x.name.trim().toLowerCase()===val.trim().toLowerCase());
+  currentSupplierHistory = s ? supplierPurchaseHistory(s.id) : [];
+  const box = document.getElementById('purSupplierHistoryBox');
+  if(box) box.innerHTML = supplierHistoryBoxHtml();
+}
+function quickAddSupplierItem(idx){
+  const h = currentSupplierHistory[idx];
+  if(!h) return;
+  // 如果目前有一行完全空白（还没填过），就直接用那一行；不然就新加一行
+  let row = tempPurchaseItems.find(r=>!r.name && r.qty==='' && r.unit==='' && r.unitPrice==='' && r.total==='');
+  if(!row){
+    row = {id:uid(), name:'', category:'食材', company:'', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''};
+    tempPurchaseItems.push(row);
+  }
+  row.name = h.name;
+  row.category = h.category || '食材';
+  row.unit = h.unit || '';
+  row.unitPrice = h.unitPrice ? String(h.unitPrice) : '';
+  row.productIds = (h.productIds||[]).slice();
+  renderPurchaseItemRows();
+  const qtyInput = document.getElementById('pi_qty_'+row.id);
+  if(qtyInput) qtyInput.focus();
+}
 function renderPurchaseItemRows(){
   const wrap = document.getElementById('purItemsWrap');
   wrap.innerHTML = `
@@ -1365,6 +2513,10 @@ function renderPurchaseItemRows(){
         <select style="flex:0 0 108px" onchange="updatePurItem('${row.id}','category',this.value)">
           ${PURCHASE_CATEGORIES.map(c=>`<option value="${c}" ${row.category===c?'selected':''}>${c}</option>`).join('')}
         </select>
+        <select style="flex:0 0 88px" onchange="updatePurItem('${row.id}','company',this.value)" title="这一项所属公司（不填=跟随整单选的公司，一张单里有不同公司的东西时才需要个别设）">
+          <option value="" ${!row.company?'selected':''}>跟随整单</option>
+          ${COMPANIES.map(c=>`<option value="${c}" ${row.company===c?'selected':''}>${companyShort(c)}</option>`).join('')}
+        </select>
         ${tempPurchaseItems.length>1?`<button class="rm" onclick="removePurItem('${row.id}')">×</button>`:'<span style="width:20px"></span>'}
       </div>
       ${(()=>{
@@ -1376,23 +2528,35 @@ function renderPurchaseItemRows(){
         if(ing.productIds && ing.productIds.length) parts.push(`是给：${ing.productIds.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean).join('、')}`);
         return parts.length ? `<div class="muted" style="font-size:11px; margin-bottom:4px;">💡 系统记得这个食材 · ${parts.join(' · ')}</div>` : '';
       })()}
-      <div style="display:flex; gap:6px; margin-bottom:6px;">
-        <input id="pi_product_${row.id}" placeholder="属于哪个产品（选填，可加多个，用来自动算成本；打字可以过滤下面的多选清单）" autocomplete="off" value="${row.productInput||''}" oninput="updatePurItem('${row.id}','productInput',this.value); filterPurItemPicker('${row.id}');" onkeydown="if(event.key==='Enter'){ setTimeout(()=>addPurItemProduct('${row.id}'), 0); }" style="flex:1;">
-        <button type="button" class="btn-ghost btn-small" onclick="addPurItemProduct('${row.id}')">+ 加入</button>
-        <button type="button" class="btn-ghost btn-small" onclick="togglePurItemProductPicker('${row.id}')">${row._pickerOpen?'收起 ▴':'☰ 多选 ▾'}</button>
-      </div>
-      ${row._pickerOpen ? `
-      <div id="pi_picker_${row.id}" style="border:1px solid var(--border); border-radius:8px; padding:8px 10px; margin-bottom:6px; max-height:200px; overflow:auto;">
-        ${purItemPickerListHtml(row.id)}
-      </div>` : ''}
-      ${(row.productIds&&row.productIds.length)?`<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px;">
-        ${row.productIds.map(pid=>{
-          const prod = state.products.find(x=>x.id===pid);
-          return `<span class="pill clear" style="cursor:pointer;" onclick="removePurItemProduct('${row.id}','${pid}')" title="点击移除">${prod?prod.name:'?'} ×</span>`;
-        }).join('')}
-      </div>` : ''}
+      ${(()=>{
+        /* 只要这一项目前还没有关联到任何产品，就摊开输入框等着选（不管这个食材名字系统认不认得）；
+           一旦已经关联了至少一个产品，就收起来只留个"+改关联"小连结，需要改的时候再手动点开。 */
+        const hasLinked = row.productIds && row.productIds.length;
+        const showInputArea = !hasLinked || row._pickerOpen;
+        return `
+        ${hasLinked ? `
+        <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:6px;">
+          ${row.productIds.map(pid=>{
+            const prod = state.products.find(x=>x.id===pid);
+            return `<span class="pill clear" style="cursor:pointer;" onclick="removePurItemProduct('${row.id}','${pid}')" title="点击移除">${prod?prod.name:'?'} ×</span>`;
+          }).join('')}
+          <button type="button" class="btn-line" style="padding:2px 4px; font-size:11.5px;" onclick="togglePurItemProductPicker('${row.id}')">${row._pickerOpen?'收起 ▴':'+ 改关联'}</button>
+        </div>` : ''}
+        ${showInputArea ? `
+        <div style="display:flex; gap:6px; margin-bottom:6px;">
+          <input id="pi_product_${row.id}" placeholder="属于哪个产品（选填，可加多个，用来自动算成本；打字可以过滤下面的多选清单）" autocomplete="off" value="${row.productInput||''}" oninput="updatePurItem('${row.id}','productInput',this.value); filterPurItemPicker('${row.id}');" onkeydown="if(event.key==='Enter'){ setTimeout(()=>addPurItemProduct('${row.id}'), 0); }" style="flex:1;">
+          <button type="button" class="btn-ghost btn-small" onclick="addPurItemProduct('${row.id}')">+ 加入</button>
+          ${!hasLinked ? `<button type="button" class="btn-ghost btn-small" onclick="togglePurItemProductPicker('${row.id}')">${row._pickerOpen?'收起 ▴':'☰ 多选 ▾'}</button>` : ''}
+        </div>
+        ${row._pickerOpen ? `
+        <div id="pi_picker_${row.id}" style="border:1px solid var(--border); border-radius:8px; padding:8px 10px; margin-bottom:6px; max-height:200px; overflow:auto;">
+          ${purItemPickerListHtml(row.id)}
+        </div>` : ''}
+        ` : ''}
+        `;
+      })()}
       <div class="pi-bottom">
-        <input placeholder="数量" type="number" value="${row.qty}" oninput="updatePurItem('${row.id}','qty',this.value)">
+        <input id="pi_qty_${row.id}" placeholder="数量" type="number" value="${row.qty}" oninput="updatePurItem('${row.id}','qty',this.value)">
         <input placeholder="单位" value="${row.unit}" oninput="updatePurItem('${row.id}','unit',this.value)">
         <input placeholder="单价(选填)" type="number" step="0.01" value="${row.unitPrice}" oninput="updatePurItem('${row.id}','unitPrice',this.value)">
         <input id="pi_total_${row.id}" placeholder="总价RM" type="number" step="0.01" value="${row.total}" oninput="updatePurItem('${row.id}','total',this.value)">
@@ -1420,7 +2584,7 @@ function updatePurItem(id, field, val){
   document.getElementById('purTotalPreview').textContent = fmt(total);
 }
 function addPurchaseItemRow(){
-  tempPurchaseItems.push({id:uid(), name:'', category:'食材', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''});
+  tempPurchaseItems.push({id:uid(), name:'', category:'食材', company:'', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''});
   renderPurchaseItemRows();
 }
 function removePurItem(id){
@@ -1509,28 +2673,35 @@ function autoLinkPurItemIngredient(rowId){
   const row = tempPurchaseItems.find(r=>r.id===rowId);
   if(!row) return;
   const ing = findIngredient(row.name);
-  if(!ing) return;
   let changed = false;
-  if(ing.productIds && ing.productIds.length){
-    if(!row.productIds) row.productIds = [];
-    ing.productIds.forEach(pid=>{ if(!row.productIds.includes(pid)){ row.productIds.push(pid); changed = true; } });
+  if(ing){
+    if(ing.productIds && ing.productIds.length){
+      if(!row.productIds) row.productIds = [];
+      ing.productIds.forEach(pid=>{ if(!row.productIds.includes(pid)){ row.productIds.push(pid); changed = true; } });
+    }
+    if(ing.unit && !row.unit){ row.unit = ing.unit; changed = true; }
+    if(ing.unitPrice && !row.unitPrice){
+      row.unitPrice = String(ing.unitPrice);
+      changed = true;
+      const qty = Number(row.qty);
+      if(row.qty!=='' && !isNaN(qty)) row.total = String(Math.round(qty*ing.unitPrice*100)/100);
+    }
   }
-  if(ing.unit && !row.unit){ row.unit = ing.unit; changed = true; }
-  if(ing.unitPrice && !row.unitPrice){
-    row.unitPrice = String(ing.unitPrice);
+  /* 这一项目前还没有关联到任何产品（不管这个食材名字系统认不认得）——自动把"属于哪个产品"
+     的多选清单弹开，不用还要多点一次"多选"按钮才能选。 */
+  if(row.name && row.name.trim() && !(row.productIds && row.productIds.length) && !row._pickerOpen){
+    row._pickerOpen = true;
     changed = true;
-    const qty = Number(row.qty);
-    if(row.qty!=='' && !isNaN(qty)) row.total = String(Math.round(qty*ing.unitPrice*100)/100);
   }
   if(changed) renderPurchaseItemRows();
 }
 
 function addSupplier(){
-  const name = document.getElementById('supName').value.trim();
+  const name = document.getElementById('supTitle').value.trim();
   if(!name){ alert('请输入供应商名称'); return; }
   const phone = document.getElementById('supPhone').value.trim();
   mutate(()=>{ state.suppliers.push({id:uid(), name, phone}); });
-  const nameEl = document.getElementById('supName'); if(nameEl) nameEl.value = '';
+  const nameEl = document.getElementById('supTitle'); if(nameEl) nameEl.value = '';
   const phoneEl = document.getElementById('supPhone'); if(phoneEl) phoneEl.value = '';
 }
 function bulkAddSuppliers(){
@@ -1567,13 +2738,14 @@ function submitPurchase(){
   if(!typedName || !typedName.trim()){ alert('请输入或选择供应商'); return; }
   const items = tempPurchaseItems.filter(r=>r.name && r.total!=='').map(r=>({
     id:uid(), name:r.name, category:r.category||'食材', qty:Number(r.qty||0), unit:r.unit, unitPrice:Number(r.unitPrice||0), totalCost:Number(r.total||0),
-    productIds: (r.productIds||[]).slice()
+    productIds: (r.productIds||[]).slice(), company: r.company||''
   }));
   if(items.length===0){ alert('请至少填写一项品名和总价'); return; }
   const totalAmount = items.reduce((a,i)=>a+i.totalCost,0);
   const company = purCompany;
   ['purSupplier','purInvoiceNumber'].forEach(id2=>{ const elx=document.getElementById(id2); if(elx) elx.value=''; });
   const purDateEl = document.getElementById('purDate'); if(purDateEl) purDateEl.value = todayStr();
+  let newlyCreatedId = null;
   if(editingPurchaseId){
     const targetId = editingPurchaseId;
     mutate(()=>{
@@ -1581,17 +2753,25 @@ function submitPurchase(){
       const pu = state.purchases.find(x=>x.id===targetId);
       if(pu){ pu.date = date; pu.supplierId = supplierId; pu.items = items; pu.totalAmount = totalAmount; pu.invoiceNumber = invoiceNumber; pu.company = company; }
       items.forEach(i=>learnIngredientLink(i.name, i.productIds, {unit: i.unit, unitPrice: i.unitPrice}));
+      if(pu) applyAutoMarinadeRecipes([pu]);
     });
     editingPurchaseId = null;
   } else {
     mutate(()=>{
       const supplierId = findOrCreateSupplierId(typedName);
-      state.purchases.push({id:uid(), date, supplierId, items, totalAmount, invoiceNumber, company});
+      const newPur = {id:uid(), date, supplierId, items, totalAmount, invoiceNumber, company};
+      state.purchases.push(newPur);
       items.forEach(i=>learnIngredientLink(i.name, i.productIds, {unit: i.unit, unitPrice: i.unitPrice}));
+      applyAutoMarinadeRecipes([newPur]);
+      newlyCreatedId = newPur.id;
     });
   }
-  tempPurchaseItems = [{id:uid(), name:'', category:'食材', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
+  tempPurchaseItems = [{id:uid(), name:'', category:'食材', company:'', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
   renderPurchase();
+  /* 新增（不是编辑）的采购单存好之后，跳一个付款状态弹窗问"这笔付了没"——买菜很多时候是
+     当场用现金给钱的，选"已付款"就能一次过把付款也记了，不用再切去"付款"页重新选供应商/invoice。
+     编辑既有采购单不会跳这个（不然改个数量就被追问付款状态，太烦），要补付款用列表里的"💰 付款"按钮。 */
+  if(newlyCreatedId) openPurchasePayPopup(newlyCreatedId, true);
 }
 function startEditPurchase(id){
   const p = state.purchases.find(x=>x.id===id);
@@ -1599,26 +2779,26 @@ function startEditPurchase(id){
   editingPurchaseId = id;
   purCompany = p.company || COMPANIES[0];
   tempPurchaseItems = (p.items&&p.items.length) ? p.items.map(i=>({
-    id: uid(), name: i.name||'', category: i.category||'食材',
+    id: uid(), name: i.name||'', category: i.category||'食材', company: i.company||'',
     productIds: purchaseItemProductIds(i).slice(), productInput: '',
     qty: i.qty!=null?String(i.qty):'', unit: i.unit||'',
     unitPrice: i.unitPrice?String(i.unitPrice):'', total: i.totalCost!=null?String(i.totalCost):''
-  })) : [{id:uid(), name:'', category:'食材', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
+  })) : [{id:uid(), name:'', category:'食材', company:'', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
   renderPurchase();
   const supplierInput = document.getElementById('purSupplier');
   if(supplierInput) supplierInput.scrollIntoView({behavior:'smooth', block:'center'});
 }
 function cancelEditPurchase(){
   editingPurchaseId = null;
-  tempPurchaseItems = [{id:uid(), name:'', category:'食材', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
+  tempPurchaseItems = [{id:uid(), name:'', category:'食材', company:'', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
   renderPurchase();
 }
 function deletePurchase(id){
   if(!confirm('确定删除这张采购单？')) return;
-  mutate(()=>{ state.purchases = state.purchases.filter(p=>p.id!==id); });
+  mutate(()=>{ state.purchases = state.purchases.filter(p=>p.id!==id); removeAutoMarinadeFor(id); removeRecipeBatchLogsForPurchase(id); });
   if(editingPurchaseId===id){
     editingPurchaseId = null;
-    tempPurchaseItems = [{id:uid(), name:'', category:'食材', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
+    tempPurchaseItems = [{id:uid(), name:'', category:'食材', company:'', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
     renderPurchase();
   }
 }
@@ -1626,6 +2806,14 @@ function updatePurchaseCompany(id, company){
   mutate(()=>{
     const p = state.purchases.find(x=>x.id===id);
     if(p) p.company = company;
+  });
+}
+function updatePurItemCompany(purchaseId, itemId, company){
+  mutate(()=>{
+    const pu = state.purchases.find(x=>x.id===purchaseId);
+    if(!pu) return;
+    const item = (pu.items||[]).find(i=>i.id===itemId);
+    if(item) item.company = company;
   });
 }
 function deletePayment(id){
@@ -1901,34 +3089,43 @@ function importPaymentsReport(fileInput){
 let tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
 let editingProductId = null;
 let costSearchQuery = '';
+let costCategoryFilter = '';
+let draftProductCompany = '';
+let prodSubView = 'product'; // 'product' = 名称/售价/分类等基本资料的新增编辑，'cost' = 食材成本/毛利细项
 
+function setProdSubView(val){
+  prodSubView = val;
+  renderCost();
+}
 function renderCost(){
   const el = document.getElementById('tab-cost');
+  const prodSubTabHtml = `
+    <div class="btn-group" style="margin-bottom:14px;">
+      <button type="button" class="btn-toggle ${prodSubView==='product'?'active':''}" onclick="setProdSubView('product')">🏷️ 产品</button>
+      <button type="button" class="btn-toggle ${prodSubView==='cost'?'active':''}" onclick="setProdSubView('cost')">🧮 成本</button>
+    </div>`;
   const editingProduct = editingProductId ? state.products.find(x=>x.id===editingProductId) : null;
-  const draft = editingProduct ? {} : captureFormValues(['prodName','prodPrice']);
-  el.innerHTML = `
-    <div class="card">
-      <h3>${editingProduct? `✏️ 编辑产品：${editingProduct.name}` : '新增菜品 / 产品'}</h3>
-      <div class="grid2">
-        <div><label>产品名称</label><input id="prodName" placeholder="例：招牌炒河粉" value="${editingProduct?editingProduct.name:(draft.prodName||'')}"></div>
-        <div><label>售价</label><input id="prodPrice" type="number" step="0.01" placeholder="0.00" value="${editingProduct?editingProduct.price:(draft.prodPrice||'')}"></div>
-      </div>
-      <label style="margin-top:14px">食材成本项（保底用：如果这个产品在"采购"页还没有关联到任何采购记录，就会用这里的估算；一旦有关联采购+销售数据，系统会自动改用实际数据算成本）</label>
-      <div id="costItemsWrap"></div>
-      <button class="btn-line" onclick="addCostItemRow()">+ 添加一项食材成本</button>
-      <div style="margin-top:8px; font-size:13px; color:var(--muted)">
-        总成本：<b class="mono" id="costTotalPreview">RM 0.00</b>
-      </div>
-      <button class="btn-main" onclick="submitProduct()">${editingProduct?'保存修改':'保存产品'}</button>
-      ${editingProduct?`<button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditProduct()">取消编辑</button>`:''}
-    </div>
-
+  const draft = editingProduct ? {} : captureFormValues(['prodTitle','prodPrice','prodCategory','prodCode']);
+  if(editingProduct) draftProductCompany = editingProduct.company || '';
+  const categoryOptions = Array.from(new Set([...MENU_CATEGORIES, ...state.products.map(p=>p.category).filter(Boolean)]));
+  const catOrder = c => { const i = MENU_CATEGORIES.indexOf(c||''); return i===-1 ? 999 : i; };
+  let displayProducts = state.products.slice().sort((a,b)=> catOrder(a.category) - catOrder(b.category) || a.name.localeCompare(b.name));
+  if(costCategoryFilter) displayProducts = displayProducts.filter(p=>(p.category||'')===costCategoryFilter);
+  if(prodSubView==='cost'){
+    el.innerHTML = prodSubTabHtml + `
     <div class="card">
       <h3>产品成本一览 <span class="n">${state.products.length} 项</span></h3>
-      ${state.products.length? `<input id="costSearchInput" placeholder="🔍 搜索产品名称..." value="${costSearchQuery.replace(/"/g,'&quot;')}" oninput="filterCostProducts(this.value)" style="margin-bottom:10px;">
+      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">下面这颗按钮会拿 POS 系统导出的官方菜单（共 ${POS_MENU.length} 项）去补现有产品的分类/编号/所属公司，不会动已经填好的食材成本和售价，也不会删掉任何产品；菜单里有、但这里还没建档的产品会自动新增（售价照抄 POS，食材成本留空待填）。</div>
+      <button class="btn-line" onclick="syncPosMenu()">📋 从 POS 官方菜单同步餐品</button>
+      ${state.products.length? `<input id="costSearchInput" placeholder="🔍 搜索产品名称..." value="${costSearchQuery.replace(/"/g,'&quot;')}" oninput="filterCostProducts(this.value)" style="margin-top:10px; margin-bottom:10px;">
+      <select id="costCategoryFilterSelect" onchange="setCostCategoryFilter(this.value)" style="margin-bottom:10px;">
+        <option value="">全部分类（${state.products.length}）</option>
+        ${categoryOptions.map(c=>`<option value="${c.replace(/"/g,'&quot;')}" ${costCategoryFilter===c?'selected':''}>${c}（${state.products.filter(x=>(x.category||'')===c).length}）</option>`).join('')}
+      </select>
       <div id="costSearchEmpty" class="empty" style="display:none;">没有找到符合的产品</div>` : ''}
-      ${state.products.length? state.products.map(p=>{
+      ${displayProducts.length? displayProducts.map(p=>{
         const method = p.costMethod==='total' ? 'total' : 'unit';
+        const tagsLine = (p.category||p.code||p.company) ? `<div class="muted" style="font-size:11px; margin:2px 0 6px;">${p.category?`📂 ${p.category}`:''}${p.code?`　#${p.code}`:''}${p.company?`　🏢 ${p.company}`:''}</div>` : '';
         const methodToggle = `<div class="btn-group" style="margin-top:8px; margin-bottom:6px;">
           <button type="button" class="btn-toggle ${method==='unit'?'active':''}" onclick="setProductCostMethod('${p.id}','unit')">单位成本法</button>
           <button type="button" class="btn-toggle ${method==='total'?'active':''}" onclick="setProductCostMethod('${p.id}','total')">总额法</button>
@@ -1938,7 +3135,7 @@ function renderCost(){
           const groupNames = b.groupIds.map(id=>{ const gp = state.products.find(x=>x.id===id); return gp?gp.name:''; }).filter(Boolean);
           const sharePct = (b.share*100).toFixed(1);
           return `
-          <div class="cost-product-card" data-pname="${p.name.toLowerCase().replace(/"/g,'&quot;')}" style="border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:10px;">
+          <div class="cost-product-card" data-pname="${p.name.toLowerCase().replace(/"/g,'&quot;')}" data-pcat="${(p.category||'').replace(/"/g,'&quot;')}" style="border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:10px;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
               <b>${p.name}</b>
               <div style="display:flex; gap:6px;">
@@ -1946,6 +3143,7 @@ function renderCost(){
                 <button class="btn-danger-text" onclick="deleteProduct('${p.id}')">删除产品</button>
               </div>
             </div>
+            ${tagsLine}
             ${methodToggle}
             <div class="muted" style="font-size:11px; margin-bottom:4px;">总额法：${groupNames.length>1?`跟 ${groupNames.filter(n=>n!==p.name).join('、')} 共用采购食材，组内食材总成本 ${fmtPlain(b.groupSpend)} 会${b.groupRevenue>0.001?'按各产品销售额占比':'平均'}分摊`:'该产品单独一组（还没有跟其他产品共用采购食材），组内食材成本全部算它的'}</div>
             ${groupNames.length>1?`<div class="muted" style="font-size:11px; margin-bottom:4px;">本产品销售额占该组的 ${sharePct}%，分摊到食材成本 ${fmtPlain(b.allocatedCost)}</div>`:''}
@@ -1964,7 +3162,7 @@ function renderCost(){
         const profit = Number(p.price||0) - cost;
         const pct = p.price>0? (profit/p.price*100).toFixed(1) : '0.0';
         return `
-        <div class="cost-product-card" data-pname="${p.name.toLowerCase().replace(/"/g,'&quot;')}" style="border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:10px;">
+        <div class="cost-product-card" data-pname="${p.name.toLowerCase().replace(/"/g,'&quot;')}" data-pcat="${(p.category||'').replace(/"/g,'&quot;')}" style="border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:10px;">
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <b>${p.name}</b>
             <div style="display:flex; gap:6px;">
@@ -1972,6 +3170,7 @@ function renderCost(){
               <button class="btn-danger-text" onclick="deleteProduct('${p.id}')">删除产品</button>
             </div>
           </div>
+          ${tagsLine}
           ${methodToggle}
           ${usingRealData? `<div class="muted" style="font-size:11px; margin-top:4px;">按实际数据算成本：关联采购总额 ${fmtPlain(spend)} ÷ 已售出 ${qtySold} 份 = 单位成本 ${fmtPlain(cost)}</div>` : `<div class="muted" style="font-size:11px; margin-top:4px;">还没有关联采购或销售数据，暂用下面手动填的食材成本项估算</div>`}
           <table style="margin-top:6px">
@@ -1994,11 +3193,54 @@ function renderCost(){
             <tr><td>毛利率</td><td class="num">${pct}%</td></tr>
           </table>
         </div>`;
-      }).join('') : `<div class="empty">还没有产品，先在上面新增一个吧</div>`}
+      }).join('') : `<div class="empty">${state.products.length? '这个分类下没有产品':'还没有产品，先在上面新增一个吧'}</div>`}
+    </div>
+    `;
+    if(costSearchQuery) filterCostProducts(costSearchQuery);
+    return;
+  }
+  el.innerHTML = prodSubTabHtml + `
+    <div class="card">
+      <h3>${editingProduct? `✏️ 编辑产品：${editingProduct.name}` : '新增菜品 / 产品'}</h3>
+      <div class="grid2">
+        <div><label>产品名称</label><input id="prodTitle" list="prodNameSuggestions" placeholder="例：招牌炒河粉" autocomplete="off" value="${editingProduct?editingProduct.name:(draft.prodTitle||'')}"></div>
+        <div><label>售价</label><input id="prodPrice" type="number" step="0.01" placeholder="0.00" value="${editingProduct?editingProduct.price:(draft.prodPrice||'')}"></div>
+      </div>
+      <datalist id="prodNameSuggestions">${state.products.map(p=>`<option value="${p.name.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+      <div class="grid2" style="margin-top:10px">
+        <div><label>分类（选填，方便下面按分类查找）</label>
+          <input id="prodCategory" list="prodCategoryList" placeholder="例：肉类" value="${editingProduct?(editingProduct.category||''):(draft.prodCategory||'')}">
+          <datalist id="prodCategoryList">${categoryOptions.map(c=>`<option value="${c.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+        </div>
+        <div><label>POS 编号（选填）</label><input id="prodCode" placeholder="例：M02" value="${editingProduct?(editingProduct.code||''):(draft.prodCode||'')}"></div>
+      </div>
+      <label style="margin-top:10px">所属公司（选填，两间都卖或不确定可以不选）</label>
+      <div class="btn-group" id="prodCompanyGroup">
+        <button type="button" class="btn-toggle ${draftProductCompany===''?'active':''}" data-val="" onclick="setProdCompany('')">不指定</button>
+        ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${draftProductCompany===c?'active':''}" data-val="${c}" onclick="setProdCompany('${c}')">${c}</button>`).join('')}
+      </div>
+      <label style="margin-top:14px">食材成本项（保底用：如果这个产品在"采购"页还没有关联到任何采购记录，就会用这里的估算；一旦有关联采购+销售数据，系统会自动改用实际数据算成本）</label>
+      <div id="costItemsWrap"></div>
+      <button class="btn-line" onclick="addCostItemRow()">+ 添加一项食材成本</button>
+      <div style="margin-top:8px; font-size:13px; color:var(--muted)">
+        总成本：<b class="mono" id="costTotalPreview">RM 0.00</b>
+      </div>
+      <button class="btn-main" onclick="submitProduct()">${editingProduct?'保存修改':'保存产品'}</button>
+      ${editingProduct?`<button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditProduct()">取消编辑</button>`:''}
+    </div>
+
+    <div class="card">
+      <h3>合并重复产品</h3>
+      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">同一样东西有时候会因为大小写、多字少字，在 app 里变成好几个不同的产品（比如收银员打字打法不一样）。这里可以把旧名字统一合并成一个：旧名字底下的销售记录会全部改成新名字（这样以后算销量/毛利才不会分散算），旧的重复产品项目会被删掉，里面填过的食材成本项会自动搬到合并后的产品底下，不会不见。</div>
+      <label>要合并掉的旧名字（可以填好几个，用顿号"、"分开）</label>
+      <input id="mergeFromList" list="mergeNameSuggestions" placeholder="例：Strawberry Jam、strawberry jam、add strawberry jam" autocomplete="off">
+      <label style="margin-top:10px">统一成这个名字（如果这个名字目前还没有产品，会直接拿旧产品其中一个改名字延用，食材成本不会丢）</label>
+      <input id="mergeToTarget" list="mergeNameSuggestions" placeholder="例：STRAWBERRY JAM ONE BOTTLE" autocomplete="off">
+      <datalist id="mergeNameSuggestions">${state.products.map(p=>`<option value="${p.name.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+      <button class="btn-line" onclick="mergeProductsByName()">🔀 合并</button>
     </div>
   `;
   renderCostItemRows();
-  if(costSearchQuery) filterCostProducts(costSearchQuery);
 }
 function renderCostItemRows(){
   const wrap = document.getElementById('costItemsWrap');
@@ -2045,43 +3287,50 @@ function removeCostItem(id){
   renderCostItemRows();
 }
 function submitProduct(){
-  const name = document.getElementById('prodName').value.trim();
+  const name = document.getElementById('prodTitle').value.trim();
   const price = Number(document.getElementById('prodPrice').value)||0;
+  const category = document.getElementById('prodCategory').value.trim();
+  const code = document.getElementById('prodCode').value.trim();
+  const company = draftProductCompany;
   if(!name){ alert('请输入产品名称'); return; }
   const costItems = tempCostItems.filter(r=>r.name && r.cost!=='').map(r=>({id:uid(), name:r.name, qty:Number(r.qty||0), unit:r.unit, unitPrice:Number(r.unitPrice||0), cost:Number(r.cost||0)}));
-  const prodNameEl = document.getElementById('prodName'); if(prodNameEl) prodNameEl.value='';
+  const prodTitleEl = document.getElementById('prodTitle'); if(prodTitleEl) prodTitleEl.value='';
   const prodPriceEl = document.getElementById('prodPrice'); if(prodPriceEl) prodPriceEl.value='';
   if(editingProductId){
     const targetId = editingProductId;
     mutate(()=>{
       const p = state.products.find(x=>x.id===targetId);
-      if(p){ p.name = name; p.price = price; p.costItems = costItems; }
+      if(p){ p.name = name; p.price = price; p.costItems = costItems; p.category = category; p.code = code; p.company = company; }
       costItems.forEach(ci=>learnIngredientLink(ci.name, [targetId], {unit: ci.unit, unitPrice: ci.unitPrice}));
     });
     editingProductId = null;
   } else {
     const newId = uid();
     mutate(()=>{
-      state.products.push({id:newId, name, price, costItems, costMethod:'unit'});
+      state.products.push({id:newId, name, price, costItems, costMethod:'unit', category, code, company});
       costItems.forEach(ci=>learnIngredientLink(ci.name, [newId], {unit: ci.unit, unitPrice: ci.unitPrice}));
     });
   }
   tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
+  draftProductCompany = '';
   renderCost();
 }
 function startEditProduct(id){
   const p = state.products.find(x=>x.id===id);
   if(!p) return;
   editingProductId = id;
+  prodSubView = 'product';
+  draftProductCompany = p.company || '';
   tempCostItems = (p.costItems&&p.costItems.length)
     ? p.costItems.map(ci=>({id:uid(), name:ci.name||'', qty:ci.qty?String(ci.qty):'', unit:ci.unit||'', unitPrice:ci.unitPrice?String(ci.unitPrice):'', cost:ci.cost!=null?String(ci.cost):''}))
     : [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
   renderCost();
-  const nameInput = document.getElementById('prodName');
+  const nameInput = document.getElementById('prodTitle');
   if(nameInput) nameInput.scrollIntoView({behavior:'smooth', block:'center'});
 }
 function cancelEditProduct(){
   editingProductId = null;
+  draftProductCompany = '';
   tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
   renderCost();
 }
@@ -2141,6 +3390,83 @@ function appendCostItem(prodId){
     learnIngredientLink(name, [prodId], {unitPrice: Number(upEl.value||0)});
   });
 }
+function setProdCompany(val){
+  draftProductCompany = val;
+  document.querySelectorAll('#prodCompanyGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
+}
+function setCostCategoryFilter(val){
+  costCategoryFilter = val;
+  renderCost();
+}
+/* 从 POS 官方菜单（POS_MENU 常量）批量补齐/新增产品：
+   - 按产品名称（trim + 不分大小写）去对现有 state.products，对上的话只补分类/编号/所属公司里
+     还空着的栏位，绝对不会覆盖已经填好的售价、食材成本、成本算法；
+   - 对不上的话（POS 有、这里没有）直接新增一个产品，售价照抄 POS，食材成本留空待填；
+   - 不会删除任何现有产品（就算它不在这份 POS 菜单里，比如已经下架的老菜、或手动加的杂项）。
+   可以重复点击，不会重复新增或越同步越乱。 */
+function syncPosMenu(){
+  const norm = s => (s||'').trim().toLowerCase();
+  const byName = new Map(state.products.map(p=>[norm(p.name), p]));
+  let updated = 0, created = 0;
+  mutate(()=>{
+    POS_MENU.forEach(m=>{
+      const existing = byName.get(norm(m.name));
+      if(existing){
+        let changed = false;
+        if(!existing.category && m.category){ existing.category = m.category; changed = true; }
+        if(!existing.code && m.code){ existing.code = m.code; changed = true; }
+        if(!existing.company && m.company){ existing.company = m.company; changed = true; }
+        if(changed) updated++;
+      } else {
+        const newId = uid();
+        state.products.push({id:newId, name:m.name, price:m.price, costItems:[], costMethod:'unit', category:m.category, code:m.code, company:m.company});
+        byName.set(norm(m.name), state.products[state.products.length-1]);
+        created++;
+      }
+    });
+  });
+  alert(`同步完成：\n・${updated} 个已有产品补上了分类/编号/所属公司\n・${created} 个新增建档（售价照抄 POS 菜单，食材成本还没填，记得去补）\n\n建议接着看看下面列表有没有意思相同、但名字打法跟 POS 不一样变成"重复"的产品（比如手动加的旧名字），有的话把旧的那个食材成本转移过去、再删掉旧的就好。`);
+}
+/* 把好几个写法不一样、其实是同一样东西的产品合并成一个：
+   - fromNames 底下任何一个名字（不分大小写）的历史销售记录，productName 全部改成 toName，
+     这样"产品成本"页算销量/毛利的时候才不会因为名字不一样而分开算；
+   - 如果 toName 目前还没有对应的产品，就直接把 fromNames 里第一个匹配到的旧产品改名字延用
+     （食材成本项不会不见）；如果 toName 已经有产品了，fromNames 匹配到的其他重复产品的食材
+     成本项会搬过去，搬完这些重复产品会被删掉。 */
+function mergeProductsByName(){
+  const fromRaw = document.getElementById('mergeFromList').value.trim();
+  const toName = document.getElementById('mergeToTarget').value.trim();
+  if(!fromRaw || !toName){ alert('请填写要合并的旧名字，和统一后的名字'); return; }
+  const fromNames = fromRaw.split(/[、,，]/).map(s=>s.trim()).filter(Boolean);
+  if(!fromNames.length){ alert('请填写要合并的旧名字'); return; }
+  const norm = s => (s||'').trim().toLowerCase();
+  const toNorm = norm(toName);
+  const summary = {salesRenamed:0, mergedCostItems:0, removedProducts:0};
+  mutate(()=>{
+    state.sales.forEach(s=>{
+      if(norm(s.productName)!==toNorm && fromNames.some(f=>norm(f)===norm(s.productName))){
+        s.productName = toName;
+        summary.salesRenamed++;
+      }
+    });
+    let target = state.products.find(p=>norm(p.name)===toNorm);
+    let fromProducts = state.products.filter(p=> norm(p.name)!==toNorm && fromNames.some(f=>norm(f)===norm(p.name)) );
+    if(!target && fromProducts.length){
+      target = fromProducts[0];
+      target.name = toName;
+      fromProducts = fromProducts.slice(1);
+    }
+    if(target && fromProducts.length){
+      fromProducts.forEach(p=>{
+        (p.costItems||[]).forEach(ci=>{ target.costItems = target.costItems || []; target.costItems.push(ci); summary.mergedCostItems++; });
+      });
+      const removeIds = new Set(fromProducts.map(p=>p.id));
+      state.products = state.products.filter(p=>!removeIds.has(p.id));
+      summary.removedProducts = fromProducts.length;
+    }
+  });
+  alert(`合并完成：\n・${summary.salesRenamed} 笔销售记录改成了「${toName}」\n・${summary.removedProducts} 个重复的旧产品项目已合并删除${summary.mergedCostItems? `（食材成本项搬了 ${summary.mergedCostItems} 项过去）`:''}`);
+}
 
 /* ================= 销售 Tab ================= */
 let saleCompany = COMPANIES[0];
@@ -2174,7 +3500,7 @@ function renderSales(){
         <div><label>数量</label><input type="number" id="saleQty" value="${draft.saleQty||'1'}" min="1"></div>
         <div><label>单价（可改，例如打折）</label><input type="number" step="0.01" id="salePrice" value="${draft.salePrice||''}"></div>
       </div>
-      <label>日期</label><input type="date" id="saleDate" value="${draft.saleDate||todayStr()}">
+      <label>日期</label><input type="date" id="saleDate" value="${draft.saleDate||todayStr()}" onchange="this.blur()">
       <label>收款方式</label>
       <select id="salePayMethod">
         ${INCOME_CATEGORIES.map(c=>`<option value="${c}" ${(draft.salePayMethod?draft.salePayMethod===c:c===INCOME_CATEGORIES[0])?'selected':''}>${c}</option>`).join('')}
@@ -2322,7 +3648,9 @@ function deleteImportBatch(batchId){
   if(!confirm(`确定删除这批导入的 ${n} ${unit}吗？（${batch?batch.fileName:''}）此操作无法撤销。`)) return;
   mutate(()=>{
     if(type==='purchase'){
+      const removedIds = state.purchases.filter(p=>p.importBatch===batchId).map(p=>p.id);
       state.purchases = state.purchases.filter(p=>p.importBatch!==batchId);
+      removedIds.forEach(rid=>removeAutoMarinadeFor(rid));
     } else if(type==='payment'){
       const removedIds = new Set(state.payments.filter(p=>p.importBatch===batchId).map(p=>p.id));
       state.payments = state.payments.filter(p=>p.importBatch!==batchId);
@@ -2552,12 +3880,12 @@ function importPurchasesReport(fileInput){
           }
           productIds.push(p.id);
         });
-        const key = [company, supplierNameRaw.toLowerCase(), invoiceNumber.toLowerCase(), date].join('|');
+        const key = [supplierNameRaw.toLowerCase(), invoiceNumber.toLowerCase(), date].join('|');
         if(!groups[key]){
-          groups[key] = {date, company, supplierNameRaw, invoiceNumber, items:[]};
+          groups[key] = {date, supplierNameRaw, invoiceNumber, items:[]};
           groupOrder.push(key);
         }
-        groups[key].items.push({id:uid(), name:itemName, category, qty, unit, unitPrice: isNaN(unitPrice)?0:unitPrice, totalCost, productIds});
+        groups[key].items.push({id:uid(), name:itemName, category, qty, unit, unitPrice: isNaN(unitPrice)?0:unitPrice, totalCost, productIds, company});
       });
       const purchaseGroups = groupOrder.map(k=>groups[k]).filter(g=>g.items.length);
       if(purchaseGroups.length===0){ alert('没有成功解析到任何一笔采购：\n\n' + errors.join('\n')); fileInput.value=''; return; }
@@ -2576,14 +3904,20 @@ function importPurchasesReport(fileInput){
         });
         let batchAmount = 0;
         const dates = [];
+        const pushedPurchases = [];
         purchaseGroups.forEach(g=>{
           const supplierId = findOrCreateSupplierId(g.supplierNameRaw);
           const totalAmount = g.items.reduce((a,i)=>a+Number(i.totalCost||0),0);
-          state.purchases.push({id:uid(), date:g.date, supplierId, items:g.items, totalAmount, invoiceNumber:g.invoiceNumber, company:g.company, importBatch:batchId});
+          const itemCompanies = new Set(g.items.map(i=>i.company).filter(Boolean));
+          const groupCompany = itemCompanies.size===1 ? Array.from(itemCompanies)[0] : '';
+          const newPur = {id:uid(), date:g.date, supplierId, items:g.items, totalAmount, invoiceNumber:g.invoiceNumber, company:groupCompany, importBatch:batchId};
+          state.purchases.push(newPur);
+          pushedPurchases.push(newPur);
           g.items.forEach(i=>learnIngredientLink(i.name, i.productIds, {unit:i.unit, unitPrice:i.unitPrice}));
           batchAmount += totalAmount;
           dates.push(g.date);
         });
+        applyAutoMarinadeRecipes(pushedPurchases);
         const minDate = dates.length? dates.reduce((a,b)=>a<b?a:b) : todayStr();
         const maxDate = dates.length? dates.reduce((a,b)=>a>b?a:b) : todayStr();
         state.importBatches.push({id:batchId, type:'purchase', fileName:importedFileName, importedAt:Date.now(), count:purchaseGroups.length, amount:batchAmount, dateRange: minDate===maxDate? minDate : `${minDate} ~ ${maxDate}`});
@@ -2614,7 +3948,7 @@ function renderCash(){
   const now = splitBalances(null);
   const lastMonthEnd = lastMonthEndDateStr();
   const lastMonth = splitBalances(lastMonthEnd);
-  const cashflowInScope = cfHistoryFilterCompany ? state.cashflow.filter(c=>c.company===cfHistoryFilterCompany) : state.cashflow;
+  const cashflowInScope = cfHistoryFilterCompany ? state.cashflow.filter(c=>cashflowCompany(c)===cfHistoryFilterCompany) : state.cashflow;
   el.innerHTML = `
     <div class="card">
       <h3>手动记一笔收支</h3>
@@ -2622,7 +3956,7 @@ function renderCash(){
       <div class="btn-group" id="cfTypeGroup">
         ${CF_TYPES.map(t=>`<button type="button" class="btn-toggle ${t.v} ${cfType===t.v?'active':''}" data-val="${t.v}" onclick="setCfType('${t.v}')">${t.label}</button>`).join('')}
       </div>
-      <label>日期</label><input type="date" id="cfDate" value="${draft.cfDate||todayStr()}">
+      <label>日期</label><input type="date" id="cfDate" value="${draft.cfDate||todayStr()}" onchange="this.blur()">
       <label>公司</label>
       <div class="btn-group" id="cfCompanyGroup">
         ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${cfCompany===c?'active':''}" data-val="${c}" onclick="setCfCompany('${c}')">${c}</button>`).join('')}
@@ -2660,7 +3994,7 @@ function renderCash(){
         ${cashflowInScope.slice().reverse().map(c=>`
           <tr>
             <td class="muted">${c.date}</td>
-            <td>${c.category}${c.payMethod?` <span class="muted" style="font-size:11px">· ${c.payMethod}</span>`:''}${c.company?`<div class="muted" style="font-size:11px">${c.company}</div>`:''}${c.note?`<div class="muted" style="font-size:11px">${c.note}</div>`:''}</td>
+            <td>${c.category}${c.payMethod?` <span class="muted" style="font-size:11px">· ${c.payMethod}</span>`:''}${cashflowCompany(c)?`<div class="muted" style="font-size:11px">${cashflowCompany(c)}</div>`:''}${c.note?`<div class="muted" style="font-size:11px">${c.note}</div>`:''}</td>
             <td class="num" style="color:${c.type==='in'?'var(--green)':'var(--rust)'}">${c.type==='in'?'+':'-'}${fmtPlain(c.amount)}</td>
             <td>${c.auto? '' : `<button class="btn-danger-text" onclick="deleteCashflow('${c.id}')">删</button>`}</td>
           </tr>`).join('')}
@@ -2839,6 +4173,56 @@ function renderExport(){
   `;
 }
 
+/* ================= 设置 Tab（从右上角账号头像进来）================= */
+function renderSettings(){
+  const el = document.getElementById('tab-settings');
+  if(!el) return;
+  const user = (typeof firebase!=='undefined' && firebase.auth && firebase.auth().currentUser) ? firebase.auth().currentUser : null;
+  el.innerHTML = `
+    <div class="card">
+      <h3>设置</h3>
+      <label>目前登录的账号</label>
+      <div style="padding:9px 10px; border:1px solid var(--border); border-radius:8px; background:#FFFDF9; color:var(--muted); font-size:14.5px;">${user? user.email : (cloudConfigured? '未登录' : '仅本机存储，未使用登录')}</div>
+    </div>
+    ${user ? `
+    <div class="card">
+      <h3>修改密码</h3>
+      <label>目前的密码</label><input type="password" id="settingsCurrentPw" autocomplete="current-password">
+      <label>新密码</label><input type="password" id="settingsNewPw" autocomplete="new-password" placeholder="至少6个字">
+      <label>再输入一次新密码</label><input type="password" id="settingsNewPw2" autocomplete="new-password">
+      <div id="settingsPwMsg" class="muted" style="font-size:12.5px; margin-top:8px;"></div>
+      <button class="btn-main" onclick="submitChangePassword()">更新密码</button>
+    </div>` : ''}
+    <div class="card">
+      <button class="btn-ghost" style="width:100%; color:var(--rust); border-color:var(--rust);" onclick="doLogout()">🚪 登出</button>
+    </div>
+  `;
+}
+function submitChangePassword(){
+  const msgEl = document.getElementById('settingsPwMsg');
+  const user = firebase.auth().currentUser;
+  if(!user){ msgEl.style.color = 'var(--rust)'; msgEl.textContent = '目前没有登录'; return; }
+  const curPw = document.getElementById('settingsCurrentPw').value;
+  const newPw = document.getElementById('settingsNewPw').value;
+  const newPw2 = document.getElementById('settingsNewPw2').value;
+  if(!curPw || !newPw){ msgEl.style.color = 'var(--rust)'; msgEl.textContent = '请把目前密码和新密码都填好'; return; }
+  if(newPw.length<6){ msgEl.style.color = 'var(--rust)'; msgEl.textContent = '新密码至少要6个字'; return; }
+  if(newPw!==newPw2){ msgEl.style.color = 'var(--rust)'; msgEl.textContent = '两次输入的新密码不一样'; return; }
+  msgEl.style.color = 'var(--muted)';
+  msgEl.textContent = '处理中…';
+  const cred = firebase.auth.EmailAuthProvider.credential(user.email, curPw);
+  user.reauthenticateWithCredential(cred).then(()=>{
+    return user.updatePassword(newPw);
+  }).then(()=>{
+    msgEl.style.color = 'var(--green)';
+    msgEl.textContent = '密码已更新';
+    ['settingsCurrentPw','settingsNewPw','settingsNewPw2'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
+  }).catch(err=>{
+    msgEl.style.color = 'var(--rust)';
+    msgEl.textContent = err.code==='auth/wrong-password' ? '目前的密码不对' : ('更新失败：' + err.message);
+  });
+}
+
 /* ================= 库存 Tab ================= */
 /* 库存不是单独记账的，是从"采购"页历史记录自动汇总出来的（按品名归类、累加数量），
    再加上这里手动记的"出入库调整"（损耗、盘点校正、非采购来源的入库等）。
@@ -2853,8 +4237,8 @@ let stockAdjType = 'out';
 function computeInventoryRows(){
   const map = {};
   state.purchases.forEach(p=>{
-    if(invFilterCompany && p.company!==invFilterCompany) return;
     (p.items||[]).forEach(i=>{
+      if(invFilterCompany && effCompany(i,p)!==invFilterCompany) return;
       if(!i.name) return;
       const key = i.name.trim().toLowerCase();
       if(!map[key]) map[key] = {name:i.name.trim(), unit:i.unit||'', purchased:0, adjusted:0};
@@ -2880,7 +4264,7 @@ function computeInventoryRows(){
 function renderInventory(){
   const el = document.getElementById('tab-inventory');
   if(!el) return;
-  const draft = captureFormValues(['invSearchInput','stockAdjItemName','stockAdjQty','stockAdjDate','stockAdjNote']);
+  const draft = captureFormValues(['invSearchInput','stockAdjItemText','stockAdjQty','stockAdjDate','stockAdjNote']);
   const rows = computeInventoryRows();
   el.innerHTML = `
     <div class="card">
@@ -2915,7 +4299,7 @@ function renderInventory(){
         ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${stockAdjCompany===c?'active':''}" data-val="${c}" onclick="setStockAdjCompany('${c}')">${c}</button>`).join('')}
       </div>
       <label>品名</label>
-      <input list="invItemNames" id="stockAdjItemName" placeholder="输入或选择品名" autocomplete="off" value="${draft.stockAdjItemName||''}">
+      <input list="invItemNames" id="stockAdjItemText" placeholder="输入或选择品名" autocomplete="off" value="${draft.stockAdjItemText||''}">
       <datalist id="invItemNames">${rows.map(r=>`<option value="${r.name}">`).join('')}</datalist>
       <div class="grid2" style="margin-top:10px">
         <div><label>类型</label>
@@ -2926,7 +4310,7 @@ function renderInventory(){
         </div>
         <div><label>数量</label><input type="number" step="0.01" id="stockAdjQty" placeholder="正数就好" value="${draft.stockAdjQty||''}"></div>
       </div>
-      <label>日期</label><input type="date" id="stockAdjDate" value="${draft.stockAdjDate||todayStr()}">
+      <label>日期</label><input type="date" id="stockAdjDate" value="${draft.stockAdjDate||todayStr()}" onchange="this.blur()">
       <label>备注（选填）</label><input id="stockAdjNote" placeholder="例：打翻了、盘点校正" value="${draft.stockAdjNote||''}">
       <button class="btn-main" onclick="submitStockAdjustment()">+ 记录调整</button>
     </div>
@@ -2958,14 +4342,14 @@ function setStockAdjType(val){
   document.querySelectorAll('#stockAdjTypeGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
 }
 function quickFillStockAdj(name){
-  const elx = document.getElementById('stockAdjItemName');
+  const elx = document.getElementById('stockAdjItemText');
   if(!elx) return;
   elx.value = name;
   elx.scrollIntoView({behavior:'smooth', block:'center'});
   elx.focus();
 }
 function submitStockAdjustment(){
-  const itemName = (document.getElementById('stockAdjItemName').value||'').trim();
+  const itemName = (document.getElementById('stockAdjItemText').value||'').trim();
   const date = document.getElementById('stockAdjDate').value || todayStr();
   const qtyRaw = Number(document.getElementById('stockAdjQty').value);
   const note = document.getElementById('stockAdjNote').value.trim();
@@ -2977,7 +4361,7 @@ function submitStockAdjustment(){
     if(!state.stockAdjustments) state.stockAdjustments = [];
     state.stockAdjustments.push({id:uid(), date, itemName, qty:signedQty, note, company});
   });
-  ['stockAdjItemName','stockAdjQty','stockAdjNote'].forEach(id=>{ const elx=document.getElementById(id); if(elx) elx.value=''; });
+  ['stockAdjItemText','stockAdjQty','stockAdjNote'].forEach(id=>{ const elx=document.getElementById(id); if(elx) elx.value=''; });
 }
 function deleteStockAdjustment(id){
   if(!confirm('确定删除这笔出入库调整记录吗？此操作无法撤销。')) return;
@@ -2985,25 +4369,68 @@ function deleteStockAdjustment(id){
 }
 
 /* ---------------- 总渲染 & Tab 切换 ---------------- */
+/* 数据量大了以后，每次存档/云同步都把8个分页全部重新画一次很浪费也很卡——
+   其实没在看的分页当下画不画都没差，只要"切过去的时候"是新的就好。
+   所以改成：header的现金条随时更新，分页内容只画"目前正在看的那一页"，
+   切换分页的时候再当场重画一次该页，保证看到的一定是最新的。 */
+const TAB_RENDERERS = {
+  home: renderHome,
+  overview: renderOverview,
+  purchase: renderPurchase,
+  cost: renderCost,
+  sales: renderSales,
+  inventory: renderInventory,
+  cash: renderCash,
+  export: renderExport,
+  settings: renderSettings
+};
+let activeTab = 'home';
+/* 统一的切分页逻辑：底部导航按钮、首页"快捷操作"按钮、右上角账号选单（导出/设置）都共用这个，
+   不管那个分页在不在底部导航栏上（导出、设置故意不放在底部导航，只能从账号选单进去）都能切换。 */
+function switchToTab(tabName){
+  document.querySelectorAll('nav.bottom button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tabName));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  const panel = document.getElementById('tab-'+tabName);
+  if(panel) panel.classList.add('active');
+  activeTab = tabName;
+  if(TAB_RENDERERS[activeTab]) TAB_RENDERERS[activeTab]();
+}
+/* 首页"快捷操作"按钮用：切到指定分页之后，把画面卷到最上面、
+   聚焦到那一页第一个要填的输入框，方便直接开始打字记账。 */
+const TAB_QUICK_FOCUS = { purchase:'purSupplier', sales:'saleProduct' };
+function goToTab(tabName){
+  switchToTab(tabName);
+  window.scrollTo({top:0, behavior:'smooth'});
+  const focusId = TAB_QUICK_FOCUS[tabName];
+  if(focusId){
+    setTimeout(()=>{ const elx = document.getElementById(focusId); if(elx) elx.focus(); }, 150);
+  }
+}
+/* 首页"记录收入"快捷按钮：切到"收支"页，并且把类型先切成"收入"（不是预设的"支出"），
+   再聚焦到第一个收入金额框（Cash），方便直接打字。 */
+function quickRecordIncome(){
+  cfType = 'in';
+  switchToTab('cash');
+  window.scrollTo({top:0, behavior:'smooth'});
+  setTimeout(()=>{ const elx = document.getElementById('cfIncome_'+INCOME_CATEGORIES[0]); if(elx) elx.focus(); }, 150);
+}
+/* 首页"记录支出"快捷按钮：切到"收支"页，并且把类型先切成"支出"，
+   再聚焦到金额框，方便直接打字。 */
+function quickRecordExpense(){
+  cfType = 'out';
+  switchToTab('cash');
+  window.scrollTo({top:0, behavior:'smooth'});
+  setTimeout(()=>{ const elx = document.getElementById('cfAmount'); if(elx) elx.focus(); }, 150);
+}
 function renderAll(){
   if(!loaded) return;
   renderCashStrip();
-  renderOverview();
-  renderPurchase();
-  renderPayment();
-  renderCost();
-  renderSales();
-  renderInventory();
-  renderCash();
-  renderExport();
+  (TAB_RENDERERS[activeTab] || renderOverview)();
 }
 document.getElementById('bottomNav').addEventListener('click', (e)=>{
   const btn = e.target.closest('button[data-tab]');
   if(!btn) return;
-  document.querySelectorAll('nav.bottom button').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
-  document.getElementById('tab-'+btn.dataset.tab).classList.add('active');
+  switchToTab(btn.dataset.tab);
 });
 
 loadState();
