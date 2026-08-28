@@ -3958,6 +3958,153 @@ let cfPayMethod = PAY_METHODS[0];
 let cfCompany = COMPANIES[0];
 let cfHistoryFilterCompany = '';
 
+let editingCashflowIds = null;
+let editCashflowCompany = '';
+let editCashflowPayMethod = '';
+function startEditCashflow(ids){
+  editingCashflowIds = ids;
+  const recs = state.cashflow.filter(c=>ids.split(',').includes(c.id));
+  editCashflowCompany = recs[0] ? cashflowCompany(recs[0]) : '';
+  editCashflowPayMethod = recs[0] ? (recs[0].payMethod || PAY_METHODS[0]) : PAY_METHODS[0];
+  renderCash();
+}
+function cancelEditCashflow(){
+  editingCashflowIds = null;
+  renderCash();
+}
+function setEditCashflowCompany(val){
+  editCashflowCompany = val;
+  document.querySelectorAll('#cfEditCompanyGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
+}
+function setEditPayMethod(val){
+  editCashflowPayMethod = val;
+  document.querySelectorAll('#cfEditPayMethodGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
+}
+/* 自动生成的「供应商付款」流水，跟 state.payments 里对应那笔付款记录是两份平行数据
+   （分开存是因为一个是给现金流报表用、一个是给供应商欠款统计用）。编辑这种流水的时候
+   两边要一起改，不然「已付/欠款」跟「现金结余」会对不上。 */
+function saveEditAutoCashflow(ids){
+  const id = ids.split(',')[0];
+  const rec = state.cashflow.find(c=>c.id===id);
+  if(!rec) return;
+  const date = document.getElementById('cfEditDate').value || rec.date;
+  const amount = Number(document.getElementById('cfEditAmount').value)||0;
+  const note = document.getElementById('cfEditNote').value.trim();
+  if(amount<=0){ alert('请输入金额'); return; }
+  const payMethod = editCashflowPayMethod;
+  editingCashflowIds = null;
+  mutate(()=>{
+    rec.date = date; rec.amount = amount; rec.payMethod = payMethod; rec.note = note;
+    if(rec._paymentId){
+      const pay = state.payments.find(p=>p.id===rec._paymentId);
+      if(pay){ pay.date = date; pay.amount = amount; pay.payMethod = payMethod; pay.note = note; }
+    }
+  });
+}
+function saveEditSingleCashflow(ids){
+  const id = ids.split(',')[0];
+  const rec = state.cashflow.find(c=>c.id===id);
+  if(!rec) return;
+  const date = document.getElementById('cfEditDate').value || rec.date;
+  const amount = Number(document.getElementById('cfEditAmount').value)||0;
+  const category = document.getElementById('cfEditCategory').value;
+  const note = document.getElementById('cfEditNote').value.trim();
+  const company = editCashflowCompany;
+  if(amount<=0){ alert('请输入金额'); return; }
+  if(!company){ alert('请选择公司'); return; }
+  const payMethod = rec.type==='out' ? editCashflowPayMethod : rec.payMethod;
+  editingCashflowIds = null;
+  mutate(()=>{ rec.date=date; rec.amount=amount; rec.category=category; rec.note=note; rec.company=company; rec.payMethod=payMethod; });
+}
+function saveEditGroupCashflow(ids){
+  const idList = ids.split(',');
+  const recs = state.cashflow.filter(c=>idList.includes(c.id));
+  if(!recs.length) return;
+  const date = document.getElementById('cfEditDate').value || recs[0].date;
+  const note = document.getElementById('cfEditNote').value.trim();
+  const company = editCashflowCompany;
+  if(!company){ alert('请选择公司'); return; }
+  const entries = INCOME_CATEGORIES.map(c=>{
+    const elx = document.getElementById('cfEditIncome_'+c);
+    return {category:c, amount: Number(elx ? elx.value : 0)||0};
+  }).filter(e=>e.amount>0);
+  if(entries.length===0){ alert('请至少填写一个收入金额'); return; }
+  const groupId = entries.length>1 ? uid() : null;
+  editingCashflowIds = null;
+  mutate(()=>{
+    state.cashflow = state.cashflow.filter(c=>!idList.includes(c.id));
+    entries.forEach(e=>{
+      state.cashflow.push({id:uid(), date, type:'in', category:e.category, amount:e.amount, company, note, auto:false, groupId});
+    });
+  });
+}
+function cashflowEditRowHtml(ids, group){
+  const first = group[0];
+  const noteVal = (first.note||'').replace(/"/g,'&quot;');
+  if(first.auto){
+    return `<tr><td colspan="4"><div style="padding:10px 0;">
+      <div class="grid2">
+        <div><label>日期</label><input type="date" id="cfEditDate" value="${first.date}"></div>
+        <div><label>金额</label><input type="number" step="0.01" id="cfEditAmount" value="${first.amount}"></div>
+      </div>
+      <label>付款方式</label>
+      <div class="btn-group" id="cfEditPayMethodGroup">
+        ${PAY_METHODS.map(m=>`<button type="button" class="btn-toggle ${first.payMethod===m?'active':''}" data-val="${m}" onclick="setEditPayMethod('${m}')">${m}</button>`).join('')}
+      </div>
+      <label>备注（选填）</label><input id="cfEditNote" value="${noteVal}">
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button class="btn-main" style="flex:1" onclick="saveEditAutoCashflow('${ids}')">保存</button>
+        <button class="btn-ghost" style="flex:1" onclick="cancelEditCashflow()">取消</button>
+      </div>
+    </div></td></tr>`;
+  }
+  if(group.length>1){
+    return `<tr><td colspan="4"><div style="padding:10px 0;">
+      <label>日期</label><input type="date" id="cfEditDate" value="${first.date}">
+      <label>公司</label>
+      <div class="btn-group" id="cfEditCompanyGroup">
+        ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${cashflowCompany(first)===c?'active':''}" data-val="${c}" onclick="setEditCashflowCompany('${c}')">${c}</button>`).join('')}
+      </div>
+      <label>收入金额</label>
+      <div class="grid3">
+        ${INCOME_CATEGORIES.map(cat=>{
+          const rec = group.find(g=>g.category===cat);
+          return `<div><label style="margin-top:0">${cat}</label><input type="number" step="0.01" id="cfEditIncome_${cat}" value="${rec?rec.amount:''}"></div>`;
+        }).join('')}
+      </div>
+      <label>备注（选填）</label><input id="cfEditNote" value="${noteVal}">
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button class="btn-main" style="flex:1" onclick="saveEditGroupCashflow('${ids}')">保存</button>
+        <button class="btn-ghost" style="flex:1" onclick="cancelEditCashflow()">取消</button>
+      </div>
+    </div></td></tr>`;
+  }
+  const isIncome = first.type==='in';
+  return `<tr><td colspan="4"><div style="padding:10px 0;">
+    <div class="grid2">
+      <div><label>日期</label><input type="date" id="cfEditDate" value="${first.date}"></div>
+      <div><label>金额</label><input type="number" step="0.01" id="cfEditAmount" value="${first.amount}"></div>
+    </div>
+    <label>公司</label>
+    <div class="btn-group" id="cfEditCompanyGroup">
+      ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${cashflowCompany(first)===c?'active':''}" data-val="${c}" onclick="setEditCashflowCompany('${c}')">${c}</button>`).join('')}
+    </div>
+    <label>类别</label>
+    <select id="cfEditCategory">
+      ${(isIncome?INCOME_CATEGORIES:EXPENSE_CATEGORIES).map(cat=>`<option value="${cat}" ${first.category===cat?'selected':''}>${cat}</option>`).join('')}
+    </select>
+    ${isIncome? '' : `
+    <label>付款方式</label>
+    <div class="btn-group" id="cfEditPayMethodGroup">
+      ${PAY_METHODS.map(m=>`<button type="button" class="btn-toggle ${first.payMethod===m?'active':''}" data-val="${m}" onclick="setEditPayMethod('${m}')">${m}</button>`).join('')}
+    </div>`}
+    <label>备注（选填）</label><input id="cfEditNote" value="${noteVal}">
+    <div style="display:flex; gap:8px; margin-top:10px;">
+      <button class="btn-main" style="flex:1" onclick="saveEditSingleCashflow('${ids}')">保存</button>
+      <button class="btn-ghost" style="flex:1" onclick="cancelEditCashflow()">取消</button>
+    </div>
+  </div></td></tr>`;
+}
 function renderCash(){
   const el = document.getElementById('tab-cash');
   const draft = captureFormValues(['cfDate','cfAmount','cfNote', ...INCOME_CATEGORIES.map(c=>'cfIncome_'+c)]);
@@ -4028,6 +4175,7 @@ function renderCash(){
             const first = group[0];
             const total = group.reduce((a,g)=>a+Number(g.amount||0),0);
             const ids = group.map(g=>g.id).join(',');
+            if(editingCashflowIds===ids) return cashflowEditRowHtml(ids, group);
             const companyLine = cashflowCompany(first)?`<div class="muted" style="font-size:11px">${cashflowCompany(first)}</div>`:'';
             const noteLine = first.note?`<div class="muted" style="font-size:11px">${first.note}</div>`:'';
             const categoryCell = group.length>1
@@ -4038,7 +4186,10 @@ function renderCash(){
             <td class="muted">${first.date}</td>
             <td>${categoryCell}</td>
             <td class="num" style="color:${first.type==='in'?'var(--green)':'var(--rust)'}">${first.type==='in'?'+':'-'}${fmtPlain(total)}</td>
-            <td>${first.auto? '' : `<button class="btn-danger-text" onclick="deleteCashflow('${ids}')">删</button>`}</td>
+            <td style="white-space:nowrap;">
+              <button class="btn-ghost btn-small" onclick="startEditCashflow('${ids}')">改</button>
+              ${first.auto? '' : `<button class="btn-danger-text" onclick="deleteCashflow('${ids}')">删</button>`}
+            </td>
           </tr>`;
           }).join('');
         })()}
@@ -4151,6 +4302,7 @@ function submitCashflow(){
     }).filter(e=>e.amount>0);
     if(entries.length===0){ alert('请至少填写一个收入金额'); return; }
     document.getElementById('cfNote').value = '';
+    INCOME_CATEGORIES.forEach(c=>{ const elx = document.getElementById('cfIncome_'+c); if(elx) elx.value = ''; });
     const cfDateEl = document.getElementById('cfDate'); if(cfDateEl) cfDateEl.value = todayStr();
     const groupId = entries.length>1 ? uid() : null;
     mutate(()=>{
@@ -4164,6 +4316,7 @@ function submitCashflow(){
     const amount = Number(document.getElementById('cfAmount').value)||0;
     if(amount<=0){ alert('请输入金额'); return; }
     document.getElementById('cfNote').value = '';
+    document.getElementById('cfAmount').value = '';
     const cfDateEl = document.getElementById('cfDate'); if(cfDateEl) cfDateEl.value = todayStr();
     mutate(()=>{ state.cashflow.push({id:uid(), date, type:'out', category, amount, payMethod, company, note, auto:false}); });
   }
