@@ -869,11 +869,27 @@ function attachSubcollectionListeners(){
   });
 }
 /* 一次登录后，9个子集合+主文件的监听常常会在短时间内各自触发一次（尤其是刚打开App的时候），
-   这里做个小小的防抖，等这一波都到齐了再统一 reconcile + 重画一次，不用收到一条就重画一次。 */
+   这里做个小小的防抖，等这一波都到齐了再统一 reconcile + 重画一次，不用收到一条就重画一次。
+   另外：如果这时候使用者正在某个输入框打字（比如手动记收支、填供应商名称），
+   直接 renderAll() 会把整个分页的 HTML 重新生成，输入框会被换成新的 DOM 元素，
+   导致打字打到一半突然失焦、光标不见、手机键盘自己收起来。
+   所以侦测到目前有输入框正在编辑中的话，先不重画，稍后再检查一次，等使用者打完（失焦）了才补画。 */
 let renderSyncTimer = null;
+function userIsTypingInAppBody(){
+  const active = document.activeElement;
+  if(!active) return false;
+  const tag = active.tagName;
+  if(tag!=='INPUT' && tag!=='TEXTAREA') return false;
+  const appBody = document.getElementById('appBody');
+  return !!(appBody && appBody.contains(active));
+}
 function scheduleRenderAfterSync(){
   if(renderSyncTimer) clearTimeout(renderSyncTimer);
   renderSyncTimer = setTimeout(()=>{
+    if(userIsTypingInAppBody()){
+      renderSyncTimer = setTimeout(scheduleRenderAfterSync, 800);
+      return;
+    }
     const changed1 = reconcileCashflow();
     const changed2 = reconcileIngredients();
     if(changed1 || changed2) saveState();
