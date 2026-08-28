@@ -155,6 +155,19 @@
   input:focus, select:focus{outline:none; border-color:var(--green);}
   .grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
   .grid3{display:grid; grid-template-columns:1.3fr 0.8fr 0.8fr; gap:8px;}
+  /* 自己写的建议下拉框，取代原生 <input list>+<datalist>。iPad「加到主屏幕」变成独立App之后，
+     Safari 的原生建议清单弹出来常常直接盖住输入框，打字打到一半好像打不进去，这是苹果那边
+     一直没修的老毛病，所以全部换成这个不依赖原生功能、行为稳定的版本。 */
+  .suggest-wrap{position:relative;}
+  .suggest-dropdown{
+    position:absolute; top:100%; left:0; right:0; z-index:80;
+    background:var(--paper); border:1px solid var(--border); border-top:none;
+    border-radius:0 0 10px 10px; max-height:180px; overflow-y:auto;
+    box-shadow:0 6px 14px rgba(0,0,0,.08); display:none;
+  }
+  .suggest-dropdown.show{display:block;}
+  .suggest-item{padding:9px 12px; font-size:13.5px; cursor:pointer; color:var(--ink);}
+  .suggest-item:hover, .suggest-item.active{background:var(--bg);}
 
   button, label.btn-ghost, label.btn-main{
     font-family:inherit; cursor:pointer; border:none; border-radius:8px;
@@ -664,6 +677,47 @@ function captureFormValues(ids){
     if(elx) draft[id] = elx.value;
   });
   return draft;
+}
+/* 取代原生 <input list>+<datalist> 的建议下拉框。iPad「加到主屏幕」独立运行时，Safari 原生的
+   建议清单常常直接盖住输入框，导致打字打到一半像是打不进去——这是苹果那边一直没修好的老问题，
+   所以全部换成这个自己写的版本，不靠原生功能，各平台行为一致。
+   用法：render完之后调用 wireSuggest('输入框id', ['选项1','选项2',...])。 */
+function wireSuggest(inputId, options){
+  const inputEl = document.getElementById(inputId);
+  if(!inputEl) return;
+  let wrap = inputEl.parentElement;
+  if(!wrap || !wrap.classList.contains('suggest-wrap')){
+    wrap = document.createElement('div');
+    wrap.className = 'suggest-wrap';
+    inputEl.parentNode.insertBefore(wrap, inputEl);
+    wrap.appendChild(inputEl);
+  }
+  let dropdown = wrap.querySelector('.suggest-dropdown');
+  if(!dropdown){
+    dropdown = document.createElement('div');
+    dropdown.className = 'suggest-dropdown';
+    wrap.appendChild(dropdown);
+  }
+  let matches = [];
+  const showMatches = ()=>{
+    const q = inputEl.value.trim().toLowerCase();
+    matches = (!q ? options : options.filter(o=>o.toLowerCase().includes(q))).slice(0,8);
+    if(!matches.length){ dropdown.classList.remove('show'); return; }
+    dropdown.innerHTML = matches.map(v=>`<div class="suggest-item">${String(v).replace(/</g,'&lt;')}</div>`).join('');
+    Array.from(dropdown.children).forEach((item,i)=>{
+      item.addEventListener('mousedown', (e)=>{
+        e.preventDefault();
+        inputEl.value = matches[i];
+        dropdown.classList.remove('show');
+        inputEl.dispatchEvent(new Event('input', {bubbles:true}));
+        inputEl.dispatchEvent(new Event('change', {bubbles:true}));
+      });
+    });
+    dropdown.classList.add('show');
+  };
+  inputEl.addEventListener('focus', showMatches);
+  inputEl.addEventListener('input', showMatches);
+  inputEl.addEventListener('blur', ()=>{ setTimeout(()=>dropdown.classList.remove('show'), 150); });
 }
 function fmt(n){
   n = Number(n)||0;
@@ -1773,12 +1827,18 @@ function renderPurchase(){
     </div>`;
   if(purSubView==='payment'){
     el.innerHTML = purSubTabHtml + renderPaymentSectionHtml();
+    wireSuggest('paySupplier', state.suppliers.map(s=>s.name));
     const paySupplierEl = document.getElementById('paySupplier');
     if(paySupplierEl && paySupplierEl.value.trim()) onPaySupplierInput();
     return;
   }
   if(purSubView==='recipe'){
     el.innerHTML = purSubTabHtml + renderRecipeSectionHtml();
+    const ingredientNames = getIngredientNames();
+    if(tempRecipe){
+      wireSuggest('recipeTrigText', ingredientNames);
+      tempRecipe.components.forEach(c=>wireSuggest('recipeCompName_'+c.id, ingredientNames));
+    }
     return;
   }
   const editingPurchase = editingPurchaseId ? state.purchases.find(x=>x.id===editingPurchaseId) : null;
@@ -1810,12 +1870,9 @@ function renderPurchase(){
       <div class="btn-group" id="purCompanyGroup">
         ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${purCompany===c?'active':''}" data-val="${c}" onclick="setPurCompany('${c}')">${c}</button>`).join('')}
       </div>
-      <datalist id="supplierNames">
-        ${state.suppliers.map(s=>`<option value="${s.name}">`).join('')}
-      </datalist>
       <div class="grid2" style="margin-top:10px">
         <div><label>供应商</label>
-          <input list="supplierNames" id="purSupplier" placeholder="输入或选择供应商" autocomplete="off" value="${supplierInputVal}" onchange="onPurSupplierChange(this.value)">
+          <input id="purSupplier" placeholder="输入或选择供应商" autocomplete="off" value="${supplierInputVal}" onchange="onPurSupplierChange(this.value)">
         </div>
         <div><label>采购日期</label><input type="date" id="purDate" value="${editingPurchase? editingPurchase.date : (draft.purDate||todayStr())}" onchange="this.blur()"></div>
       </div>
@@ -1979,6 +2036,7 @@ function renderPurchase(){
     </div>
   `;
   renderPurchaseItemRows();
+  wireSuggest('purSupplier', state.suppliers.map(s=>s.name));
 }
 
 /* ================= 半成品/配方（采购页子页签）================= */
@@ -2229,7 +2287,7 @@ function recipeComponentRowsHtml(){
   return tempRecipe.components.map(c=>`
     <div class="pi-card">
       <div class="pi-top">
-        <input list="recipeIngredientNames" placeholder="用料品名" value="${c.name}" oninput="updateRecipeComponent('${c.id}','name',this.value)" onchange="autoLinkRecipeComponentPrice('${c.id}')">
+        <input id="recipeCompName_${c.id}" placeholder="用料品名" value="${c.name}" oninput="updateRecipeComponent('${c.id}','name',this.value)" onchange="autoLinkRecipeComponentPrice('${c.id}')">
         ${tempRecipe.components.length>1? `<button class="rm" onclick="removeRecipeComponent('${c.id}')">×</button>` : '<span style="width:20px"></span>'}
       </div>
       <div class="pi-bottom" style="grid-template-columns:repeat(3,1fr);">
@@ -2247,13 +2305,10 @@ function recipeFormHtml(){
     <div class="card">
       <h3>${tempRecipe.id? '✏️ 编辑配方' : '新增半成品配方'}</h3>
       <label>触发原料名称（采购单品名跟这个一样，就会自动带出用料成本；比如：肉碎）</label>
-      <input id="recipeTrigText" list="recipeIngredientNames" placeholder="触发原料名称" autocomplete="off" value="${tempRecipe.triggerName}" oninput="updateRecipeField('triggerName', this.value)">
+      <input id="recipeTrigText" placeholder="触发原料名称" autocomplete="off" value="${tempRecipe.triggerName}" oninput="updateRecipeField('triggerName', this.value)">
       <label style="margin-top:10px">触发原料单位（比如：kg）</label>
       <input id="recipeTriggerUnit" placeholder="例：kg" value="${tempRecipe.triggerUnit}" oninput="updateRecipeField('triggerUnit', this.value)">
       <label style="margin-top:14px">每 1 单位触发原料要配的用料（比如每1kg肉碎配多少蒜蓉、生抽…）</label>
-      <datalist id="recipeIngredientNames">
-        ${getIngredientNames().map(n=>`<option value="${n}">`).join('')}
-      </datalist>
       <div id="recipeComponentsWrap">${recipeComponentRowsHtml()}</div>
       <button class="btn-line" onclick="addRecipeComponentRow()">+ 添加一样用料</button>
       <div style="margin-top:8px; font-size:13px; color:var(--muted)" id="recipeTotalPreview">每 1${tempRecipe.triggerUnit||''} ${tempRecipe.triggerName||'触发原料'} ≈ RM${fmtPlain(perUnit)} 用料成本</div>
@@ -2363,12 +2418,9 @@ function renderPaymentSectionHtml(){
   return `
     <div class="card">
       <h3>供应商付款</h3>
-      <datalist id="paySupplierNames">
-        ${state.suppliers.map(s=>`<option value="${s.name}">`).join('')}
-      </datalist>
       <div class="grid2">
         <div><label>供应商</label>
-          <input list="paySupplierNames" id="paySupplier" placeholder="输入或选择供应商" autocomplete="off" value="${draft.paySupplier||''}" oninput="onPaySupplierInput()">
+          <input id="paySupplier" placeholder="输入或选择供应商" autocomplete="off" value="${draft.paySupplier||''}" oninput="onPaySupplierInput()">
         </div>
         <div><label>付款日期</label><input type="date" id="payDate" value="${draft.payDate||todayStr()}" onchange="this.blur()"></div>
       </div>
@@ -2520,13 +2572,10 @@ function quickAddSupplierItem(idx){
 function renderPurchaseItemRows(){
   const wrap = document.getElementById('purItemsWrap');
   wrap.innerHTML = `
-    <datalist id="purIngredientNames">
-      ${getIngredientNames().map(n=>`<option value="${n}">`).join('')}
-    </datalist>
   ` + tempPurchaseItems.map((row,idx)=>`
     <div class="pi-card">
       <div class="pi-top">
-        <input list="purIngredientNames" placeholder="品名" value="${row.name}" oninput="updatePurItem('${row.id}','name',this.value)" onchange="autoLinkPurItemIngredient('${row.id}')">
+        <input id="purItemName_${row.id}" placeholder="品名" value="${row.name}" oninput="updatePurItem('${row.id}','name',this.value)" onchange="autoLinkPurItemIngredient('${row.id}')">
         <select style="flex:0 0 108px" onchange="updatePurItem('${row.id}','category',this.value)">
           ${PURCHASE_CATEGORIES.map(c=>`<option value="${c}" ${row.category===c?'selected':''}>${c}</option>`).join('')}
         </select>
@@ -2583,6 +2632,8 @@ function renderPurchaseItemRows(){
   `).join('');
   const total = tempPurchaseItems.reduce((a,r)=>a+Number(r.total||0),0);
   document.getElementById('purTotalPreview').textContent = fmt(total);
+  const ingredientNames = getIngredientNames();
+  tempPurchaseItems.forEach(row=>wireSuggest('purItemName_'+row.id, ingredientNames));
 }
 function updatePurItem(id, field, val){
   const row = tempPurchaseItems.find(r=>r.id===id);
@@ -3220,14 +3271,12 @@ function renderCost(){
     <div class="card">
       <h3>${editingProduct? `✏️ 编辑产品：${editingProduct.name}` : '新增菜品 / 产品'}</h3>
       <div class="grid2">
-        <div><label>产品名称</label><input id="prodTitle" list="prodNameSuggestions" placeholder="例：招牌炒河粉" autocomplete="off" value="${editingProduct?editingProduct.name:(draft.prodTitle||'')}"></div>
+        <div><label>产品名称</label><input id="prodTitle" placeholder="例：招牌炒河粉" autocomplete="off" value="${editingProduct?editingProduct.name:(draft.prodTitle||'')}"></div>
         <div><label>售价</label><input id="prodPrice" type="number" step="0.01" placeholder="0.00" value="${editingProduct?editingProduct.price:(draft.prodPrice||'')}"></div>
       </div>
-      <datalist id="prodNameSuggestions">${state.products.map(p=>`<option value="${p.name.replace(/"/g,'&quot;')}">`).join('')}</datalist>
       <div class="grid2" style="margin-top:10px">
         <div><label>分类（选填，方便下面按分类查找）</label>
-          <input id="prodCategory" list="prodCategoryList" placeholder="例：肉类" value="${editingProduct?(editingProduct.category||''):(draft.prodCategory||'')}">
-          <datalist id="prodCategoryList">${categoryOptions.map(c=>`<option value="${c.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+          <input id="prodCategory" placeholder="例：肉类" value="${editingProduct?(editingProduct.category||''):(draft.prodCategory||'')}">
         </div>
         <div><label>POS 编号（选填）</label><input id="prodCode" placeholder="例：M02" value="${editingProduct?(editingProduct.code||''):(draft.prodCode||'')}"></div>
       </div>
@@ -3250,14 +3299,18 @@ function renderCost(){
       <h3>合并重复产品</h3>
       <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">同一样东西有时候会因为大小写、多字少字，在 app 里变成好几个不同的产品（比如收银员打字打法不一样）。这里可以把旧名字统一合并成一个：旧名字底下的销售记录会全部改成新名字（这样以后算销量/毛利才不会分散算），旧的重复产品项目会被删掉，里面填过的食材成本项会自动搬到合并后的产品底下，不会不见。</div>
       <label>要合并掉的旧名字（可以填好几个，用顿号"、"分开）</label>
-      <input id="mergeFromList" list="mergeNameSuggestions" placeholder="例：Strawberry Jam、strawberry jam、add strawberry jam" autocomplete="off">
+      <input id="mergeFromList" placeholder="例：Strawberry Jam、strawberry jam、add strawberry jam" autocomplete="off">
       <label style="margin-top:10px">统一成这个名字（如果这个名字目前还没有产品，会直接拿旧产品其中一个改名字延用，食材成本不会丢）</label>
-      <input id="mergeToTarget" list="mergeNameSuggestions" placeholder="例：STRAWBERRY JAM ONE BOTTLE" autocomplete="off">
-      <datalist id="mergeNameSuggestions">${state.products.map(p=>`<option value="${p.name.replace(/"/g,'&quot;')}">`).join('')}</datalist>
+      <input id="mergeToTarget" placeholder="例：STRAWBERRY JAM ONE BOTTLE" autocomplete="off">
       <button class="btn-line" onclick="mergeProductsByName()">🔀 合并</button>
     </div>
   `;
   renderCostItemRows();
+  wireSuggest('prodTitle', state.products.map(p=>p.name));
+  wireSuggest('prodCategory', categoryOptions);
+  const mergeNames = state.products.map(p=>p.name);
+  wireSuggest('mergeFromList', mergeNames);
+  wireSuggest('mergeToTarget', mergeNames);
 }
 function renderCostItemRows(){
   const wrap = document.getElementById('costItemsWrap');
@@ -3509,10 +3562,7 @@ function renderSales(){
         ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${saleCompany===c?'active':''}" data-val="${c}" onclick="setSaleCompany('${c}')">${c}</button>`).join('')}
       </div>
       <label style="margin-top:10px">产品</label>
-      <datalist id="productNames">
-        ${state.products.map(p=>`<option value="${p.name}">`).join('')}
-      </datalist>
-      <input list="productNames" id="saleProduct" placeholder="输入或选择产品" autocomplete="off" value="${draft.saleProduct||''}" oninput="onSaleProductChange()">
+      <input id="saleProduct" placeholder="输入或选择产品" autocomplete="off" value="${draft.saleProduct||''}" oninput="onSaleProductChange()">
       <div class="grid2" style="margin-top:10px">
         <div><label>数量</label><input type="number" id="saleQty" value="${draft.saleQty||'1'}" min="1"></div>
         <div><label>单价（可改，例如打折）</label><input type="number" step="0.01" id="salePrice" value="${draft.salePrice||''}"></div>
@@ -3597,6 +3647,7 @@ function renderSales(){
   `;
   wireSalePreview();
   updateSalePreview();
+  wireSuggest('saleProduct', state.products.map(p=>p.name));
 }
 function setSaleCompany(val){
   saleCompany = val;
@@ -4500,8 +4551,7 @@ function renderInventory(){
         ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${stockAdjCompany===c?'active':''}" data-val="${c}" onclick="setStockAdjCompany('${c}')">${c}</button>`).join('')}
       </div>
       <label>品名</label>
-      <input list="invItemNames" id="stockAdjItemText" placeholder="输入或选择品名" autocomplete="off" value="${draft.stockAdjItemText||''}">
-      <datalist id="invItemNames">${rows.map(r=>`<option value="${r.name}">`).join('')}</datalist>
+      <input id="stockAdjItemText" placeholder="输入或选择品名" autocomplete="off" value="${draft.stockAdjItemText||''}">
       <div class="grid2" style="margin-top:10px">
         <div><label>类型</label>
           <div class="btn-group" id="stockAdjTypeGroup">
@@ -4531,6 +4581,7 @@ function renderInventory(){
       </table>` : `<div class="empty">还没有出入库调整记录</div>`}
     </div>
   `;
+  wireSuggest('stockAdjItemText', rows.map(r=>r.name));
 }
 function setInvFilterCompany(val){ invFilterCompany = val; renderInventory(); }
 function setInvSearchText(val){ invSearchText = val; renderInventory(); }
