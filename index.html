@@ -1782,7 +1782,7 @@ function renderPurchase(){
     return;
   }
   const editingPurchase = editingPurchaseId ? state.purchases.find(x=>x.id===editingPurchaseId) : null;
-  const draft = editingPurchase ? {} : captureFormValues(['purSupplier','purDate','purInvoiceNumber','supTitle','supPhone','bulkSupplierText']);
+  const draft = editingPurchase ? {} : captureFormValues(['purSupplier','purDate','purInvoiceNumber']);
   let filteredPurchases = purHistoryFilterDate ? state.purchases.filter(p=>p.date===purHistoryFilterDate) : state.purchases;
   if(purHistoryFilterCompany) filteredPurchases = filteredPurchases.filter(p=>(p.items||[]).some(it=>effCompany(it,p)===purHistoryFilterCompany));
   const mkP = monthKey(todayKey());
@@ -1901,38 +1901,6 @@ function renderPurchase(){
       </div>`;
       })()}
     </div>` : ''}
-
-    <div class="card">
-      <h3>供应商 <span class="n">${state.suppliers.length} 家</span></h3>
-      <div class="grid2">
-        <div><label>供应商名称</label><input id="supTitle" placeholder="例：新鲜蔬果行" autocomplete="off" value="${draft.supTitle||''}"></div>
-        <div><label>联系电话（选填）</label><input id="supPhone" placeholder="012-3456789" value="${draft.supPhone||''}"></div>
-      </div>
-      <button class="btn-main" onclick="addSupplier()">+ 添加供应商</button>
-      <hr class="receipt-divider">
-      <details class="subtle-form">
-        <summary>批量添加供应商（一次贴一整份名单）</summary>
-        <label style="margin-top:8px">每行一个名字，前面的编号会自动去掉，已存在的名字会自动跳过</label>
-        <textarea id="bulkSupplierText" rows="6" style="width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px; font-family:inherit; font-size:13.5px;" placeholder="99 SPEED MART SDN BHD&#10;AH LOCK TRADING&#10;...">${draft.bulkSupplierText||''}</textarea>
-        <button class="btn-main" onclick="bulkAddSuppliers()">批量添加</button>
-      </details>
-      <hr class="receipt-divider">
-      ${state.suppliers.length? `
-        ${vizLegend([{color:'var(--green)',label:'已付'},{color:'var(--rust)',label:'欠款'}])}
-        ${(()=>{
-          const ranked = state.suppliers.map(s=>({s, t:supplierTotals(s.id)})).sort((a,b)=>b.t.bought-a.t.bought);
-          const top = ranked.slice(0,3);
-          const rest = ranked.slice(3);
-          return `
-            ${top.map(x=>supplierCardHtml(x.s,x.t)).join('')}
-            ${rest.length? `<details class="subtle-form">
-              <summary>还有 ${rest.length} 家供应商 ▾</summary>
-              <div style="margin-top:8px">${rest.map(x=>supplierCardHtml(x.s,x.t)).join('')}</div>
-            </details>` : ''}
-          `;
-        })()}
-      ` : `<div class="empty">还没有供应商，先在上面添加一个</div>`}
-    </div>
 
     <div class="card">
       <h3>采购历史</h3>
@@ -2391,6 +2359,7 @@ function setPurCompany(val){
 /* ================= 付款 Tab ================= */
 function renderPaymentSectionHtml(){
   const draft = captureFormValues(['paySupplier','payDate','payAmount','payNote']);
+  const supplierDraft = captureFormValues(['supTitle','supPhone','bulkSupplierText']);
   return `
     <div class="card">
       <h3>供应商付款</h3>
@@ -2435,6 +2404,38 @@ function renderPaymentSectionHtml(){
           <button class="btn-danger-text" onclick="deleteImportBatch('${b.id}')">删除整批</button>
         </div>`).join('')}
       ` : ''}
+    </div>
+
+    <div class="card">
+      <h3>供应商 <span class="n">${state.suppliers.length} 家</span></h3>
+      <div class="grid2">
+        <div><label>供应商名称</label><input id="supTitle" placeholder="例：新鲜蔬果行" autocomplete="off" value="${supplierDraft.supTitle||''}"></div>
+        <div><label>联系电话（选填）</label><input id="supPhone" placeholder="012-3456789" value="${supplierDraft.supPhone||''}"></div>
+      </div>
+      <button class="btn-main" onclick="addSupplier()">+ 添加供应商</button>
+      <hr class="receipt-divider">
+      <details class="subtle-form">
+        <summary>批量添加供应商（一次贴一整份名单）</summary>
+        <label style="margin-top:8px">每行一个名字，前面的编号会自动去掉，已存在的名字会自动跳过</label>
+        <textarea id="bulkSupplierText" rows="6" style="width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px; font-family:inherit; font-size:13.5px;" placeholder="99 SPEED MART SDN BHD&#10;AH LOCK TRADING&#10;...">${supplierDraft.bulkSupplierText||''}</textarea>
+        <button class="btn-main" onclick="bulkAddSuppliers()">批量添加</button>
+      </details>
+      <hr class="receipt-divider">
+      ${state.suppliers.length? `
+        ${vizLegend([{color:'var(--green)',label:'已付'},{color:'var(--rust)',label:'欠款'}])}
+        ${(()=>{
+          const ranked = state.suppliers.map(s=>({s, t:supplierTotals(s.id)})).sort((a,b)=>b.t.bought-a.t.bought);
+          const top = ranked.slice(0,3);
+          const rest = ranked.slice(3);
+          return `
+            ${top.map(x=>supplierCardHtml(x.s,x.t)).join('')}
+            ${rest.length? `<details class="subtle-form">
+              <summary>还有 ${rest.length} 家供应商 ▾</summary>
+              <div style="margin-top:8px">${rest.map(x=>supplierCardHtml(x.s,x.t)).join('')}</div>
+            </details>` : ''}
+          `;
+        })()}
+      ` : `<div class="empty">还没有供应商，先在上面添加一个</div>`}
     </div>
 
     <div class="card">
