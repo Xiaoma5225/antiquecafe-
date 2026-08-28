@@ -1499,17 +1499,17 @@ function todayFullLabel(){
 function renderHome(){
   const el = document.getElementById('tab-home');
   const mk = monthKey(todayKey());
-  const monthSales = state.sales.filter(s=>monthKey(s.date)===mk);
-  const monthRevenue = monthSales.reduce((a,s)=>a+Number(s.amount||0),0);
-  const monthCost = monthSales.reduce((a,s)=>a+Number(s.cost||0),0) + monthTotalMethodPurchaseCost(mk);
-  const monthProfit = monthRevenue - monthCost;
+  const monthCashflow = state.cashflow.filter(c=>monthKey(c.date)===mk);
+  const monthIncome = monthCashflow.filter(c=>c.type==='in').reduce((a,c)=>a+Number(c.amount||0),0);
+  const monthExpense = monthCashflow.filter(c=>c.type==='out').reduce((a,c)=>a+Number(c.amount||0),0);
+  const monthProfit = monthIncome - monthExpense;
   el.innerHTML = `
     <div class="greet-card">
       <div class="hi">${greetingText()}，掌柜 👋</div>
       <div class="date">${todayFullLabel()}</div>
       <div class="snap-row">
-        <div class="snap-item"><div class="l">本月营收</div><div class="v">RM ${fmtPlain(monthRevenue)}</div></div>
-        <div class="snap-item"><div class="l">本月毛利</div><div class="v">RM ${fmtPlain(monthProfit)}</div></div>
+        <div class="snap-item"><div class="l">本月收入</div><div class="v">RM ${fmtPlain(monthIncome)}</div></div>
+        <div class="snap-item"><div class="l">本月利润</div><div class="v">RM ${fmtPlain(monthProfit)}</div></div>
       </div>
     </div>
     <div class="card">
