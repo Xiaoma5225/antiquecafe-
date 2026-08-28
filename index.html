@@ -4007,13 +4007,36 @@ function renderCash(){
       </div>
       ${cashflowInScope.length? `<table>
         <tr><th>日期</th><th>类别</th><th class="num">金额</th><th></th></tr>
-        ${cashflowInScope.slice().reverse().map(c=>`
+        ${(()=>{
+          // 同一次「记一笔收支」如果同时填了 Cash+TNG+FoodPanda，会拆成好几笔流水（用 groupId 串起来）。
+          // 这里按 groupId（没有的话就用自己的 id）分组，合并显示成一行：金额栏显示总和，
+          // 各个付款方式的明细收进类别栏里当小字，不用一笔一笔占一行。
+          const groupsMap = new Map();
+          const order = [];
+          cashflowInScope.forEach(c=>{
+            const key = c.groupId || c.id;
+            if(!groupsMap.has(key)){ groupsMap.set(key, []); order.push(key); }
+            groupsMap.get(key).push(c);
+          });
+          const groups = order.map(key=>groupsMap.get(key));
+          return groups.slice().reverse().map(group=>{
+            const first = group[0];
+            const total = group.reduce((a,g)=>a+Number(g.amount||0),0);
+            const ids = group.map(g=>g.id).join(',');
+            const companyLine = cashflowCompany(first)?`<div class="muted" style="font-size:11px">${cashflowCompany(first)}</div>`:'';
+            const noteLine = first.note?`<div class="muted" style="font-size:11px">${first.note}</div>`:'';
+            const categoryCell = group.length>1
+              ? `${group.map(g=>`<div class="muted" style="font-size:11px">${g.category} ${fmtPlain(g.amount)}</div>`).join('')}${companyLine}${noteLine}`
+              : `${first.category}${first.payMethod?` <span class="muted" style="font-size:11px">· ${first.payMethod}</span>`:''}${companyLine}${noteLine}`;
+            return `
           <tr>
-            <td class="muted">${c.date}</td>
-            <td>${c.category}${c.payMethod?` <span class="muted" style="font-size:11px">· ${c.payMethod}</span>`:''}${cashflowCompany(c)?`<div class="muted" style="font-size:11px">${cashflowCompany(c)}</div>`:''}${c.note?`<div class="muted" style="font-size:11px">${c.note}</div>`:''}</td>
-            <td class="num" style="color:${c.type==='in'?'var(--green)':'var(--rust)'}">${c.type==='in'?'+':'-'}${fmtPlain(c.amount)}</td>
-            <td>${c.auto? '' : `<button class="btn-danger-text" onclick="deleteCashflow('${c.id}')">删</button>`}</td>
-          </tr>`).join('')}
+            <td class="muted">${first.date}</td>
+            <td>${categoryCell}</td>
+            <td class="num" style="color:${first.type==='in'?'var(--green)':'var(--rust)'}">${first.type==='in'?'+':'-'}${fmtPlain(total)}</td>
+            <td>${first.auto? '' : `<button class="btn-danger-text" onclick="deleteCashflow('${ids}')">删</button>`}</td>
+          </tr>`;
+          }).join('');
+        })()}
       </table>` : `<div class="empty">${cfHistoryFilterCompany? '这间公司还没有相关流水' : '还没有收支记录'}</div>`}
     </div>
   `;
@@ -4115,7 +4138,8 @@ function submitCashflow(){
   if(!company){ alert('请选择公司'); return; }
 
   if(type==='in'){
-    // 收入可以同时填 Cash / TNG / FoodPanda 几个金额，一次保存拆成对应几笔流水（分类各自记账）
+    // 收入可以同时填 Cash / TNG / FoodPanda 几个金额，一次保存拆成对应几笔流水（分类各自记账），
+    // 但同一次填的这几笔要给一个共同的 groupId，方便流水列表把它们合并显示成一行「总计」，明细收在里面。
     const entries = INCOME_CATEGORIES.map(c=>{
       const elx = document.getElementById('cfIncome_'+c);
       return {category:c, amount: Number(elx ? elx.value : 0)||0};
@@ -4123,9 +4147,10 @@ function submitCashflow(){
     if(entries.length===0){ alert('请至少填写一个收入金额'); return; }
     document.getElementById('cfNote').value = '';
     const cfDateEl = document.getElementById('cfDate'); if(cfDateEl) cfDateEl.value = todayStr();
+    const groupId = entries.length>1 ? uid() : null;
     mutate(()=>{
       entries.forEach(e=>{
-        state.cashflow.push({id:uid(), date, type:'in', category:e.category, amount:e.amount, company, note, auto:false});
+        state.cashflow.push({id:uid(), date, type:'in', category:e.category, amount:e.amount, company, note, auto:false, groupId});
       });
     });
   }else{
@@ -4143,9 +4168,10 @@ function submitCashflow(){
   cfCategory = EXPENSE_CATEGORIES[0];
   renderCash();
 }
-function deleteCashflow(id){
+function deleteCashflow(idOrIds){
   if(!confirm('确定删除这条流水？')) return;
-  mutate(()=>{ state.cashflow = state.cashflow.filter(c=>c.id!==id); });
+  const ids = String(idOrIds).split(',');
+  mutate(()=>{ state.cashflow = state.cashflow.filter(c=>!ids.includes(c.id)); });
 }
 
 /* ================= 导出 Tab ================= */
