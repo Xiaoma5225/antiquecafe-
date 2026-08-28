@@ -4168,8 +4168,9 @@ function submitCashflow(){
     mutate(()=>{ state.cashflow.push({id:uid(), date, type:'out', category, amount, payMethod, company, note, auto:false}); });
   }
 
+  // 保存完之后类型（收入/支出）保持原样，不强制跳回支出——方便连续记好几笔同一种类型。
+  // 付款方式/分类这些还是重置成默认值就好。
   cfPayMethod = PAY_METHODS[0];
-  cfType = 'out';
   cfCategory = EXPENSE_CATEGORIES[0];
   renderCash();
 }
