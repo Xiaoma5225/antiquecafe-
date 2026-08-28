@@ -4009,12 +4009,16 @@ function renderCash(){
         <tr><th>日期</th><th>类别</th><th class="num">金额</th><th></th></tr>
         ${(()=>{
           // 同一次「记一笔收支」如果同时填了 Cash+TNG+FoodPanda，会拆成好几笔流水（用 groupId 串起来）。
-          // 这里按 groupId（没有的话就用自己的 id）分组，合并显示成一行：金额栏显示总和，
-          // 各个付款方式的明细收进类别栏里当小字，不用一笔一笔占一行。
+          // 老数据没有 groupId（这个功能是后来才加的），退而求其次：同一天、同一间公司、同样的收入、
+          // 备注也一样的话，也当成同一组合并显示（纯粹显示层面的智能合并，不改数据本身）。
+          // 只对「收入」且不是系统自动生成（如供应商付款）的记录做这个退而求其次的判断，
+          // 支出本来就是一笔一个金额，不会有这种「同一次填好几个」的情况，不需要合并。
           const groupsMap = new Map();
           const order = [];
           cashflowInScope.forEach(c=>{
-            const key = c.groupId || c.id;
+            const key = c.groupId || (c.type==='in' && !c.auto
+              ? `heur|${c.date}|${cashflowCompany(c)}|${(c.note||'').trim()}`
+              : c.id);
             if(!groupsMap.has(key)){ groupsMap.set(key, []); order.push(key); }
             groupsMap.get(key).push(c);
           });
