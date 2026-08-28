@@ -2028,7 +2028,7 @@ function updateRecipeComponent(id, field, val){
   const totalEl = document.getElementById('recipeTotalPreview');
   if(totalEl){
     const perUnit = tempRecipe.components.reduce((a,c2)=>a+(Number(c2.ratioQty)||0)*(Number(c2.unitPrice)||0),0);
-    totalEl.textContent = `每 1${tempRecipe.triggerUnit||''} ${tempRecipe.triggerName||'触发原料'} ≈ RM${fmtPlain(perUnit)} 腌料成本`;
+    totalEl.textContent = `每 1${tempRecipe.triggerUnit||''} ${tempRecipe.triggerName||'触发原料'} ≈ RM${fmtPlain(perUnit)} 用料成本`;
   }
 }
 function autoLinkRecipeComponentPrice(id){
@@ -2045,9 +2045,9 @@ function autoLinkRecipeComponentPrice(id){
 function submitRecipe(){
   if(!tempRecipe) return;
   const triggerName = (tempRecipe.triggerName||'').trim();
-  if(!triggerName){ alert('请填触发原料名称（比如：肉碎）——以后采购单里品名跟这个一样，就会自动带出腌料成本'); return; }
+  if(!triggerName){ alert('请填触发原料名称（比如：肉碎）——以后采购单里品名跟这个一样，就会自动带出用料成本'); return; }
   const comps = tempRecipe.components.filter(c=>c.name && c.ratioQty!=='' && c.unitPrice!=='').map(c=>({id:uid(), name:c.name.trim(), ratioQty:Number(c.ratioQty), unit:c.unit||'', unitPrice:Number(c.unitPrice)}));
-  if(!comps.length){ alert('请至少填一样腌料（品名、每单位用量、单价都要有）'); return; }
+  if(!comps.length){ alert('请至少填一样用料（品名、每单位用量、单价都要有）'); return; }
   const idBeingEdited = tempRecipe.id;
   const triggerUnitVal = tempRecipe.triggerUnit||'';
   const outputNameVal = (tempRecipe.outputName||'').trim();
@@ -2066,7 +2066,7 @@ function submitRecipe(){
   renderPurchase();
 }
 function deleteRecipe(id){
-  if(!confirm('确定删除这个配方吗？（已经自动生成过的腌料采购记录不会被删除，只是以后再买这个原料不会再自动带出腌料成本）')) return;
+  if(!confirm('确定删除这个配方吗？（已经自动生成过的用料采购记录不会被删除，只是以后再买这个原料不会再自动带出用料成本）')) return;
   mutate(()=>{ state.recipes = state.recipes.filter(r=>r.id!==id); });
 }
 /* ---- 自动腌料：一笔采购单确定/导入之后，扫描品项，凡是跟某个配方的"触发原料名"对上的，
@@ -2109,7 +2109,7 @@ function applyAutoMarinadeRecipes(newPurchases){
       const items = Object.values(bucket);
       if(!items.length) return;
       const totalAmount = Math.round(items.reduce((a,i)=>a+i.totalCost,0)*100)/100;
-      state.purchases.push({id:uid(), date:pur.date, supplierId, items, totalAmount, invoiceNumber:`自动腌料-${recipe.triggerName}`, company, triggeredBy:pur.id, recipeId:recipe.id});
+      state.purchases.push({id:uid(), date:pur.date, supplierId, items, totalAmount, invoiceNumber:`自动配料-${recipe.triggerName}`, company, triggeredBy:pur.id, recipeId:recipe.id});
       items.forEach(i=>learnIngredientLink(i.name, i.productIds, {unit:i.unit, unitPrice:i.unitPrice}));
     });
   });
@@ -2119,7 +2119,7 @@ function applyAutoMarinadeRecipes(newPurchases){
    都记一笔"出库"，因为这些原料一旦腌下去就用光了，不会再是库存里的散装原料；2) 把包出来的成品
    （比如"肉碎(腌制品)"）记一笔"入库"，这样库存页看到的才是"现在还有幾包能用"而不是一堆用不到的
    散装食材数字。每条完成记录都存进 state.recipeBatchLogs，方便之后想撤销（比如包数记错了）。 */
-function effectiveOutputName(recipe){ return (recipe && recipe.outputName) || (recipe? recipe.triggerName+'(腌制品)' : '腌制品'); }
+function effectiveOutputName(recipe){ return (recipe && recipe.outputName) || (recipe? recipe.triggerName+'(半成品)' : '半成品'); }
 function effectiveOutputUnit(recipe){ return (recipe && recipe.outputUnit) || '包'; }
 /* 汇总某一笔触发采购单，实际算出来的腌料品项（可能因为按公司分开而生出不只一笔自动采购，
    这里不分公司、按品名合并起来，因为物理上腌东西不会因为帐上归两间公司就真的分两锅腌）。 */
@@ -2229,7 +2229,7 @@ function recipeComponentRowsHtml(){
   return tempRecipe.components.map(c=>`
     <div class="pi-card">
       <div class="pi-top">
-        <input list="recipeIngredientNames" placeholder="腌料品名" value="${c.name}" oninput="updateRecipeComponent('${c.id}','name',this.value)" onchange="autoLinkRecipeComponentPrice('${c.id}')">
+        <input list="recipeIngredientNames" placeholder="用料品名" value="${c.name}" oninput="updateRecipeComponent('${c.id}','name',this.value)" onchange="autoLinkRecipeComponentPrice('${c.id}')">
         ${tempRecipe.components.length>1? `<button class="rm" onclick="removeRecipeComponent('${c.id}')">×</button>` : '<span style="width:20px"></span>'}
       </div>
       <div class="pi-bottom" style="grid-template-columns:repeat(3,1fr);">
@@ -2245,22 +2245,22 @@ function recipeFormHtml(){
   const perUnit = tempRecipe.components.reduce((a,c)=>a+(Number(c.ratioQty)||0)*(Number(c.unitPrice)||0),0);
   return `
     <div class="card">
-      <h3>${tempRecipe.id? '✏️ 编辑配方' : '新增自动腌料配方'}</h3>
-      <label>触发原料名称（采购单品名跟这个一样，就会自动带出腌料成本；比如：肉碎）</label>
+      <h3>${tempRecipe.id? '✏️ 编辑配方' : '新增半成品配方'}</h3>
+      <label>触发原料名称（采购单品名跟这个一样，就会自动带出用料成本；比如：肉碎）</label>
       <input id="recipeTrigText" list="recipeIngredientNames" placeholder="触发原料名称" autocomplete="off" value="${tempRecipe.triggerName}" oninput="updateRecipeField('triggerName', this.value)">
       <label style="margin-top:10px">触发原料单位（比如：kg）</label>
       <input id="recipeTriggerUnit" placeholder="例：kg" value="${tempRecipe.triggerUnit}" oninput="updateRecipeField('triggerUnit', this.value)">
-      <label style="margin-top:14px">每 1 单位触发原料要配的腌料（比如每1kg肉碎配多少蒜蓉、生抽…）</label>
+      <label style="margin-top:14px">每 1 单位触发原料要配的用料（比如每1kg肉碎配多少蒜蓉、生抽…）</label>
       <datalist id="recipeIngredientNames">
         ${getIngredientNames().map(n=>`<option value="${n}">`).join('')}
       </datalist>
       <div id="recipeComponentsWrap">${recipeComponentRowsHtml()}</div>
-      <button class="btn-line" onclick="addRecipeComponentRow()">+ 添加一样腌料</button>
-      <div style="margin-top:8px; font-size:13px; color:var(--muted)" id="recipeTotalPreview">每 1${tempRecipe.triggerUnit||''} ${tempRecipe.triggerName||'触发原料'} ≈ RM${fmtPlain(perUnit)} 腌料成本</div>
+      <button class="btn-line" onclick="addRecipeComponentRow()">+ 添加一样用料</button>
+      <div style="margin-top:8px; font-size:13px; color:var(--muted)" id="recipeTotalPreview">每 1${tempRecipe.triggerUnit||''} ${tempRecipe.triggerName||'触发原料'} ≈ RM${fmtPlain(perUnit)} 用料成本</div>
       <hr class="receipt-divider">
-      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:6px;">腌完之后你会重新包装成小包——下面填包出来的成品叫什么、单位是什么，之后在"这批腌好了"那边记录完成时，系统会自动帮你把原料出库、成品入库（不填的话有默认值）。</div>
-      <label>变成的成品名称（选填，比如：肉碎(腌制品)）</label>
-      <input placeholder="例：${tempRecipe.triggerName||'肉碎'}(腌制品)" value="${tempRecipe.outputName||''}" oninput="updateRecipeField('outputName', this.value)">
+      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:6px;">加工完之后你会重新包装成小包——下面填包出来的成品叫什么、单位是什么，之后在"这批做好了"那边记录完成时，系统会自动帮你把原料出库、成品入库（不填的话有默认值）。</div>
+      <label>变成的成品名称（选填，比如：肉碎(半成品) 或 招牌酱料）</label>
+      <input placeholder="例：${tempRecipe.triggerName||'肉碎'}(半成品)" value="${tempRecipe.outputName||''}" oninput="updateRecipeField('outputName', this.value)">
       <label style="margin-top:10px">成品单位（比如：包）</label>
       <input placeholder="例：包" value="${tempRecipe.outputUnit||''}" oninput="updateRecipeField('outputUnit', this.value)">
       <button class="btn-main" onclick="submitRecipe()">${tempRecipe.id?'保存修改':'保存配方'}</button>
@@ -2273,26 +2273,26 @@ function renderRecipeSectionHtml(){
   if(tempRecipe) html += recipeFormHtml();
   html += `
     <div class="card">
-      <h3>自动腌料配方 <span class="n">${state.recipes.length} 个</span></h3>
+      <h3>半成品配方 <span class="n">${state.recipes.length} 个</span></h3>
       <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">
-        像"腌肉碎"这种买回来的原料要先配腌料才会用到菜品上——在这里设好触发原料（比如"肉碎"）跟每单位要配的腌料清单，以后不管是在采购单手动输入"肉碎"，还是用CSV批量导入，只要品名对上，系统都会自动按买的数量等比例算出腌料成本，直接多记一笔进"${RECIPE_SUPPLIER_NAME}"名下（系统自动建的虚拟供应商，欠款栏可以无视，不用记付款），关联产品沿用那笔"肉碎"采购当时选的产品。<br>
-        注意：设了自动配方之后，同一批腌料就不用再手动另外采购/关联了，不然成本会重复计算两次。
+        有些原料买回来不能直接用在菜品上，要先加工/配料才变成半成品——比如"腌肉碎"要先配腌料，或者某个酱料要先调配。在这里设好触发原料（比如"肉碎"）跟每单位要配的用料清单，以后不管是在采购单手动输入"肉碎"，还是用CSV批量导入，只要品名对上，系统都会自动按买的数量等比例算出用料成本，直接多记一笔进"${RECIPE_SUPPLIER_NAME}"名下（系统自动建的虚拟供应商，欠款栏可以无视，不用记付款），关联产品沿用那笔"肉碎"采购当时选的产品。<br>
+        注意：设了自动配方之后，同一批用料就不用再手动另外采购/关联了，不然成本会重复计算两次。
       </div>
-      ${!tempRecipe? `<button class="btn-main" onclick="startNewRecipe()">+ 新增自动腌料配方</button>` : ''}
+      ${!tempRecipe? `<button class="btn-main" onclick="startNewRecipe()">+ 新增半成品配方</button>` : ''}
       <hr class="receipt-divider">
       ${state.recipes.length? state.recipes.map(r=>{
         const perUnit = (r.components||[]).reduce((a,c)=>a+Number(c.ratioQty||0)*Number(c.unitPrice||0),0);
         return `
         <div class="supplier-card">
           <b>触发原料：${r.triggerName}${r.triggerUnit?' ('+r.triggerUnit+')':''}</b>
-          <div class="muted" style="font-size:11.5px; margin-top:2px;">每1${r.triggerUnit||''}配：${(r.components||[]).map(c=>c.name+' '+c.ratioQty+(c.unit||'')).join('、')||'（还没设腌料）'}</div>
-          <div class="muted" style="font-size:11.5px;">每1${r.triggerUnit||''}腌料成本约 RM${fmtPlain(perUnit)}</div>
+          <div class="muted" style="font-size:11.5px; margin-top:2px;">每1${r.triggerUnit||''}配：${(r.components||[]).map(c=>c.name+' '+c.ratioQty+(c.unit||'')).join('、')||'（还没设用料）'}</div>
+          <div class="muted" style="font-size:11.5px;">每1${r.triggerUnit||''}用料成本约 RM${fmtPlain(perUnit)}</div>
           <div style="display:flex; gap:8px; margin-top:8px;">
             <button class="btn-ghost btn-small" style="flex:1;" onclick="startEditRecipe('${r.id}')">编辑</button>
             <button class="btn-danger-text" onclick="deleteRecipe('${r.id}')">删除</button>
           </div>
         </div>`;
-      }).join('') : `<div class="empty">还没有自动腌料配方，点上面新增一个</div>`}
+      }).join('') : `<div class="empty">还没有半成品配方，点上面新增一个</div>`}
     </div>
 
     ${(()=>{
@@ -2300,8 +2300,8 @@ function renderRecipeSectionHtml(){
       if(!pending.length) return '';
       return `
     <div class="card">
-      <h3>这批腌好了？ <span class="n">${pending.length} 笔待处理</span></h3>
-      <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">下面是买了触发原料、但还没记录"腌好分成幾包"的采购。填上这批实际包出来的数量，系统会自动帮你把肉碎跟腌料都出库、包好的成品入库，库存才会准。</div>
+      <h3>这批做好了？ <span class="n">${pending.length} 笔待处理</span></h3>
+      <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">下面是买了触发原料、但还没记录"做好分成幾包"的采购。填上这批实际包出来的数量，系统会自动帮你把原料跟用料都出库、包好的成品入库，库存才会准。</div>
       ${pending.map(p=>{
         const recipe = state.recipes.find(r=>r.id===p.recipeId);
         const outputUnit = effectiveOutputUnit(recipe);
@@ -2315,7 +2315,7 @@ function renderRecipeSectionHtml(){
           <input id="batchPackQty_${p.purchaseId}_${p.recipeId}" type="number" step="0.01" placeholder="分成幾${outputUnit}" style="flex:1;">
           <button class="btn-main" style="margin:0; width:auto; padding:9px 16px;" onclick="completeRecipeBatch('${p.purchaseId}','${p.recipeId}')">✅ 记录完成</button>
         </div>
-        <div class="muted" style="font-size:11px; margin-top:4px;">完成后会：${p.triggerName} 出库 ${p.triggerQty}${p.triggerUnit}，腌料按比例一起出库，${outputName} 入库你填的数量</div>
+        <div class="muted" style="font-size:11px; margin-top:4px;">完成后会：${p.triggerName} 出库 ${p.triggerQty}${p.triggerUnit}，用料按比例一起出库，${outputName} 入库你填的数量</div>
       </div>`;
       }).join('')}
     </div>`;
