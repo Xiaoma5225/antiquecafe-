@@ -701,24 +701,48 @@ function wireSuggest(inputId, options){
     wrap.appendChild(dropdown);
   }
   let matches = [];
+  let activeIndex = -1;
+  let suppressShow = false; // 选完之后触发的input/change事件不要再把下拉框重新打开
+  const setActive = (idx)=>{
+    activeIndex = idx;
+    Array.from(dropdown.children).forEach((el,i)=>el.classList.toggle('active', i===activeIndex));
+    const el = dropdown.children[activeIndex];
+    if(el && el.scrollIntoView) el.scrollIntoView({block:'nearest'});
+  };
+  const pick = (idx)=>{
+    if(idx<0 || idx>=matches.length) return;
+    suppressShow = true;
+    inputEl.value = matches[idx];
+    dropdown.classList.remove('show');
+    inputEl.dispatchEvent(new Event('input', {bubbles:true}));
+    inputEl.dispatchEvent(new Event('change', {bubbles:true}));
+    setTimeout(()=>{ suppressShow = false; }, 0);
+  };
   const showMatches = ()=>{
+    if(suppressShow) return;
     const q = inputEl.value.trim().toLowerCase();
     matches = (!q ? options : options.filter(o=>o.toLowerCase().includes(q))).slice(0,8);
+    activeIndex = -1;
     if(!matches.length){ dropdown.classList.remove('show'); return; }
     dropdown.innerHTML = matches.map(v=>`<div class="suggest-item">${String(v).replace(/</g,'&lt;')}</div>`).join('');
     Array.from(dropdown.children).forEach((item,i)=>{
-      item.addEventListener('mousedown', (e)=>{
-        e.preventDefault();
-        inputEl.value = matches[i];
-        dropdown.classList.remove('show');
-        inputEl.dispatchEvent(new Event('input', {bubbles:true}));
-        inputEl.dispatchEvent(new Event('change', {bubbles:true}));
-      });
+      item.addEventListener('mousedown', (e)=>{ e.preventDefault(); pick(i); });
+      item.addEventListener('mouseenter', ()=>setActive(i));
     });
     dropdown.classList.add('show');
   };
   inputEl.addEventListener('focus', showMatches);
   inputEl.addEventListener('input', showMatches);
+  inputEl.addEventListener('keydown', (e)=>{
+    if(!dropdown.classList.contains('show')){
+      if(e.key==='ArrowDown') showMatches();
+      return;
+    }
+    if(e.key==='ArrowDown'){ e.preventDefault(); setActive(activeIndex<matches.length-1 ? activeIndex+1 : 0); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); setActive(activeIndex>0 ? activeIndex-1 : matches.length-1); }
+    else if(e.key==='Enter'){ if(activeIndex>=0){ e.preventDefault(); pick(activeIndex); } }
+    else if(e.key==='Escape'){ dropdown.classList.remove('show'); }
+  });
   inputEl.addEventListener('blur', ()=>{ setTimeout(()=>dropdown.classList.remove('show'), 150); });
 }
 function fmt(n){
@@ -1266,9 +1290,34 @@ function productUnitCost(p){
   if(spend>0 && qtySold>0) return spend/qtySold;
   return productCost(p);
 }
-/* 算法二：总额法——如果一项采购同时关联了好几个"用总额法"的产品（比如一箱蛋同时算进炒河粉和椰浆饭），
-   就不拆分这笔采购金额，而是把这些产品当成一组：把它们的总销售额加起来，扣掉这组关联的采购总额
-   （每张采购单里的每一项，不管连到几个产品，只算一次，不会重复计算），算出这组的整体毛利。 */
+/* 算法二：总额法——两种方式都能让产品归成一组：
+   1) 老方式：一项采购同时关联了好几个"用总额法"的产品（在采购单手动勾选）
+   2) 新方式：总额法产品自己填了一样的"共同食材名字"（不用去采购单手动勾），只要名字打得一样就自动一组。
+   一旦归成一组，就把组内产品的总销售额加起来，扣掉这组关联的采购总额
+   （每张采购单里的每一项，不管连到几个产品，只算一次，不会重复计算），按各产品销售额占比分摊。 */
+function totalMethodNameToProductIds(){
+  const map = {};
+  state.products.forEach(p=>{
+    if(p.costMethod!=='total') return;
+    (p.sharedIngredients||[]).forEach(n=>{
+      const key = (n||'').trim().toLowerCase();
+      if(!key) return;
+      if(!map[key]) map[key] = [];
+      map[key].push(p.id);
+    });
+  });
+  return map;
+}
+/* 给总额法用的"扩充版"关联产品清单：除了采购单手动勾的，再加上"共同食材名字"匹配到的产品。
+   只在总额法的分组/分摊计算里用，不影响单位成本法原本的采购关联逻辑。 */
+function purchaseItemProductIdsForTotal(item, nameMap){
+  const ids = new Set(purchaseItemProductIds(item));
+  if(item.name){
+    const key = item.name.trim().toLowerCase();
+    (nameMap[key]||[]).forEach(id=>ids.add(id));
+  }
+  return Array.from(ids);
+}
 function totalMethodGroupFor(productId){
   const totalIds = state.products.filter(p=>p.costMethod==='total').map(p=>p.id);
   if(!totalIds.includes(productId)) return [productId];
@@ -1276,11 +1325,17 @@ function totalMethodGroupFor(productId){
   totalIds.forEach(id=>{ parent[id] = id; });
   function find(x){ while(parent[x]!==x){ x = parent[x]; } return x; }
   function union(a,b){ const ra=find(a), rb=find(b); if(ra!==rb) parent[ra]=rb; }
+  const nameMap = totalMethodNameToProductIds();
   state.purchases.forEach(pu=>{
     (pu.items||[]).forEach(item=>{
-      const ids = purchaseItemProductIds(item).filter(id=>parent.hasOwnProperty(id));
+      const ids = purchaseItemProductIdsForTotal(item, nameMap).filter(id=>parent.hasOwnProperty(id));
       for(let i=1;i<ids.length;i++) union(ids[0], ids[i]);
     });
+  });
+  // 就算这个食材从来没被采购过，只要两个产品填了同一个共同食材名字，也先归成一组
+  Object.values(nameMap).forEach(ids=>{
+    const filtered = ids.filter(id=>parent.hasOwnProperty(id));
+    for(let i=1;i<filtered.length;i++) union(filtered[0], filtered[i]);
   });
   const root = find(productId);
   return totalIds.filter(id=>find(id)===root);
@@ -1288,11 +1343,12 @@ function totalMethodGroupFor(productId){
 function groupPurchaseSpend(groupIds){
   const idSet = new Set(groupIds);
   const seenItemIds = new Set();
+  const nameMap = totalMethodNameToProductIds();
   let total = 0;
   state.purchases.forEach(pu=>{
     (pu.items||[]).forEach(item=>{
       if(seenItemIds.has(item.id)) return;
-      if(purchaseItemProductIds(item).some(id=>idSet.has(id))){
+      if(purchaseItemProductIdsForTotal(item, nameMap).some(id=>idSet.has(id))){
         total += Number(item.totalCost||0);
         seenItemIds.add(item.id);
       }
@@ -1329,12 +1385,13 @@ function dayTotalMethodPurchaseCost(dateStr, company){
 function totalMethodPurchaseCost(dateMatchFn, company){
   const totalIds = new Set(state.products.filter(p=>p.costMethod==='total').map(p=>p.id));
   if(totalIds.size===0) return 0;
+  const nameMap = totalMethodNameToProductIds();
   let total = 0;
   state.purchases.forEach(pu=>{
     if(!dateMatchFn(pu.date)) return;
     (pu.items||[]).forEach(item=>{
       if(company && effCompany(item,pu)!==company) return;
-      if(purchaseItemProductIds(item).some(id=>totalIds.has(id))) total += Number(item.totalCost||0);
+      if(purchaseItemProductIdsForTotal(item, nameMap).some(id=>totalIds.has(id))) total += Number(item.totalCost||0);
     });
   });
   return total;
@@ -3390,6 +3447,7 @@ let costSearchQuery = '';
 let costCategoryFilter = '';
 let draftProductCompany = '';
 let draftCostMethod = 'unit';
+let tempSharedIngredients = [{id:uid(), name:''}];
 let prodSubView = 'product'; // 'product' = 名称/售价/分类等基本资料的新增编辑，'cost' = 食材成本/毛利细项
 
 function setProdSubView(val){
@@ -3444,6 +3502,7 @@ function renderCost(){
             </div>
             ${tagsLine}
             ${methodToggle}
+            ${(p.sharedIngredients&&p.sharedIngredients.length)?`<div class="muted" style="font-size:11px; margin-bottom:2px;">共同食材：${p.sharedIngredients.join('、')}</div>`:''}
             <div class="muted" style="font-size:11px; margin-bottom:4px;">总额法：${groupNames.length>1?`跟 ${groupNames.filter(n=>n!==p.name).join('、')} 共用采购食材，组内食材总成本 ${fmtPlain(b.groupSpend)} 会${b.groupRevenue>0.001?'按各产品销售额占比':'平均'}分摊`:'该产品单独一组（还没有跟其他产品共用采购食材），组内食材成本全部算它的'}</div>
             ${groupNames.length>1?`<div class="muted" style="font-size:11px; margin-bottom:4px;">本产品销售额占该组的 ${sharePct}%，分摊到食材成本 ${fmtPlain(b.allocatedCost)}</div>`:''}
             <table style="margin-top:6px">
@@ -3524,7 +3583,7 @@ function renderCost(){
         <button type="button" class="btn-toggle ${draftCostMethod==='unit'?'active':''}" data-val="unit" onclick="setDraftCostMethod('unit')">单位成本法</button>
         <button type="button" class="btn-toggle ${draftCostMethod==='total'?'active':''}" data-val="total" onclick="setDraftCostMethod('total')">总额法</button>
       </div>
-      <div class="muted" style="font-size:11px; margin-top:4px; margin-bottom:2px;" id="prodCostMethodNote">${draftCostMethod==='total' ? '总额法：这个产品不用自己填食材成本项，是跟其他同样用总额法的产品分摊采购总额（下面食材成本项会被忽略）' : '单位成本法：按下面填的食材成本项/关联采购来算这份产品的成本'}</div>
+      <div class="muted" style="font-size:11px; margin-top:4px; margin-bottom:2px;" id="prodCostMethodNote">${draftCostMethod==='total' ? '总额法：这个产品不用自己估算成本，是跟其他"填了同样共同食材名字"的总额法产品自动分成一组，一起分摊这个食材的实际采购总额（按各产品销售额占比分）' : '单位成本法：按下面填的食材成本项/关联采购来算这份产品的成本'}</div>
       <div id="costItemsSection" style="${draftCostMethod==='total'?'display:none;':''}">
         <label style="margin-top:14px">食材成本项（保底用：如果这个产品在"采购"页还没有关联到任何采购记录，就会用这里的估算；一旦有关联采购+销售数据，系统会自动改用实际数据算成本）</label>
         <div id="costItemsWrap"></div>
@@ -3532,6 +3591,11 @@ function renderCost(){
         <div style="margin-top:8px; font-size:13px; color:var(--muted)">
           总成本：<b class="mono" id="costTotalPreview">RM 0.00</b>
         </div>
+      </div>
+      <div id="sharedIngredientsSection" style="${draftCostMethod==='total'?'':'display:none;'}">
+        <label style="margin-top:14px">共同食材名称（只要名字打得一样，其他总额法产品填了同一个名字，就会自动跟这个产品分成一组一起分摊；名字要跟"采购"页记的品名对得上，才抓得到实际采购金额）</label>
+        <div id="sharedIngredientsWrap"></div>
+        <button class="btn-line" onclick="addSharedIngredientRow()">+ 添加一个共同食材</button>
       </div>
       <button class="btn-main" style="margin-top:14px" onclick="submitProduct()">${editingProduct?'保存修改':'保存产品'}</button>
       ${editingProduct?`<button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditProduct()">取消编辑</button>`:''}
@@ -3548,6 +3612,7 @@ function renderCost(){
     </div>
   `;
   renderCostItemRows();
+  renderSharedIngredientRows();
   wireSuggest('prodTitle', state.products.map(p=>p.name));
   wireSuggest('prodCategory', categoryOptions);
   const mergeNames = state.products.map(p=>p.name);
@@ -3586,6 +3651,37 @@ function renderCostItemRows(){
     wireSuggest('ci_name_'+row.id, ingredientNames);
     wireSuggest('ci_unit_'+row.id, unitSuggestions);
   });
+}
+/* ---- 总额法产品的"共同食材" ----
+   跟食材成本项不同：这里只填名字，不用填数量单价，因为总额法的成本是从"采购"页实际发生的采购金额来算，
+   不是手动估算。名字打得跟其他总额法产品一样，系统就会自动把它们归成一组一起分摊；
+   名字也要尽量跟"采购"页记的品名对上，这样系统才抓得到实际发生的采购金额。 */
+function renderSharedIngredientRows(){
+  const wrap = document.getElementById('sharedIngredientsWrap');
+  if(!wrap) return;
+  wrap.innerHTML = tempSharedIngredients.map(row=>`
+    <div class="pi-card">
+      <div class="pi-top">
+        <input id="si_name_${row.id}" placeholder="食材名称，如：鸡蛋（要跟采购页品名一致）" autocomplete="off" value="${row.name}" oninput="updateSharedIngredient('${row.id}', this.value)">
+        ${tempSharedIngredients.length>1?`<button class="rm" onclick="removeSharedIngredientRow('${row.id}')">×</button>`:'<span style="width:20px"></span>'}
+      </div>
+    </div>
+  `).join('');
+  const ingredientNames = getIngredientNames();
+  tempSharedIngredients.forEach(row=>wireSuggest('si_name_'+row.id, ingredientNames));
+}
+function addSharedIngredientRow(){
+  tempSharedIngredients.push({id:uid(), name:''});
+  renderSharedIngredientRows();
+}
+function removeSharedIngredientRow(id){
+  tempSharedIngredients = tempSharedIngredients.filter(r=>r.id!==id);
+  if(tempSharedIngredients.length===0) tempSharedIngredients = [{id:uid(), name:''}];
+  renderSharedIngredientRows();
+}
+function updateSharedIngredient(id, val){
+  const row = tempSharedIngredients.find(r=>r.id===id);
+  if(row) row.name = val;
 }
 function autoLinkCostItemIngredient(id){
   const row = tempCostItems.find(r=>r.id===id);
@@ -3639,24 +3735,26 @@ function submitProduct(){
   const company = draftProductCompany;
   if(!name){ alert('请输入产品名称'); return; }
   const costItems = tempCostItems.filter(r=>r.name && r.cost!=='').map(r=>({id:uid(), name:r.name, qty:Number(r.qty||0), unit:r.unit, unitPrice:Number(r.unitPrice||0), cost:Number(r.cost||0)}));
+  const sharedIngredients = tempSharedIngredients.map(r=>r.name.trim()).filter(Boolean);
   const prodTitleEl = document.getElementById('prodTitle'); if(prodTitleEl) prodTitleEl.value='';
   const prodPriceEl = document.getElementById('prodPrice'); if(prodPriceEl) prodPriceEl.value='';
   if(editingProductId){
     const targetId = editingProductId;
     mutate(()=>{
       const p = state.products.find(x=>x.id===targetId);
-      if(p){ p.name = name; p.price = price; p.costItems = costItems; p.category = category; p.code = code; p.company = company; p.costMethod = draftCostMethod; }
+      if(p){ p.name = name; p.price = price; p.costItems = costItems; p.sharedIngredients = sharedIngredients; p.category = category; p.code = code; p.company = company; p.costMethod = draftCostMethod; }
       costItems.forEach(ci=>learnIngredientLink(ci.name, [targetId], {unit: ci.unit, unitPrice: ci.unitPrice}));
     });
     editingProductId = null;
   } else {
     const newId = uid();
     mutate(()=>{
-      state.products.push({id:newId, name, price, costItems, costMethod:draftCostMethod, category, code, company});
+      state.products.push({id:newId, name, price, costItems, sharedIngredients, costMethod:draftCostMethod, category, code, company});
       costItems.forEach(ci=>learnIngredientLink(ci.name, [newId], {unit: ci.unit, unitPrice: ci.unitPrice}));
     });
   }
   tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
+  tempSharedIngredients = [{id:uid(), name:''}];
   draftProductCompany = '';
   draftCostMethod = 'unit';
   renderCost();
@@ -3671,6 +3769,9 @@ function startEditProduct(id){
   tempCostItems = (p.costItems&&p.costItems.length)
     ? p.costItems.map(ci=>({id:uid(), name:ci.name||'', qty:ci.qty?String(ci.qty):'', unit:ci.unit||'', unitPrice:ci.unitPrice?String(ci.unitPrice):'', cost:ci.cost!=null?String(ci.cost):''}))
     : [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
+  tempSharedIngredients = (p.sharedIngredients&&p.sharedIngredients.length)
+    ? p.sharedIngredients.map(n=>({id:uid(), name:n}))
+    : [{id:uid(), name:''}];
   renderCost();
   const nameInput = document.getElementById('prodTitle');
   if(nameInput) nameInput.scrollIntoView({behavior:'smooth', block:'center'});
@@ -3680,6 +3781,7 @@ function cancelEditProduct(){
   draftProductCompany = '';
   draftCostMethod = 'unit';
   tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
+  tempSharedIngredients = [{id:uid(), name:''}];
   renderCost();
 }
 function filterCostProducts(q){
@@ -3746,9 +3848,12 @@ function setDraftCostMethod(val){
   draftCostMethod = val;
   document.querySelectorAll('#prodCostMethodGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
   const noteEl = document.getElementById('prodCostMethodNote');
-  if(noteEl) noteEl.textContent = val==='total' ? '总额法：这个产品不用自己填食材成本项，是跟其他同样用总额法的产品分摊采购总额（下面食材成本项会被忽略）' : '单位成本法：按下面填的食材成本项/关联采购来算这份产品的成本';
+  if(noteEl) noteEl.textContent = val==='total' ? '总额法：这个产品不用自己估算成本，是跟其他"填了同样共同食材名字"的总额法产品自动分成一组，一起分摊这个食材的实际采购总额（按各产品销售额占比分）' : '单位成本法：按下面填的食材成本项/关联采购来算这份产品的成本';
   const sectionEl = document.getElementById('costItemsSection');
   if(sectionEl) sectionEl.style.display = val==='total' ? 'none' : '';
+  const sharedEl = document.getElementById('sharedIngredientsSection');
+  if(sharedEl) sharedEl.style.display = val==='total' ? '' : 'none';
+  renderSharedIngredientRows();
 }
 function setCostCategoryFilter(val){
   costCategoryFilter = val;
