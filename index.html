@@ -3389,6 +3389,7 @@ let editingProductId = null;
 let costSearchQuery = '';
 let costCategoryFilter = '';
 let draftProductCompany = '';
+let draftCostMethod = 'unit';
 let prodSubView = 'product'; // 'product' = 名称/售价/分类等基本资料的新增编辑，'cost' = 食材成本/毛利细项
 
 function setProdSubView(val){
@@ -3404,7 +3405,7 @@ function renderCost(){
     </div>`;
   const editingProduct = editingProductId ? state.products.find(x=>x.id===editingProductId) : null;
   const draft = editingProduct ? {} : captureFormValues(['prodTitle','prodPrice','prodCategory','prodCode']);
-  if(editingProduct) draftProductCompany = editingProduct.company || '';
+  if(editingProduct){ draftProductCompany = editingProduct.company || ''; draftCostMethod = editingProduct.costMethod==='total' ? 'total' : 'unit'; }
   const categoryOptions = Array.from(new Set([...MENU_CATEGORIES, ...state.products.map(p=>p.category).filter(Boolean)]));
   const catOrder = c => { const i = MENU_CATEGORIES.indexOf(c||''); return i===-1 ? 999 : i; };
   let displayProducts = state.products.slice().sort((a,b)=> catOrder(a.category) - catOrder(b.category) || a.name.localeCompare(b.name));
@@ -3518,6 +3519,12 @@ function renderCost(){
         <button type="button" class="btn-toggle ${draftProductCompany===''?'active':''}" data-val="" onclick="setProdCompany('')">不指定</button>
         ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${draftProductCompany===c?'active':''}" data-val="${c}" onclick="setProdCompany('${c}')">${c}</button>`).join('')}
       </div>
+      <label style="margin-top:10px">成本算法</label>
+      <div class="btn-group" id="prodCostMethodGroup">
+        <button type="button" class="btn-toggle ${draftCostMethod==='unit'?'active':''}" data-val="unit" onclick="setDraftCostMethod('unit')">单位成本法</button>
+        <button type="button" class="btn-toggle ${draftCostMethod==='total'?'active':''}" data-val="total" onclick="setDraftCostMethod('total')">总额法</button>
+      </div>
+      <div class="muted" style="font-size:11px; margin-top:4px; margin-bottom:2px;" id="prodCostMethodNote">${draftCostMethod==='total' ? '总额法：这个产品不用自己填食材成本项，是跟其他同样用总额法的产品分摊采购总额（下面食材成本项会被忽略）' : '单位成本法：按下面填的食材成本项/关联采购来算这份产品的成本'}</div>
       <label style="margin-top:14px">食材成本项（保底用：如果这个产品在"采购"页还没有关联到任何采购记录，就会用这里的估算；一旦有关联采购+销售数据，系统会自动改用实际数据算成本）</label>
       <div id="costItemsWrap"></div>
       <button class="btn-line" onclick="addCostItemRow()">+ 添加一项食材成本</button>
@@ -3636,19 +3643,20 @@ function submitProduct(){
     const targetId = editingProductId;
     mutate(()=>{
       const p = state.products.find(x=>x.id===targetId);
-      if(p){ p.name = name; p.price = price; p.costItems = costItems; p.category = category; p.code = code; p.company = company; }
+      if(p){ p.name = name; p.price = price; p.costItems = costItems; p.category = category; p.code = code; p.company = company; p.costMethod = draftCostMethod; }
       costItems.forEach(ci=>learnIngredientLink(ci.name, [targetId], {unit: ci.unit, unitPrice: ci.unitPrice}));
     });
     editingProductId = null;
   } else {
     const newId = uid();
     mutate(()=>{
-      state.products.push({id:newId, name, price, costItems, costMethod:'unit', category, code, company});
+      state.products.push({id:newId, name, price, costItems, costMethod:draftCostMethod, category, code, company});
       costItems.forEach(ci=>learnIngredientLink(ci.name, [newId], {unit: ci.unit, unitPrice: ci.unitPrice}));
     });
   }
   tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
   draftProductCompany = '';
+  draftCostMethod = 'unit';
   renderCost();
 }
 function startEditProduct(id){
@@ -3657,6 +3665,7 @@ function startEditProduct(id){
   editingProductId = id;
   prodSubView = 'product';
   draftProductCompany = p.company || '';
+  draftCostMethod = p.costMethod==='total' ? 'total' : 'unit';
   tempCostItems = (p.costItems&&p.costItems.length)
     ? p.costItems.map(ci=>({id:uid(), name:ci.name||'', qty:ci.qty?String(ci.qty):'', unit:ci.unit||'', unitPrice:ci.unitPrice?String(ci.unitPrice):'', cost:ci.cost!=null?String(ci.cost):''}))
     : [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
@@ -3667,6 +3676,7 @@ function startEditProduct(id){
 function cancelEditProduct(){
   editingProductId = null;
   draftProductCompany = '';
+  draftCostMethod = 'unit';
   tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
   renderCost();
 }
@@ -3729,6 +3739,12 @@ function appendCostItem(prodId){
 function setProdCompany(val){
   draftProductCompany = val;
   document.querySelectorAll('#prodCompanyGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
+}
+function setDraftCostMethod(val){
+  draftCostMethod = val;
+  document.querySelectorAll('#prodCostMethodGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
+  const noteEl = document.getElementById('prodCostMethodNote');
+  if(noteEl) noteEl.textContent = val==='total' ? '总额法：这个产品不用自己填食材成本项，是跟其他同样用总额法的产品分摊采购总额（下面食材成本项会被忽略）' : '单位成本法：按下面填的食材成本项/关联采购来算这份产品的成本';
 }
 function setCostCategoryFilter(val){
   costCategoryFilter = val;
