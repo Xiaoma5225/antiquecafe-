@@ -1373,6 +1373,65 @@ function productTotalMethodBreakdown(productId){
   const pct = productRevenue>0 ? (profit/productRevenue*100).toFixed(1) : '0.0';
   return {groupIds, groupSpend, groupRevenue, productRevenue, share, allocatedCost, profit, pct};
 }
+/* 跟 groupPurchaseSpend / groupSalesRevenue 一样，但按月份(+可选公司)过滤——
+   给"销售"页「本月各产品毛利」报表用，这样总额法产品的月度毛利才准，不会把其他月份的采购/销售也算进来 */
+function monthlyGroupPurchaseSpend(groupIds, mk, company){
+  const idSet = new Set(groupIds);
+  const seenItemIds = new Set();
+  const nameMap = totalMethodNameToProductIds();
+  let total = 0;
+  state.purchases.forEach(pu=>{
+    if(monthKey(pu.date)!==mk) return;
+    (pu.items||[]).forEach(item=>{
+      if(company && effCompany(item,pu)!==company) return;
+      if(seenItemIds.has(item.id)) return;
+      if(purchaseItemProductIdsForTotal(item, nameMap).some(id=>idSet.has(id))){
+        total += Number(item.totalCost||0);
+        seenItemIds.add(item.id);
+      }
+    });
+  });
+  return total;
+}
+function monthlyGroupSalesRevenue(groupIds, mk, company){
+  const idSet = new Set(groupIds);
+  return state.sales.filter(s=>idSet.has(s.productId) && monthKey(s.date)===mk && (!company||s.company===company)).reduce((a,s)=>a+Number(s.amount||0),0);
+}
+function productMonthlyTotalMethodBreakdown(productId, mk, company){
+  const groupIds = totalMethodGroupFor(productId);
+  const groupSpend = monthlyGroupPurchaseSpend(groupIds, mk, company);
+  const groupRevenue = monthlyGroupSalesRevenue(groupIds, mk, company);
+  const productRevenue = state.sales.filter(s=>s.productId===productId && monthKey(s.date)===mk && (!company||s.company===company)).reduce((a,s)=>a+Number(s.amount||0),0);
+  const share = groupRevenue>0.001 ? (productRevenue/groupRevenue) : (groupIds.length? 1/groupIds.length : 0);
+  const allocatedCost = groupSpend * share;
+  return {productRevenue, allocatedCost, profit: productRevenue - allocatedCost};
+}
+/* 给"销售"页「本月各产品毛利」报表用：把 monthSales 按产品(有关联产品的按id，没关联的按名字，比如Addon)
+   分组，算出各自的月销售额、月成本、月毛利——单位成本法直接用每笔销售记录当时存的cost加总，
+   总额法则改用上面月度分摊版的算法重算（因为总额法的sale.cost一律存0，不能直接加总）。 */
+function monthlyProductProfitReport(monthSales, mk, company){
+  const map = {};
+  monthSales.forEach(s=>{
+    const key = s.productId || ('_name_'+s.productName);
+    if(!map[key]) map[key] = {productId:s.productId||null, name:s.productName, revenue:0, cost:0, qty:0};
+    map[key].revenue += Number(s.amount||0);
+    map[key].qty += Number(s.qty||0);
+    if(!s.productId) map[key].cost += Number(s.cost||0);
+  });
+  Object.values(map).forEach(row=>{
+    if(!row.productId) return;
+    const p = state.products.find(x=>x.id===row.productId);
+    if(!p) return;
+    if(p.costMethod==='total'){
+      row.cost = productMonthlyTotalMethodBreakdown(row.productId, mk, company).allocatedCost;
+    } else {
+      row.cost = monthSales.filter(s=>s.productId===row.productId).reduce((a,s)=>a+Number(s.cost||0),0);
+    }
+  });
+  return Object.values(map).map(r=>({
+    ...r, profit: r.revenue - r.cost, pct: r.revenue>0 ? ((r.revenue-r.cost)/r.revenue*100) : 0
+  })).sort((a,b)=>b.revenue-a.revenue);
+}
 /* 总额法产品的成本在"采购发生时"就认列（而不是按销售分摊），
    用于总览/销售页统计某月食材成本时补回这部分金额，company 可选，用来按公司过滤 */
 function monthTotalMethodPurchaseCost(mk, company){
@@ -3944,6 +4003,7 @@ function renderSales(){
   monthSales.forEach(s=>{ byProduct[s.productName] = (byProduct[s.productName]||0) + Number(s.amount||0); });
   const topProducts = Object.entries(byProduct).sort((a,b)=>b[1]-a[1]).slice(0,5);
   const topMax = topProducts.length? topProducts[0][1] : 1;
+  const productProfitReport = monthlyProductProfitReport(monthSales, mk, saleHistoryFilterCompany||undefined);
 
   el.innerHTML = `
     <div class="card">
@@ -4043,6 +4103,21 @@ function renderSales(){
           ${vizBar([{value:amt, color:'var(--gold)'}], topMax)}
         </div>`).join('')}
     </div>` : ''}
+
+    <div class="card">
+      <h3>本月各产品毛利 <span class="n">${mk}${saleHistoryFilterCompany? ' · '+saleHistoryFilterCompany : ''}</span></h3>
+      ${productProfitReport.length? `<table>
+        <tr><th>产品</th><th class="num">销售额</th><th class="num">成本</th><th class="num">毛利</th><th class="num">毛利率</th></tr>
+        ${productProfitReport.map(r=>`
+          <tr>
+            <td>${r.name}</td>
+            <td class="num">${fmtPlain(r.revenue)}</td>
+            <td class="num">${fmtPlain(r.cost)}</td>
+            <td class="num" style="color:${r.profit>=0?'var(--green)':'var(--rust)'}"><b>${fmtPlain(r.profit)}</b></td>
+            <td class="num">${r.pct.toFixed(1)}%</td>
+          </tr>`).join('')}
+      </table>` : `<div class="empty">这个月还没有销售记录</div>`}
+    </div>
 
     <div class="card">
       <h3>销售记录</h3>
