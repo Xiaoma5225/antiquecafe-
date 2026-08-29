@@ -1290,11 +1290,13 @@ function productUnitCost(p){
   if(spend>0 && qtySold>0) return spend/qtySold;
   return productCost(p);
 }
-/* 算法二：总额法——两种方式都能让产品归成一组：
-   1) 老方式：一项采购同时关联了好几个"用总额法"的产品（在采购单手动勾选）
-   2) 新方式：总额法产品自己填了一样的"共同食材名字"（不用去采购单手动勾），只要名字打得一样就自动一组。
-   一旦归成一组，就把组内产品的总销售额加起来，扣掉这组关联的采购总额
-   （每张采购单里的每一项，不管连到几个产品，只算一次，不会重复计算），按各产品销售额占比分摊。 */
+/* 算法二：总额法——不用"传递性分组"（那样A跟B同一个采购品项、B又跟C同一个采购品项，
+   A跟C也会被拖进同一个大群组一起分摊，很容易滚雪球式地把互不相干的产品扯在一起，比如虾肉明明只该算给虾面，
+   却因为虾面又透过别的（很多产品共用的）品项跟叉烧扯上关系，虾肉的钱就被一起卷进去分给了叉烧）。
+   改成"逐项分摊"：每一张采购品项自己算自己的——这个品项的钱，只在"直接"关联到这个品项的那几个产品之间，
+   按它们各自的销售额比例分掉；一个产品的总成本，就是把它自己直接关联到的每一个采购品项、分摊到的那一份，
+   加总起来。跟别的产品是不是"间接"扯上关系，完全不影响，不会再滚雪球。
+   关联方式两种都算：1) 采购单手动勾选 2) 总额法产品自己填了一样的"共同食材名字"。 */
 function totalMethodNameToProductIds(){
   const map = {};
   state.products.forEach(p=>{
@@ -1309,7 +1311,7 @@ function totalMethodNameToProductIds(){
   return map;
 }
 /* 给总额法用的"扩充版"关联产品清单：除了采购单手动勾的，再加上"共同食材名字"匹配到的产品。
-   只在总额法的分组/分摊计算里用，不影响单位成本法原本的采购关联逻辑。 */
+   只在总额法的分摊计算里用，不影响单位成本法原本的采购关联逻辑。 */
 function purchaseItemProductIdsForTotal(item, nameMap){
   const ids = new Set(purchaseItemProductIds(item));
   if(item.name){
@@ -1318,114 +1320,49 @@ function purchaseItemProductIdsForTotal(item, nameMap){
   }
   return Array.from(ids);
 }
-function totalMethodGroupFor(productId){
-  const totalIds = state.products.filter(p=>p.costMethod==='total').map(p=>p.id);
-  if(!totalIds.includes(productId)) return [productId];
-  const parent = {};
-  totalIds.forEach(id=>{ parent[id] = id; });
-  function find(x){ while(parent[x]!==x){ x = parent[x]; } return x; }
-  function union(a,b){ const ra=find(a), rb=find(b); if(ra!==rb) parent[ra]=rb; }
+/* 核心算法：算某个总额法产品在某个范围里的分摊成本——dateMatchFn 不传就是全部日期都算
+   （给"成本"页用），company 不传就是不分公司。逐一走过每一张采购单的每一个品项：
+   这个品项如果有直接关联到本产品，就把这个品项的钱，按"直接关联到这个品项的那几个产品"各自的
+   销售额占比分一份给本产品——不会因为别的品项把本产品跟其他产品"间接"连起来而扩大范围。 */
+function productTotalMethodBreakdown(productId, dateMatchFn, company){
+  const match = dateMatchFn || (()=>true);
+  const totalIds = new Set(state.products.filter(p=>p.costMethod==='total').map(p=>p.id));
   const nameMap = totalMethodNameToProductIds();
+  const revenueCache = {};
+  const productRevenueInScope = (id)=>{
+    if(revenueCache[id]!=null) return revenueCache[id];
+    const v = state.sales.filter(s=>s.productId===id && match(s.date) && (!company||s.company===company)).reduce((a,s)=>a+Number(s.amount||0),0);
+    revenueCache[id] = v;
+    return v;
+  };
+  let allocatedCost = 0;
+  const items = [];
   state.purchases.forEach(pu=>{
-    (pu.items||[]).forEach(item=>{
-      const ids = purchaseItemProductIdsForTotal(item, nameMap).filter(id=>parent.hasOwnProperty(id));
-      for(let i=1;i<ids.length;i++) union(ids[0], ids[i]);
-    });
-  });
-  // 就算这个食材从来没被采购过，只要两个产品填了同一个共同食材名字，也先归成一组
-  Object.values(nameMap).forEach(ids=>{
-    const filtered = ids.filter(id=>parent.hasOwnProperty(id));
-    for(let i=1;i<filtered.length;i++) union(filtered[0], filtered[i]);
-  });
-  const root = find(productId);
-  return totalIds.filter(id=>find(id)===root);
-}
-function groupPurchaseSpend(groupIds){
-  const idSet = new Set(groupIds);
-  const seenItemIds = new Set();
-  const nameMap = totalMethodNameToProductIds();
-  let total = 0;
-  state.purchases.forEach(pu=>{
-    (pu.items||[]).forEach(item=>{
-      if(seenItemIds.has(item.id)) return;
-      if(purchaseItemProductIdsForTotal(item, nameMap).some(id=>idSet.has(id))){
-        total += Number(item.totalCost||0);
-        seenItemIds.add(item.id);
-      }
-    });
-  });
-  return total;
-}
-/* 给成本页总额法卡片用：列出实际算进这组"组内食材总成本"的采购品名（不管是靠共同食材名字自动匹配、
-   还是靠采购单手动勾选关联的），让使用者能看清楚这个总额法到底是靠哪些食材的采购记录在算，
-   而不是只看到"共用采购食材"这句话却不知道具体是什么。按花费金额由高到低排序。 */
-function groupPurchaseItemBreakdown(groupIds){
-  const idSet = new Set(groupIds);
-  const seenItemIds = new Set();
-  const nameMap = totalMethodNameToProductIds();
-  const byName = {};
-  state.purchases.forEach(pu=>{
-    (pu.items||[]).forEach(item=>{
-      if(seenItemIds.has(item.id)) return;
-      if(purchaseItemProductIdsForTotal(item, nameMap).some(id=>idSet.has(id))){
-        const key = (item.name||'(未命名)').trim();
-        if(!byName[key]) byName[key] = 0;
-        byName[key] += Number(item.totalCost||0);
-        seenItemIds.add(item.id);
-      }
-    });
-  });
-  return Object.entries(byName).map(([name,cost])=>({name,cost})).sort((a,b)=>b.cost-a.cost);
-}
-function groupSalesRevenue(groupIds){
-  const idSet = new Set(groupIds);
-  return state.sales.filter(s=>idSet.has(s.productId)).reduce((a,s)=>a+Number(s.amount||0),0);
-}
-/* 总额法：食材成本按各产品的销售额占组内总销售额的比例分摊。
-   如果这组产品目前都还没有销售记录（组内总销售额为0），就先平均分摊，避免除以0。 */
-function productTotalMethodBreakdown(productId){
-  const groupIds = totalMethodGroupFor(productId);
-  const groupSpend = groupPurchaseSpend(groupIds);
-  const groupRevenue = groupSalesRevenue(groupIds);
-  const productRevenue = state.sales.filter(s=>s.productId===productId).reduce((a,s)=>a+Number(s.amount||0),0);
-  const share = groupRevenue>0.001 ? (productRevenue/groupRevenue) : (groupIds.length? 1/groupIds.length : 0);
-  const allocatedCost = groupSpend * share;
-  const profit = productRevenue - allocatedCost;
-  const pct = productRevenue>0 ? (profit/productRevenue*100).toFixed(1) : '0.0';
-  return {groupIds, groupSpend, groupRevenue, productRevenue, share, allocatedCost, profit, pct};
-}
-/* 跟 groupPurchaseSpend / groupSalesRevenue 一样，但按月份(+可选公司)过滤——
-   给"销售"页「本月各产品毛利」报表用，这样总额法产品的月度毛利才准，不会把其他月份的采购/销售也算进来 */
-function monthlyGroupPurchaseSpend(groupIds, mk, company){
-  const idSet = new Set(groupIds);
-  const seenItemIds = new Set();
-  const nameMap = totalMethodNameToProductIds();
-  let total = 0;
-  state.purchases.forEach(pu=>{
-    if(monthKey(pu.date)!==mk) return;
+    if(!match(pu.date)) return;
     (pu.items||[]).forEach(item=>{
       if(company && effCompany(item,pu)!==company) return;
-      if(seenItemIds.has(item.id)) return;
-      if(purchaseItemProductIdsForTotal(item, nameMap).some(id=>idSet.has(id))){
-        total += Number(item.totalCost||0);
-        seenItemIds.add(item.id);
-      }
+      const linkedIds = purchaseItemProductIdsForTotal(item, nameMap).filter(id=>totalIds.has(id));
+      if(!linkedIds.includes(productId)) return;
+      const revenues = linkedIds.map(id=>productRevenueInScope(id));
+      const totalRev = revenues.reduce((a,b)=>a+b,0);
+      const idx = linkedIds.indexOf(productId);
+      const share = totalRev>0.001 ? (revenues[idx]/totalRev) : (1/linkedIds.length);
+      const allocated = Number(item.totalCost||0) * share;
+      allocatedCost += allocated;
+      const coSharers = linkedIds.filter(id=>id!==productId).map(id=>{ const gp=state.products.find(x=>x.id===id); return gp?gp.name:''; }).filter(Boolean);
+      items.push({name:item.name||'(未命名)', itemCost:Number(item.totalCost||0), share, allocated, coSharers});
     });
   });
-  return total;
+  items.sort((a,b)=>b.allocated-a.allocated);
+  const productRevenue = productRevenueInScope(productId);
+  const profit = productRevenue - allocatedCost;
+  const pct = productRevenue>0 ? (profit/productRevenue*100).toFixed(1) : '0.0';
+  return {productRevenue, allocatedCost, profit, pct, items};
 }
-function monthlyGroupSalesRevenue(groupIds, mk, company){
-  const idSet = new Set(groupIds);
-  return state.sales.filter(s=>idSet.has(s.productId) && monthKey(s.date)===mk && (!company||s.company===company)).reduce((a,s)=>a+Number(s.amount||0),0);
-}
+/* 跟上面同一套逻辑，只是按月份(+可选公司)限定范围——给"销售"页「本月各产品毛利」报表用，
+   这样总额法产品的月度毛利才准，不会把其他月份的采购/销售也算进来 */
 function productMonthlyTotalMethodBreakdown(productId, mk, company){
-  const groupIds = totalMethodGroupFor(productId);
-  const groupSpend = monthlyGroupPurchaseSpend(groupIds, mk, company);
-  const groupRevenue = monthlyGroupSalesRevenue(groupIds, mk, company);
-  const productRevenue = state.sales.filter(s=>s.productId===productId && monthKey(s.date)===mk && (!company||s.company===company)).reduce((a,s)=>a+Number(s.amount||0),0);
-  const share = groupRevenue>0.001 ? (productRevenue/groupRevenue) : (groupIds.length? 1/groupIds.length : 0);
-  const allocatedCost = groupSpend * share;
-  return {productRevenue, allocatedCost, profit: productRevenue - allocatedCost};
+  return productTotalMethodBreakdown(productId, d=>monthKey(d)===mk, company);
 }
 /* 给"销售"页「本月各产品毛利」报表用：把 monthSales 按产品(有关联产品的按id，没关联的按名字，比如Addon)
    分组，算出各自的月销售额、月成本、月毛利——单位成本法直接用每笔销售记录当时存的cost加总，
@@ -1454,7 +1391,9 @@ function monthlyProductProfitReport(monthSales, mk, company){
   })).sort((a,b)=>b.revenue-a.revenue);
 }
 /* 总额法产品的成本在"采购发生时"就认列（而不是按销售分摊），
-   用于总览/销售页统计某月食材成本时补回这部分金额，company 可选，用来按公司过滤 */
+   用于总览/销售页统计某月食材成本时补回这部分金额，company 可选，用来按公司过滤。
+   这是一个粗略的整体统计（这个月总共有多少采购金额是跟总额法产品有关），不是逐产品分摊，
+   不受上面"逐项分摊"改动影响，一张采购品项不管连到几个总额法产品，只算一次金额，不会重复计算。 */
 function monthTotalMethodPurchaseCost(mk, company){
   return totalMethodPurchaseCost(d=>monthKey(d)===mk, company);
 }
@@ -3593,9 +3532,6 @@ function renderCost(){
         </div>`;
         if(method==='total'){
           const b = productTotalMethodBreakdown(p.id);
-          const groupNames = b.groupIds.map(id=>{ const gp = state.products.find(x=>x.id===id); return gp?gp.name:''; }).filter(Boolean);
-          const sharePct = (b.share*100).toFixed(1);
-          const ingredientBreakdown = groupPurchaseItemBreakdown(b.groupIds);
           return `
           <div class="cost-product-card" data-pname="${p.name.toLowerCase().replace(/"/g,'&quot;')}" data-pcat="${(p.category||'').replace(/"/g,'&quot;')}" style="border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:10px;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3608,14 +3544,17 @@ function renderCost(){
             ${tagsLine}
             ${methodToggle}
             ${(p.sharedIngredients&&p.sharedIngredients.length)?`<div class="muted" style="font-size:11px; margin-bottom:2px;">共同食材：${p.sharedIngredients.join('、')}</div>`:''}
-            <div class="muted" style="font-size:11px; margin-bottom:4px;">总额法：${groupNames.length>1?`跟 ${groupNames.filter(n=>n!==p.name).join('、')} 共用采购食材，组内食材总成本 ${fmtPlain(b.groupSpend)} 会${b.groupRevenue>0.001?'按各产品销售额占比':'平均'}分摊`:'该产品单独一组（还没有跟其他产品共用采购食材），组内食材成本全部算它的'}</div>
-            ${groupNames.length>1?`<div class="muted" style="font-size:11px; margin-bottom:4px;">本产品销售额占该组的 ${sharePct}%，分摊到食材成本 ${fmtPlain(b.allocatedCost)}</div>`:''}
-            ${ingredientBreakdown.length? `<details style="margin-bottom:4px;">
-              <summary style="cursor:pointer; font-size:11px; color:var(--muted);">👉 组内食材总成本 ${fmtPlain(b.groupSpend)} 具体是哪些采购（点开看）</summary>
+            <div class="muted" style="font-size:11px; margin-bottom:4px;">总额法：按这个产品自己直接关联到的每一张采购品项，各自跟"也关联到那一项"的产品按销售额占比分摊，不会因为间接扯上关系而被拖进别的产品的成本里</div>
+            ${b.items.length? `<details style="margin-bottom:4px;">
+              <summary style="cursor:pointer; font-size:11px; color:var(--muted);">👉 分摊食材成本 ${fmtPlain(b.allocatedCost)} 具体是哪些采购（点开看）</summary>
               <div style="font-size:11px; color:var(--muted); margin-top:4px;">
-                ${ingredientBreakdown.map(x=>`<div style="display:flex; justify-content:space-between; padding:2px 0;"><span>${x.name}</span><span class="mono">${fmtPlain(x.cost)}</span></div>`).join('')}
+                ${b.items.map(it=>`
+                <div style="padding:4px 0; border-bottom:1px dashed var(--border);">
+                  <div style="display:flex; justify-content:space-between;"><span>${it.name}</span><span class="mono">${fmtPlain(it.itemCost)}</span></div>
+                  <div style="padding-left:8px; margin-top:1px;">→ 本产品分到 ${(it.share*100).toFixed(1)}% = ${fmtPlain(it.allocated)}${it.coSharers.length?`（跟 ${it.coSharers.join('、')} 共用这一项）`:'（这一项只有本产品在用，全部算它的）'}</div>
+                </div>`).join('')}
               </div>
-            </details>` : `<div class="muted" style="font-size:11px; margin-bottom:4px;">⚠️ 目前还没有任何采购记录匹配到这组（组内食材总成本是 RM0），成本会算不出来——去"采购"页把品名跟这里的共同食材名字对上，或者在采购单手动勾选关联</div>`}
+            </details>` : `<div class="muted" style="font-size:11px; margin-bottom:4px;">⚠️ 目前还没有任何采购记录关联到这个产品，成本会算不出来（分摊食材成本 RM0）——去"采购"页把品名跟这里的共同食材名字对上，或者在采购单手动勾选关联</div>`}
             <table style="margin-top:6px">
               <tr><td>本产品销售额</td><td class="num">${fmt(b.productRevenue)}</td></tr>
               <tr><td>分摊食材成本</td><td class="num">${fmt(b.allocatedCost)}</td></tr>
