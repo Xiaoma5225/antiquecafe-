@@ -655,7 +655,8 @@ let state = {
   stockAdjustments: [],
   recipes: [],
   recipeBatchLogs: [], // "这批腌好了，分成幾包" 按钮生成的完成记录，每条记着扣了哪些原料库存、加了几包成品
-  addonMappings: [] // POS "Addon"加料选项 -> 消耗的食材对照表，导入Addon报表时用来自动算耗料、扣库存
+  addonMappings: [], // POS "Addon"加料选项 -> 消耗的食材对照表，导入Addon报表时用来自动算耗料、扣库存
+  addonMappingsSeeded: false // 是否已经自动补过一次默认的面包酱料/面条种类对照，补过一次之后不会再自动补（避免使用者删掉后又被重新加回来）
 };
 let loaded = false;
 let recentActivityFilterDate = '';
@@ -828,7 +829,8 @@ function loadLocalThenApp(){
   loaded = true;
   const changed1 = reconcileCashflow();
   const changed2 = reconcileIngredients();
-  if(changed1 || changed2) saveState();
+  const changed3 = ensureDefaultAddonMappings();
+  if(changed1 || changed2 || changed3) saveState();
   renderAll();
 }
 function doLogin(){
@@ -894,6 +896,7 @@ function attachMetaListener(sharedRef){
     const remote = snap.data();
     if(remote.initialCash!=null) state.initialCash = remote.initialCash;
     if(remote.customExpenseCategories) state.customExpenseCategories = remote.customExpenseCategories;
+    if(remote.addonMappingsSeeded!=null) state.addonMappingsSeeded = remote.addonMappingsSeeded;
     scheduleRenderAfterSync();
   }, (err)=>{ console.error(err); setSyncStatus('云同步失败，暂时仅用本机存储'); });
 }
@@ -947,7 +950,8 @@ function scheduleRenderAfterSync(){
     }
     const changed1 = reconcileCashflow();
     const changed2 = reconcileIngredients();
-    if(changed1 || changed2) saveState();
+    const changed3 = ensureDefaultAddonMappings();
+    if(changed1 || changed2 || changed3) saveState();
     renderAll();
     setSyncStatus('云同步：已连接 ✓（共享账本）');
   }, 200);
@@ -982,6 +986,7 @@ function pushToCloud(){
   cloudDocRef.set({
     initialCash: state.initialCash||0,
     customExpenseCategories: state.customExpenseCategories||[],
+    addonMappingsSeeded: state.addonMappingsSeeded||false,
     updatedAt: state.updatedAt,
     subcollectionsMigrated: true
   }, {merge:true}).catch(err=>console.error('云同步写入失败', err));
@@ -1120,7 +1125,7 @@ function importData(fileInput){
     try{
       const parsed = JSON.parse(e.target.result);
       if(!confirm('导入会覆盖当前这台设备上的所有数据，确定继续吗？')) return;
-      state = Object.assign({initialCash:0, suppliers:[], purchases:[], payments:[], products:[], sales:[], cashflow:[], customExpenseCategories:[], ingredients:[], importBatches:[], stockAdjustments:[], recipes:[], recipeBatchLogs:[], addonMappings:[]}, parsed);
+      state = Object.assign({initialCash:0, suppliers:[], purchases:[], payments:[], products:[], sales:[], cashflow:[], customExpenseCategories:[], ingredients:[], importBatches:[], stockAdjustments:[], recipes:[], recipeBatchLogs:[], addonMappings:[], addonMappingsSeeded:false}, parsed);
       saveState();
       renderAll();
       alert('导入成功');
@@ -2149,6 +2154,45 @@ function getAddonNamesFromSales(){
   (state.sales||[]).filter(s=>s.isAddon).forEach(s=>{ if(s.productName) set.add(s.productName); });
   (state.addonMappings||[]).forEach(m=>{ if(m.addonName) set.add(m.addonName); });
   return Array.from(set).sort((a,b)=>a.localeCompare(b,'zh'));
+}
+/* 首次自动补上一批默认的Addon消耗对照——面包酱料 + 面条种类，这两类是使用者明确要追踪库存的。
+   全部按"选一次=用1份对应食材"这个最简单的默认值配，不用使用者自己一个个填表。
+   只在从来没补过（addonMappingsSeeded为false）的时候跑一次，补完就设旗标，之后使用者自己删掉也不会被重新加回来。 */
+function defaultAddonMappingSeeds(){
+  const butter = '牛油';
+  return [
+    {addonName:'加央 KAYA', components:[{name:'加央', qtyPerUse:1, unit:'份'}]},
+    {addonName:'加央 + 雪油 KAYA BUTTER', components:[{name:'加央', qtyPerUse:1, unit:'份'},{name:butter, qtyPerUse:1, unit:'份'}]},
+    {addonName:'加央 + 花生酱 KAYA + PEANUT BUTTER', components:[{name:'加央', qtyPerUse:1, unit:'份'},{name:'花生酱', qtyPerUse:1, unit:'份'}]},
+    {addonName:'花生酱 PEANUT BUTTER', components:[{name:'花生酱', qtyPerUse:1, unit:'份'}]},
+    {addonName:'花生酱 + 牛油 PEANUT BUTTER + BUTTER', components:[{name:'花生酱', qtyPerUse:1, unit:'份'},{name:butter, qtyPerUse:1, unit:'份'}]},
+    {addonName:'巧克力酱+ 花生酱 NUTELLA + PEANUT BUTTER', components:[{name:'巧克力酱', qtyPerUse:1, unit:'份'},{name:'花生酱', qtyPerUse:1, unit:'份'}]},
+    {addonName:'自制草莓酱 HOMEMADE STRAWBERRY JAM', components:[{name:'自制草莓酱', qtyPerUse:1, unit:'份'}]},
+    {addonName:'自制草莓酱 + 雪油 HOMEMADE STRAWBERRY JAM + BUTTER', components:[{name:'自制草莓酱', qtyPerUse:1, unit:'份'},{name:butter, qtyPerUse:1, unit:'份'}]},
+    {addonName:'自制草莓酱 + 花生酱 HOMEMADE STRAWBERRY JAM + PEANUT BUTTER', components:[{name:'自制草莓酱', qtyPerUse:1, unit:'份'},{name:'花生酱', qtyPerUse:1, unit:'份'}]},
+    {addonName:'自制草莓酱 +  巧克力酱 HOMEMADE STRAWBERRY JAM + NUTELLA', components:[{name:'自制草莓酱', qtyPerUse:1, unit:'份'},{name:'巧克力酱', qtyPerUse:1, unit:'份'}]},
+    {addonName:'手工面 HANDMADE MEE', components:[{name:'手工面', qtyPerUse:1, unit:'份'}]},
+    {addonName:'客家面 HAKKA MEE (CANNOT MIX)', components:[{name:'客家面', qtyPerUse:1, unit:'份'}]},
+    {addonName:'黄面 YELLOW MEE', components:[{name:'黄面', qtyPerUse:1, unit:'份'}]},
+    {addonName:'米粉 MIHUN', components:[{name:'米粉', qtyPerUse:1, unit:'份'}]},
+    {addonName:'粿条 KUEY TEOW', components:[{name:'粿条', qtyPerUse:1, unit:'份'}]},
+    {addonName:'全蛋面 FULL EGG MEE (CANNOT MIX)', components:[{name:'全蛋面', qtyPerUse:1, unit:'份'}]}
+  ];
+}
+function ensureDefaultAddonMappings(){
+  if(state.addonMappingsSeeded) return false;
+  if(!state.addonMappings) state.addonMappings = [];
+  const existingKeys = new Set(state.addonMappings.map(m=>m.addonName.trim().toLowerCase()));
+  let added = false;
+  defaultAddonMappingSeeds().forEach(seed=>{
+    const key = seed.addonName.trim().toLowerCase();
+    if(existingKeys.has(key)) return;
+    state.addonMappings.push({id:uid(), addonName:seed.addonName, components:seed.components.map(c=>({id:uid(), name:c.name, qtyPerUse:c.qtyPerUse, unit:c.unit}))});
+    existingKeys.add(key);
+    added = true;
+  });
+  state.addonMappingsSeeded = true;
+  return true; // 就算这次没实际新增（比如已经手动设过同名的），旗标本身也是一次状态变化，要存
 }
 function startNewAddonMapping(){
   tempAddonMapping = {id:null, addonName:'', components:[{id:uid(), name:'', qtyPerUse:'', unit:''}]};
@@ -3470,12 +3514,16 @@ function renderCostItemRows(){
         ${tempCostItems.length>1?`<button class="rm" onclick="removeCostItem('${row.id}')">×</button>`:'<span style="width:20px"></span>'}
       </div>
       <div class="pi-bottom">
-        <input placeholder="数量" type="number" value="${row.qty}" oninput="updateCostItem('${row.id}','qty',this.value)">
+        <input id="ci_qty_${row.id}" placeholder="数量" type="number" value="${row.qty}" oninput="updateCostItem('${row.id}','qty',this.value)">
         <input placeholder="单位" value="${row.unit}" oninput="updateCostItem('${row.id}','unit',this.value)">
         <input placeholder="单价(选填)" type="number" step="0.01" value="${row.unitPrice}" oninput="updateCostItem('${row.id}','unitPrice',this.value)">
         <input id="ci_cost_${row.id}" placeholder="成本RM" type="number" step="0.01" value="${row.cost}" oninput="updateCostItem('${row.id}','cost',this.value)">
       </div>
       <div class="muted" style="font-size:11px; margin-top:3px;">填了"数量"和"单价"会自动算出成本；不想算就直接填"成本"就好</div>
+      <div style="margin-top:6px; display:flex; align-items:center; gap:6px;">
+        <span class="muted" style="font-size:11px; white-space:nowrap;">或者：买1${row.unit||'单位'}这个食材，能做几份这个产品？</span>
+        <input placeholder="能出几份" type="number" step="0.01" style="max-width:90px;" oninput="applyYieldToCostItem('${row.id}', this.value)">
+      </div>
     </div>
   `).join('');
   const total = tempCostItems.reduce((a,r)=>a+Number(r.cost||0),0);
@@ -3497,6 +3545,18 @@ function updateCostItem(id,field,val){
   }
   const total = tempCostItems.reduce((a,r)=>a+Number(r.cost||0),0);
   document.getElementById('costTotalPreview').textContent = fmt(total);
+}
+/* "买1单位这个食材能出几份"是"数量"的另一种填法（互为倒数）：填了这个之后直接反推出"数量"字段，
+   走回原本 数量×单价=成本 那套逻辑，不需要另外存一个字段。 */
+function applyYieldToCostItem(id, yieldVal){
+  const row = tempCostItems.find(r=>r.id===id);
+  if(!row) return;
+  const y = Number(yieldVal);
+  if(!yieldVal || isNaN(y) || y<=0) return;
+  const qtyStr = String(Math.round((1/y)*1000000)/1000000);
+  const qtyInput = document.getElementById('ci_qty_'+id);
+  if(qtyInput) qtyInput.value = qtyStr;
+  updateCostItem(id, 'qty', qtyStr);
 }
 function addCostItemRow(){ tempCostItems.push({id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}); renderCostItemRows(); }
 function removeCostItem(id){
@@ -3844,6 +3904,23 @@ function updateSalePreview(){
   const price = Number(document.getElementById('salePrice').value)||0;
   document.getElementById('saleAmountPreview').textContent = fmt(qty*price);
 }
+/* 单位成本法产品卖出时，按食材成本项里"数量"这个比例（1份产品要用多少这个食材），
+   自动生成对应的库存扣减记录——这样卖出去的东西会真的从库存扣掉，不用像"半成品配方"那样再手动记一次。
+   总额法产品没有自己的食材成本项（是分摊别的产品的），不适用，直接跳过。
+   tagFields 用来在扣减记录上打标记，方便之后删销售记录/删批量导入时能对应找回并撤销这些扣减。 */
+function pushSaleStockDeductions(product, saleQty, date, company, tagFields){
+  if(!product || product.costMethod==='total') return;
+  (product.costItems||[]).forEach(ci=>{
+    const perUnit = Number(ci.qty);
+    if(!ci.name || !perUnit) return;
+    const need = perUnit * saleQty;
+    if(!need) return;
+    state.stockAdjustments.push(Object.assign({
+      id:uid(), date, itemName:ci.name.trim(), qty:-Math.abs(need), unit:ci.unit||'',
+      note:`销售自动扣耗料：${product.name} ×${saleQty}`, company
+    }, tagFields||{}));
+  });
+}
 function submitSale(){
   const typedName = document.getElementById('saleProduct').value.trim();
   const p = state.products.find(x=>x.name.toLowerCase()===typedName.toLowerCase());
@@ -3863,14 +3940,17 @@ function submitSale(){
     const sid = uid();
     state.sales.push({id:sid, date, productId:p.id, productName:p.name, qty, price, amount, cost: unitCost*qty, payMethod, company});
     // 销售记录不再自动生成收支流水——收支由用户自己手动记录，这里只做产品利润统计用
+    if(!state.stockAdjustments) state.stockAdjustments = [];
+    pushSaleStockDeductions(p, qty, date, company, {_saleId:sid});
   });
   renderSales();
 }
 function deleteSale(id){
-  if(!confirm('确定删除这笔销售记录？（关联的现金流水也会删除）')) return;
+  if(!confirm('确定删除这笔销售记录？（关联的现金流水、自动扣的库存记录也会一起删除）')) return;
   mutate(()=>{
     state.sales = state.sales.filter(s=>s.id!==id);
     state.cashflow = state.cashflow.filter(c=>!(c.auto && c._saleId===id));
+    state.stockAdjustments = (state.stockAdjustments||[]).filter(a=>a._saleId!==id);
   });
 }
 /* 删掉某一整批 CSV 导入的销售记录（比如发现导入重复了、或那批文件本身填错了）。
@@ -3886,7 +3966,7 @@ function deleteImportBatch(batchId){
   const unit = type==='purchase' ? '张采购单' : type==='payment' ? '笔付款记录' : type==='addon' ? '个Addon选项' : '笔销售记录';
   const noun = type==='purchase' ? '采购单' : type==='payment' ? '付款记录' : type==='addon' ? 'Addon记录' : '销售记录';
   if(!n){ alert(`这批导入已经没有对应的${noun}了（可能已经被删过）`); mutate(()=>{ state.importBatches=(state.importBatches||[]).filter(b=>b.id!==batchId); }); return; }
-  const adjCount = type==='addon' ? (state.stockAdjustments||[]).filter(a=>a.importBatch===batchId).length : 0;
+  const adjCount = (type==='addon'||type==='sales'||!batch||!batch.type) ? (state.stockAdjustments||[]).filter(a=>a.importBatch===batchId).length : 0;
   const extra = adjCount? `\n同时会撤销这批自动生成的 ${adjCount} 笔库存扣减记录。` : '';
   if(!confirm(`确定删除这批导入的 ${n} ${unit}吗？（${batch?batch.fileName:''}）${extra}此操作无法撤销。`)) return;
   mutate(()=>{
@@ -3903,6 +3983,7 @@ function deleteImportBatch(batchId){
       state.stockAdjustments = (state.stockAdjustments||[]).filter(a=>a.importBatch!==batchId);
     } else {
       state.sales = state.sales.filter(s=>s.importBatch!==batchId);
+      state.stockAdjustments = (state.stockAdjustments||[]).filter(a=>a.importBatch!==batchId);
     }
     state.importBatches = (state.importBatches||[]).filter(b=>b.id!==batchId);
   });
@@ -4032,6 +4113,8 @@ function importSalesReport(fileInput){
           const sid = uid();
           state.sales.push({id:sid, date:item.date, productId:p.id, productName:p.name, qty:item.qty, price:item.price, amount, cost: unitCost*item.qty, payMethod:item.payMethod, company:item.company, importBatch:batchId});
           // 销售记录不再自动生成收支流水——收支由用户自己手动记录，这里只做产品利润统计用
+          if(!state.stockAdjustments) state.stockAdjustments = [];
+          pushSaleStockDeductions(p, item.qty, item.date, item.company, {importBatch:batchId});
           batchAmount += amount;
           dates.push(item.date);
         });
