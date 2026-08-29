@@ -1356,6 +1356,27 @@ function groupPurchaseSpend(groupIds){
   });
   return total;
 }
+/* 给成本页总额法卡片用：列出实际算进这组"组内食材总成本"的采购品名（不管是靠共同食材名字自动匹配、
+   还是靠采购单手动勾选关联的），让使用者能看清楚这个总额法到底是靠哪些食材的采购记录在算，
+   而不是只看到"共用采购食材"这句话却不知道具体是什么。按花费金额由高到低排序。 */
+function groupPurchaseItemBreakdown(groupIds){
+  const idSet = new Set(groupIds);
+  const seenItemIds = new Set();
+  const nameMap = totalMethodNameToProductIds();
+  const byName = {};
+  state.purchases.forEach(pu=>{
+    (pu.items||[]).forEach(item=>{
+      if(seenItemIds.has(item.id)) return;
+      if(purchaseItemProductIdsForTotal(item, nameMap).some(id=>idSet.has(id))){
+        const key = (item.name||'(未命名)').trim();
+        if(!byName[key]) byName[key] = 0;
+        byName[key] += Number(item.totalCost||0);
+        seenItemIds.add(item.id);
+      }
+    });
+  });
+  return Object.entries(byName).map(([name,cost])=>({name,cost})).sort((a,b)=>b.cost-a.cost);
+}
 function groupSalesRevenue(groupIds){
   const idSet = new Set(groupIds);
   return state.sales.filter(s=>idSet.has(s.productId)).reduce((a,s)=>a+Number(s.amount||0),0);
@@ -1937,6 +1958,7 @@ let tempPurchaseItems = [{id:uid(), name:'', category:'食材', company:'', prod
 let currentSupplierHistory = []; // 目前填的这个供应商，之前拿过哪些品项（品名/类别/单位/单价），给"点一下自动加一行"用
 let purHistoryFilterDate = '';
 let purHistoryFilterCompany = '';
+let purHistorySearchQuery = '';
 let purCompany = COMPANIES[0];
 let editingPurchaseId = null;
 /* ---- 半成品/配方（比如"腌肉碎"：买肉碎/五花肉这类原料时，自动按比例带出腌料成本）----
@@ -2135,6 +2157,8 @@ function renderPurchase(){
         <button type="button" class="btn-toggle ${!purHistoryFilterCompany?'active':''}" onclick="setPurHistoryFilterCompany('')">全部</button>
         ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${purHistoryFilterCompany===c?'active':''}" onclick="setPurHistoryFilterCompany('${c}')">${c}</button>`).join('')}
       </div>
+      <input id="purHistSearchInput" placeholder="🔍 搜索供应商或品名" autocomplete="off" oninput="filterPurHistory(this.value)" style="margin-bottom:10px">
+      <div id="purHistSearchEmpty" class="empty" style="display:none;">没有找到符合的采购记录</div>
       ${(()=>{
         const groupsMap = new Map();
         filteredPurchases.forEach(p=>{
@@ -2150,8 +2174,11 @@ function renderPurchase(){
         groups.sort((a,b)=> (b.latestDate||'').localeCompare(a.latestDate||''));
         if(!groups.length) return `<div class="empty">${purHistoryFilterDate||purHistoryFilterCompany? '没有符合条件的采购记录' : '还没有采购记录'}</div>`;
         return `<div>
-        ${groups.map(g=>`
-        <details class="pur-hist-row">
+        ${groups.map(g=>{
+          const itemNames = g.list.flatMap(p=>(p.items||[]).map(it=>it.name)).join(' ').toLowerCase().replace(/"/g,'&quot;');
+          const supName = supplierName(g.supplierId).toLowerCase().replace(/"/g,'&quot;');
+          return `
+        <details class="pur-hist-row" data-supname="${supName}" data-items="${itemNames}">
           <summary>
             <div class="phr-left">
               <div class="phr-supplier">${supplierName(g.supplierId)}</div>
@@ -2195,7 +2222,8 @@ function renderPurchase(){
             </div>${i<g.list.length-1?'<hr class="receipt-divider">':''}`;
             }).join('')}
           </div>
-        </details>`).join('')}
+        </details>`;
+        }).join('')}
       </div>`;
       })()}
     </div>
@@ -2204,6 +2232,11 @@ function renderPurchase(){
   wireSuggest('purSupplier', state.suppliers.map(s=>s.name));
   const invoiceNumbers = Array.from(new Set(state.purchases.map(p=>p.invoiceNumber).filter(Boolean)));
   wireSuggest('purInvoiceNumber', invoiceNumbers);
+  const purHistSearchEl = document.getElementById('purHistSearchInput');
+  if(purHistSearchEl){
+    purHistSearchEl.value = purHistorySearchQuery;
+    if(purHistorySearchQuery) filterPurHistory(purHistorySearchQuery);
+  }
 }
 
 /* ================= 半成品/配方（采购页子页签）================= */
@@ -2747,6 +2780,18 @@ function setPurHistoryFilter(val){
 function setPurHistoryFilterCompany(val){
   purHistoryFilterCompany = val;
   renderPurchase();
+}
+function filterPurHistory(q){
+  purHistorySearchQuery = q||'';
+  const query = purHistorySearchQuery.trim().toLowerCase();
+  let anyVisible = false;
+  document.querySelectorAll('.pur-hist-row').forEach(row=>{
+    const match = !query || (row.dataset.supname||'').includes(query) || (row.dataset.items||'').includes(query);
+    row.style.display = match ? '' : 'none';
+    if(match) anyVisible = true;
+  });
+  const emptyEl = document.getElementById('purHistSearchEmpty');
+  if(emptyEl) emptyEl.style.display = (query && !anyVisible) ? '' : 'none';
 }
 function setPurCompany(val){
   purCompany = val;
@@ -3550,6 +3595,7 @@ function renderCost(){
           const b = productTotalMethodBreakdown(p.id);
           const groupNames = b.groupIds.map(id=>{ const gp = state.products.find(x=>x.id===id); return gp?gp.name:''; }).filter(Boolean);
           const sharePct = (b.share*100).toFixed(1);
+          const ingredientBreakdown = groupPurchaseItemBreakdown(b.groupIds);
           return `
           <div class="cost-product-card" data-pname="${p.name.toLowerCase().replace(/"/g,'&quot;')}" data-pcat="${(p.category||'').replace(/"/g,'&quot;')}" style="border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:10px;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3564,6 +3610,12 @@ function renderCost(){
             ${(p.sharedIngredients&&p.sharedIngredients.length)?`<div class="muted" style="font-size:11px; margin-bottom:2px;">共同食材：${p.sharedIngredients.join('、')}</div>`:''}
             <div class="muted" style="font-size:11px; margin-bottom:4px;">总额法：${groupNames.length>1?`跟 ${groupNames.filter(n=>n!==p.name).join('、')} 共用采购食材，组内食材总成本 ${fmtPlain(b.groupSpend)} 会${b.groupRevenue>0.001?'按各产品销售额占比':'平均'}分摊`:'该产品单独一组（还没有跟其他产品共用采购食材），组内食材成本全部算它的'}</div>
             ${groupNames.length>1?`<div class="muted" style="font-size:11px; margin-bottom:4px;">本产品销售额占该组的 ${sharePct}%，分摊到食材成本 ${fmtPlain(b.allocatedCost)}</div>`:''}
+            ${ingredientBreakdown.length? `<details style="margin-bottom:4px;">
+              <summary style="cursor:pointer; font-size:11px; color:var(--muted);">👉 组内食材总成本 ${fmtPlain(b.groupSpend)} 具体是哪些采购（点开看）</summary>
+              <div style="font-size:11px; color:var(--muted); margin-top:4px;">
+                ${ingredientBreakdown.map(x=>`<div style="display:flex; justify-content:space-between; padding:2px 0;"><span>${x.name}</span><span class="mono">${fmtPlain(x.cost)}</span></div>`).join('')}
+              </div>
+            </details>` : `<div class="muted" style="font-size:11px; margin-bottom:4px;">⚠️ 目前还没有任何采购记录匹配到这组（组内食材总成本是 RM0），成本会算不出来——去"采购"页把品名跟这里的共同食材名字对上，或者在采购单手动勾选关联</div>`}
             <table style="margin-top:6px">
               <tr><td>本产品销售额</td><td class="num">${fmt(b.productRevenue)}</td></tr>
               <tr><td>分摊食材成本</td><td class="num">${fmt(b.allocatedCost)}</td></tr>
