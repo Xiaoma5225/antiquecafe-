@@ -1244,6 +1244,29 @@ function removeSalesCashflow(){
 
 /* ---------------- 计算辅助 ---------------- */
 function supplierName(id){ const s = state.suppliers.find(x=>x.id===id); return s? s.name : '未知供应商'; }
+/* 给"编辑产品"表单用：找出这个产品透过"采购单手动勾选"这个老方式关联到的所有采购品项，
+   让使用者在编辑产品的地方就能直接看到、直接取消关联，不用跑去采购页一张一张找 */
+function productLinkedPurchaseItems(productId){
+  const links = [];
+  state.purchases.forEach(pu=>{
+    (pu.items||[]).forEach(item=>{
+      if(purchaseItemProductIds(item).includes(productId)){
+        links.push({purchaseId:pu.id, itemId:item.id, itemName:item.name, date:pu.date, supplierName:supplierName(pu.supplierId), itemCost:Number(item.totalCost||0)});
+      }
+    });
+  });
+  return links.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+}
+function removeProductPurchaseLink(purchaseId, itemId, productId){
+  mutate(()=>{
+    const pu = state.purchases.find(p=>p.id===purchaseId);
+    if(!pu) return;
+    const item = (pu.items||[]).find(it=>it.id===itemId);
+    if(!item) return;
+    item.productIds = purchaseItemProductIds(item).filter(id=>id!==productId);
+  });
+  renderCost();
+}
 /* 自动生成的"供应商付款"流水记录没有存 company 字段（付款本身可能对应多张不同公司的采购单）。
    这里不改写入逻辑，改成读取/筛选的时候动态回溯：流水→付款记录（_paymentId）→采购单（purchaseId）→采购单的 company。
    手动记的收支流水本来就有 company 字段，直接用那个。 */
@@ -3646,6 +3669,20 @@ function renderCost(){
         <label style="margin-top:14px">共同食材名称（只要名字打得一样，其他总额法产品填了同一个名字，就会自动跟这个产品分成一组一起分摊；名字要跟"采购"页记的品名对得上，才抓得到实际采购金额）</label>
         <div id="sharedIngredientsWrap"></div>
         <button class="btn-line" onclick="addSharedIngredientRow()">+ 添加一个共同食材</button>
+        ${editingProduct? (()=>{
+          const links = productLinkedPurchaseItems(editingProduct.id);
+          return `
+          <label style="margin-top:14px">已关联的采购品项（老方式：在"采购"页手动勾选关联的，跟上面的共同食材名字是两回事，两种都会一起算成本）</label>
+          ${links.length? links.map(l=>`
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border);">
+              <div style="font-size:12.5px;">
+                <div>${l.itemName} <span class="muted">· ${l.date}</span></div>
+                <div class="muted" style="font-size:11px;">${l.supplierName} · RM${fmtPlain(l.itemCost)}</div>
+              </div>
+              <button class="btn-danger-text" onclick="removeProductPurchaseLink('${l.purchaseId}','${l.itemId}','${editingProduct.id}')">取消关联</button>
+            </div>`).join('') : `<div class="muted" style="font-size:12px;">还没有任何采购品项手动勾选关联这个产品</div>`}
+          `;
+        })() : ''}
       </div>
       <button class="btn-main" style="margin-top:14px" onclick="submitProduct()">${editingProduct?'保存修改':'保存产品'}</button>
       ${editingProduct?`<button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditProduct()">取消编辑</button>`:''}
