@@ -3525,13 +3525,15 @@ function renderCost(){
         <button type="button" class="btn-toggle ${draftCostMethod==='total'?'active':''}" data-val="total" onclick="setDraftCostMethod('total')">总额法</button>
       </div>
       <div class="muted" style="font-size:11px; margin-top:4px; margin-bottom:2px;" id="prodCostMethodNote">${draftCostMethod==='total' ? '总额法：这个产品不用自己填食材成本项，是跟其他同样用总额法的产品分摊采购总额（下面食材成本项会被忽略）' : '单位成本法：按下面填的食材成本项/关联采购来算这份产品的成本'}</div>
-      <label style="margin-top:14px">食材成本项（保底用：如果这个产品在"采购"页还没有关联到任何采购记录，就会用这里的估算；一旦有关联采购+销售数据，系统会自动改用实际数据算成本）</label>
-      <div id="costItemsWrap"></div>
-      <button class="btn-line" onclick="addCostItemRow()">+ 添加一项食材成本</button>
-      <div style="margin-top:8px; font-size:13px; color:var(--muted)">
-        总成本：<b class="mono" id="costTotalPreview">RM 0.00</b>
+      <div id="costItemsSection" style="${draftCostMethod==='total'?'display:none;':''}">
+        <label style="margin-top:14px">食材成本项（保底用：如果这个产品在"采购"页还没有关联到任何采购记录，就会用这里的估算；一旦有关联采购+销售数据，系统会自动改用实际数据算成本）</label>
+        <div id="costItemsWrap"></div>
+        <button class="btn-line" onclick="addCostItemRow()">+ 添加一项食材成本</button>
+        <div style="margin-top:8px; font-size:13px; color:var(--muted)">
+          总成本：<b class="mono" id="costTotalPreview">RM 0.00</b>
+        </div>
       </div>
-      <button class="btn-main" onclick="submitProduct()">${editingProduct?'保存修改':'保存产品'}</button>
+      <button class="btn-main" style="margin-top:14px" onclick="submitProduct()">${editingProduct?'保存修改':'保存产品'}</button>
       ${editingProduct?`<button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditProduct()">取消编辑</button>`:''}
     </div>
 
@@ -3745,6 +3747,8 @@ function setDraftCostMethod(val){
   document.querySelectorAll('#prodCostMethodGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
   const noteEl = document.getElementById('prodCostMethodNote');
   if(noteEl) noteEl.textContent = val==='total' ? '总额法：这个产品不用自己填食材成本项，是跟其他同样用总额法的产品分摊采购总额（下面食材成本项会被忽略）' : '单位成本法：按下面填的食材成本项/关联采购来算这份产品的成本';
+  const sectionEl = document.getElementById('costItemsSection');
+  if(sectionEl) sectionEl.style.display = val==='total' ? 'none' : '';
 }
 function setCostCategoryFilter(val){
   costCategoryFilter = val;
