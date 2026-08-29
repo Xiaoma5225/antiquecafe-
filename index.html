@@ -654,7 +654,8 @@ let state = {
   importBatches: [],
   stockAdjustments: [],
   recipes: [],
-  recipeBatchLogs: [] // "这批腌好了，分成幾包" 按钮生成的完成记录，每条记着扣了哪些原料库存、加了几包成品
+  recipeBatchLogs: [], // "这批腌好了，分成幾包" 按钮生成的完成记录，每条记着扣了哪些原料库存、加了几包成品
+  addonMappings: [] // POS "Addon"加料选项 -> 消耗的食材对照表，导入Addon报表时用来自动算耗料、扣库存
 };
 let loaded = false;
 let recentActivityFilterDate = '';
@@ -775,7 +776,7 @@ let cloudReady = false;
    下面这些变量用来记住"上一次已经跟云端对齐的样子"，saveState() 存档时会拿现在的
    state 跟这个做比对，只把真的有差异的记录写回云端。 */
 let firestoreDb = null;
-const SUBCOLLECTIONS = ['suppliers','purchases','payments','products','sales','cashflow','ingredients','importBatches','stockAdjustments','recipes','recipeBatchLogs'];
+const SUBCOLLECTIONS = ['suppliers','purchases','payments','products','sales','cashflow','ingredients','importBatches','stockAdjustments','recipes','recipeBatchLogs','addonMappings'];
 let lastSynced = {};
 SUBCOLLECTIONS.forEach(k=>{ lastSynced[k] = new Map(); });
 
@@ -1119,7 +1120,7 @@ function importData(fileInput){
     try{
       const parsed = JSON.parse(e.target.result);
       if(!confirm('导入会覆盖当前这台设备上的所有数据，确定继续吗？')) return;
-      state = Object.assign({initialCash:0, suppliers:[], purchases:[], payments:[], products:[], sales:[], cashflow:[], customExpenseCategories:[], ingredients:[], importBatches:[], stockAdjustments:[]}, parsed);
+      state = Object.assign({initialCash:0, suppliers:[], purchases:[], payments:[], products:[], sales:[], cashflow:[], customExpenseCategories:[], ingredients:[], importBatches:[], stockAdjustments:[], recipes:[], recipeBatchLogs:[], addonMappings:[]}, parsed);
       saveState();
       renderAll();
       alert('导入成功');
@@ -1811,8 +1812,9 @@ let editingPurchaseId = null;
    注意：如果同一道菜的腌料原料使用者自己也另外单独采购、并手动关联到同一个产品，会跟这里自动
    算出来的腌料成本重复计入——用了自动配方之后，同一批腌料就不用再手动关联了。 */
 const RECIPE_SUPPLIER_NAME = '内部半成品制作';
-let purSubView = 'main'; // 'main' = 原本的采购单画面，'recipe' = 半成品配方画面
+let purSubView = 'main'; // 'main' = 原本的采购单画面，'recipe' = 半成品配方画面，'addon' = Addon消耗对照画面
 let tempRecipe = null; // 目前正在新增/编辑的配方草稿，null 表示没在编辑
+let tempAddonMapping = null; // 目前正在新增/编辑的 Addon 消耗对照草稿，null 表示没在编辑
 let payPayMethod = PAY_METHODS[0];
 let payPurchaseIds = [];
 let payHistoryFilterDate = '';
@@ -1824,6 +1826,7 @@ function renderPurchase(){
       <button type="button" class="btn-toggle ${purSubView==='main'?'active':''}" onclick="setPurSubView('main')">🛒 采购单</button>
       <button type="button" class="btn-toggle ${purSubView==='payment'?'active':''}" onclick="setPurSubView('payment')">💳 付款</button>
       <button type="button" class="btn-toggle ${purSubView==='recipe'?'active':''}" onclick="setPurSubView('recipe')">🧑‍🍳 半成品配方</button>
+      <button type="button" class="btn-toggle ${purSubView==='addon'?'active':''}" onclick="setPurSubView('addon')">🧾 Addon消耗</button>
     </div>`;
   if(purSubView==='payment'){
     el.innerHTML = purSubTabHtml + renderPaymentSectionHtml();
@@ -1838,6 +1841,15 @@ function renderPurchase(){
     if(tempRecipe){
       wireSuggest('recipeTrigText', ingredientNames);
       tempRecipe.components.forEach(c=>wireSuggest('recipeCompName_'+c.id, ingredientNames));
+    }
+    return;
+  }
+  if(purSubView==='addon'){
+    el.innerHTML = purSubTabHtml + renderAddonMappingSectionHtml();
+    const ingredientNames = getIngredientNames();
+    if(tempAddonMapping){
+      wireSuggest('addonMapNameText', getAddonNamesFromSales());
+      tempAddonMapping.components.forEach(c=>wireSuggest('addonMapCompName_'+c.id, ingredientNames));
     }
     return;
   }
@@ -2043,6 +2055,7 @@ function renderPurchase(){
 function setPurSubView(val){
   purSubView = val;
   tempRecipe = null;
+  tempAddonMapping = null;
   renderPurchase();
 }
 function startNewRecipe(){
@@ -2126,6 +2139,141 @@ function submitRecipe(){
 function deleteRecipe(id){
   if(!confirm('确定删除这个配方吗？（已经自动生成过的用料采购记录不会被删除，只是以后再买这个原料不会再自动带出用料成本）')) return;
   mutate(()=>{ state.recipes = state.recipes.filter(r=>r.id!==id); });
+}
+/* ---- Addon消耗对照表：POS的"Addon"加料选项（比如"加央+雪油"、"手工面"）本身不是产品，
+   而是加在某个产品上、会额外耗用食材的选项。这里让使用者把"Addon选项名称"对到"耗用了哪些食材、每次多少"，
+   之后导入Addon报表时，系统会按报表里每个Addon选项的实际选择次数(Qty)，自动算出这段时间总共耗用了多少食材、
+   直接生成库存扣减记录（跟"库存"页手动记的出入库调整是同一套机制），不用自己再手动算、手动扣。 ---- */
+function getAddonNamesFromSales(){
+  const set = new Set();
+  (state.sales||[]).filter(s=>s.isAddon).forEach(s=>{ if(s.productName) set.add(s.productName); });
+  (state.addonMappings||[]).forEach(m=>{ if(m.addonName) set.add(m.addonName); });
+  return Array.from(set).sort((a,b)=>a.localeCompare(b,'zh'));
+}
+function startNewAddonMapping(){
+  tempAddonMapping = {id:null, addonName:'', components:[{id:uid(), name:'', qtyPerUse:'', unit:''}]};
+  renderPurchase();
+}
+function startEditAddonMapping(id){
+  const m = state.addonMappings.find(x=>x.id===id);
+  if(!m) return;
+  tempAddonMapping = {
+    id:m.id, addonName:m.addonName||'',
+    components:(m.components&&m.components.length)? m.components.map(c=>({id:uid(), name:c.name, qtyPerUse:c.qtyPerUse!=null?String(c.qtyPerUse):'', unit:c.unit||''})) : [{id:uid(), name:'', qtyPerUse:'', unit:''}]
+  };
+  renderPurchase();
+}
+function cancelEditAddonMapping(){
+  tempAddonMapping = null;
+  renderPurchase();
+}
+function updateAddonMappingField(field, val){
+  if(!tempAddonMapping) return;
+  tempAddonMapping[field] = val;
+}
+function addAddonMappingComponentRow(){
+  if(!tempAddonMapping) return;
+  tempAddonMapping.components.push({id:uid(), name:'', qtyPerUse:'', unit:''});
+  renderPurchase();
+}
+function removeAddonMappingComponent(id){
+  if(!tempAddonMapping) return;
+  tempAddonMapping.components = tempAddonMapping.components.filter(c=>c.id!==id);
+  if(tempAddonMapping.components.length===0) tempAddonMapping.components.push({id:uid(), name:'', qtyPerUse:'', unit:''});
+  renderPurchase();
+}
+function updateAddonMappingComponent(id, field, val){
+  if(!tempAddonMapping) return;
+  const c = tempAddonMapping.components.find(x=>x.id===id);
+  if(!c) return;
+  c[field] = val;
+}
+function autoLinkAddonMappingComponentUnit(id){
+  if(!tempAddonMapping) return;
+  const c = tempAddonMapping.components.find(x=>x.id===id);
+  if(!c) return;
+  const ing = findIngredient(c.name);
+  if(!ing) return;
+  if(ing.unit && !c.unit){ c.unit = ing.unit; renderPurchase(); }
+}
+function submitAddonMapping(){
+  if(!tempAddonMapping) return;
+  const addonName = (tempAddonMapping.addonName||'').trim();
+  if(!addonName){ alert('请填Addon选项名称（要跟POS Addon报表里的名称一样，比如：加央 + 雪油 KAYA BUTTER）'); return; }
+  const comps = tempAddonMapping.components.filter(c=>c.name && c.qtyPerUse!=='').map(c=>({id:uid(), name:c.name.trim(), qtyPerUse:Number(c.qtyPerUse), unit:c.unit||''}));
+  if(!comps.length){ alert('请至少填一样耗用的食材（品名、每次用量都要有）'); return; }
+  const idBeingEdited = tempAddonMapping.id;
+  const dupe = state.addonMappings.find(m=>m.id!==idBeingEdited && m.addonName.trim().toLowerCase()===addonName.toLowerCase());
+  if(dupe){ alert(`已经有一个对照设过同样的Addon名称"${addonName}"了，同一个Addon选项只能设一份对照（可以直接编辑那一份）`); return; }
+  mutate(()=>{
+    if(idBeingEdited){
+      const m = state.addonMappings.find(x=>x.id===idBeingEdited);
+      if(m){ m.addonName = addonName; m.components = comps; }
+    } else {
+      state.addonMappings.push({id:uid(), addonName, components:comps});
+    }
+  });
+  tempAddonMapping = null;
+  renderPurchase();
+}
+function deleteAddonMapping(id){
+  if(!confirm('确定删除这份Addon消耗对照吗？（已经导入扣过的库存记录不会被撤销，只是以后再导入Addon报表，这个选项不会再自动扣库存）')) return;
+  mutate(()=>{ state.addonMappings = state.addonMappings.filter(m=>m.id!==id); });
+}
+function addonMappingComponentRowsHtml(){
+  if(!tempAddonMapping) return '';
+  return tempAddonMapping.components.map(c=>`
+    <div class="pi-card">
+      <div class="pi-top">
+        <input id="addonMapCompName_${c.id}" placeholder="耗用的食材品名" value="${c.name}" oninput="updateAddonMappingComponent('${c.id}','name',this.value)" onchange="autoLinkAddonMappingComponentUnit('${c.id}')">
+        ${tempAddonMapping.components.length>1? `<button class="rm" onclick="removeAddonMappingComponent('${c.id}')">×</button>` : '<span style="width:20px"></span>'}
+      </div>
+      <div class="pi-bottom" style="grid-template-columns:repeat(2,1fr);">
+        <input placeholder="每次用量" type="number" step="0.0001" value="${c.qtyPerUse}" oninput="updateAddonMappingComponent('${c.id}','qtyPerUse',this.value)">
+        <input placeholder="单位" value="${c.unit}" oninput="updateAddonMappingComponent('${c.id}','unit',this.value)">
+      </div>
+    </div>
+  `).join('');
+}
+function addonMappingFormHtml(){
+  if(!tempAddonMapping) return '';
+  return `
+    <div class="card">
+      <h3>${tempAddonMapping.id? '✏️ 编辑Addon消耗对照' : '新增Addon消耗对照'}</h3>
+      <label>Addon选项名称（要跟POS报表里的"Addon"栏一模一样，比如：加央 + 雪油 KAYA BUTTER）</label>
+      <input id="addonMapNameText" placeholder="Addon选项名称" autocomplete="off" value="${tempAddonMapping.addonName}" oninput="updateAddonMappingField('addonName', this.value)">
+      <label style="margin-top:14px">选一次这个Addon，会耗用哪些食材、各多少</label>
+      <div id="addonMapComponentsWrap">${addonMappingComponentRowsHtml()}</div>
+      <button class="btn-line" onclick="addAddonMappingComponentRow()">+ 添加一样耗用食材</button>
+      <button class="btn-main" onclick="submitAddonMapping()">${tempAddonMapping.id?'保存修改':'保存对照'}</button>
+      <button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditAddonMapping()">取消</button>
+    </div>
+  `;
+}
+function renderAddonMappingSectionHtml(){
+  let html = '';
+  if(tempAddonMapping) html += addonMappingFormHtml();
+  html += `
+    <div class="card">
+      <h3>Addon消耗对照 <span class="n">${state.addonMappings.length} 个</span></h3>
+      <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">
+        POS系统的"Addon"报表跟"产品销售"报表是分开导出的——里面是甜度、辣度这些不耗料的选项，也有面包酱料、面条种类、加蛋加虾这些真的会多用食材的选项。
+        在这里把会耗料的Addon选项设好对照（选项名称要跟报表里一模一样），之后每次导入Addon报表，系统会按报表里的实际选择次数，自动算出这段时间总共耗用了多少食材，直接生成库存扣减记录。没设对照的Addon选项会被跳过、不影响库存，导入时会列出来提醒你。
+      </div>
+      ${!tempAddonMapping? `<button class="btn-main" onclick="startNewAddonMapping()">+ 新增Addon消耗对照</button>` : ''}
+      <hr class="receipt-divider">
+      ${state.addonMappings.length? state.addonMappings.map(m=>`
+        <div class="supplier-card">
+          <b>${m.addonName}</b>
+          <div class="muted" style="font-size:11.5px; margin-top:2px;">每次耗用：${(m.components||[]).map(c=>c.name+' '+c.qtyPerUse+(c.unit||'')).join('、')||'（还没设食材）'}</div>
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <button class="btn-ghost btn-small" style="flex:1;" onclick="startEditAddonMapping('${m.id}')">编辑</button>
+            <button class="btn-danger-text" onclick="deleteAddonMapping('${m.id}')">删除</button>
+          </div>
+        </div>`).join('') : `<div class="empty">还没有Addon消耗对照，点上面新增一个</div>`}
+    </div>
+  `;
+  return html;
 }
 /* ---- 自动腌料：一笔采购单确定/导入之后，扫描品项，凡是跟某个配方的"触发原料名"对上的，
    就按比例算出腌料成本，另存一笔採购单（供应商=虚拟供应商，triggeredBy=触发它的那笔采购单id）。
@@ -3601,6 +3749,30 @@ function renderSales(){
     </div>
 
     <div class="card">
+      <h3>批量导入Addon报表</h3>
+      <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">POS系统的"Addon"报表是跟"产品销售"报表分开导出的（甜度、辣度、面包酱料、加蛋加虾这些加料选项）。先下载模板，把报表里每个Addon选项汇总成一行（数量、金额都合计好），再上传回来：系统会把这部分营收计进销售统计，并按"采购"页「Addon消耗」设好的对照，自动扣掉对应食材的库存。</div>
+      <div class="grid2">
+        <button class="btn-ghost" onclick="downloadAddonImportTemplate()">⬇ 下载CSV模板</button>
+        <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
+          ⬆ 上传Addon报表（可多选）
+          <input type="file" accept=".csv" multiple style="display:none" onchange="importAddonReport(this)">
+        </label>
+      </div>
+      ${(state.importBatches||[]).filter(b=>b.type==='addon').length? `
+      <hr class="receipt-divider">
+      <div class="muted" style="font-size:12px; margin-bottom:8px;">最近批量导入（导错、导重复了可以整批删掉）</div>
+      ${(state.importBatches||[]).filter(b=>b.type==='addon').slice().reverse().map(b=>`
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--line, #eee);">
+          <div style="font-size:12.5px;">
+            <div>${b.fileName||'CSV导入'} <span class="muted">· ${b.dateRange||''}</span></div>
+            <div class="muted" style="font-size:11px;">${b.count} 个Addon选项・RM ${fmt(b.amount)}</div>
+          </div>
+          <button class="btn-danger-text" onclick="deleteImportBatch('${b.id}')">删除整批</button>
+        </div>`).join('')}
+      ` : ''}
+    </div>
+
+    <div class="card">
       <h3>按公司筛选</h3>
       <div class="btn-group">
         <button type="button" class="btn-toggle ${!saleHistoryFilterCompany?'active':''}" onclick="setSaleHistoryFilterCompany('')">全部</button>
@@ -3709,11 +3881,14 @@ function deleteImportBatch(batchId){
   const type = batch ? (batch.type||'sales') : 'sales';
   const n = type==='purchase' ? state.purchases.filter(p=>p.importBatch===batchId).length
     : type==='payment' ? state.payments.filter(p=>p.importBatch===batchId).length
+    : type==='addon' ? state.sales.filter(s=>s.importBatch===batchId && s.isAddon).length
     : state.sales.filter(s=>s.importBatch===batchId).length;
-  const unit = type==='purchase' ? '张采购单' : type==='payment' ? '笔付款记录' : '笔销售记录';
-  const noun = type==='purchase' ? '采购单' : type==='payment' ? '付款记录' : '销售记录';
+  const unit = type==='purchase' ? '张采购单' : type==='payment' ? '笔付款记录' : type==='addon' ? '个Addon选项' : '笔销售记录';
+  const noun = type==='purchase' ? '采购单' : type==='payment' ? '付款记录' : type==='addon' ? 'Addon记录' : '销售记录';
   if(!n){ alert(`这批导入已经没有对应的${noun}了（可能已经被删过）`); mutate(()=>{ state.importBatches=(state.importBatches||[]).filter(b=>b.id!==batchId); }); return; }
-  if(!confirm(`确定删除这批导入的 ${n} ${unit}吗？（${batch?batch.fileName:''}）此操作无法撤销。`)) return;
+  const adjCount = type==='addon' ? (state.stockAdjustments||[]).filter(a=>a.importBatch===batchId).length : 0;
+  const extra = adjCount? `\n同时会撤销这批自动生成的 ${adjCount} 笔库存扣减记录。` : '';
+  if(!confirm(`确定删除这批导入的 ${n} ${unit}吗？（${batch?batch.fileName:''}）${extra}此操作无法撤销。`)) return;
   mutate(()=>{
     if(type==='purchase'){
       const removedIds = state.purchases.filter(p=>p.importBatch===batchId).map(p=>p.id);
@@ -3723,6 +3898,9 @@ function deleteImportBatch(batchId){
       const removedIds = new Set(state.payments.filter(p=>p.importBatch===batchId).map(p=>p.id));
       state.payments = state.payments.filter(p=>p.importBatch!==batchId);
       state.cashflow = state.cashflow.filter(c=>!(c.auto && c._paymentId && removedIds.has(c._paymentId)));
+    } else if(type==='addon'){
+      state.sales = state.sales.filter(s=>s.importBatch!==batchId);
+      state.stockAdjustments = (state.stockAdjustments||[]).filter(a=>a.importBatch!==batchId);
     } else {
       state.sales = state.sales.filter(s=>s.importBatch!==batchId);
     }
@@ -3862,6 +4040,108 @@ function importSalesReport(fileInput){
         state.importBatches.push({id:batchId, type:'sales', fileName:importedFileName, importedAt:Date.now(), count:toAdd.length, amount:batchAmount, dateRange: minDate===maxDate? minDate : `${minDate} ~ ${maxDate}`});
       });
       alert(`已成功导入 ${toAdd.length} 笔销售记录${newProducts.length? `，自动新增了 ${newProducts.length} 个产品`:''}${errors.length? `，${errors.length} 行被跳过`:''}\n\n如果之后发现这批导入有问题，可以去"销售"页的"最近批量导入"里把这整批一次性删掉。`);
+    }catch(err){
+      alert('文件解析失败，请确认是不是用系统模板格式的CSV文件。\n' + err.message);
+    }
+    fileInput.value = '';
+  }).catch(err=>{
+    alert('文件读取失败：' + err.message);
+    fileInput.value = '';
+  });
+}
+
+/* ---------------- 批量导入Addon报表（CSV）----------------
+   POS的Addon报表原始格式是"Group / Addon / To Product / Product Variant / Qty / Sales"，
+   同一个Addon选项会因为加在不同产品上而拆成好几行。导入前要先把同一个Addon选项的Qty、Sales
+   都合并成一行（这一步在把原始报表转成CSV模板格式的时候做，不是使用者自己手动加总）。
+   导入进来之后：1) 每个Addon选项当一笔"销售"记进销售统计（不进产品成本，因为它不是一个产品）；
+   2) 如果"采购"页设过这个Addon选项的消耗对照，按Qty乘以每次用量，自动生成库存扣减记录。 */
+function downloadAddonImportTemplate(){
+  const header = ['Addon选项名称','数量Qty','金额Sales','公司(选填)','开始日期','结束日期'];
+  const example = ['加央 + 雪油 KAYA BUTTER','23','0', COMPANIES[0], '2026-08-27', '2026-08-29'];
+  downloadCSV('Addon报表模板.csv', header, [example]);
+}
+function importAddonReport(fileInput){
+  const files = fileInput.files;
+  if(!files || !files.length) return;
+  readFilesAsText(files).then(fileTexts=>{
+    try{
+      const allRows = [];
+      fileTexts.forEach(ft=>{
+        const rows = parseCSV(ft.text);
+        if(rows.length<2) return;
+        rows.slice(1).forEach((r,idx)=>allRows.push({r, tag:ft.name, lineNo:idx+2}));
+      });
+      if(allRows.length===0){ alert('这些文件里都没有找到数据行，请确认是不是用模板格式填的'); fileInput.value=''; return; }
+      const toAdd = []; // {addonName, qty, sales, company, startDate, endDate}
+      const errors = [];
+      const multi = fileTexts.length>1;
+      allRows.forEach(({r, tag, lineNo})=>{
+        const loc = multi ? `${tag} 第${lineNo}行` : `第${lineNo}行`;
+        if(!r.some(v=>(v||'').trim()!=='')) return;
+        const addonName = (r[0]||'').trim();
+        const qty = Number(r[1]);
+        const salesRaw = (r[2]||'').trim();
+        const companyRaw = (r[3]||'').trim();
+        const startDate = normalizeDateStr(r[4]);
+        const endDate = normalizeDateStr(r[5]);
+        if(!addonName){ errors.push(`${loc}：缺少Addon选项名称`); return; }
+        if(!qty || qty<=0 || isNaN(qty)){ errors.push(`${loc}：数量不对`); return; }
+        const sales = salesRaw!=='' ? Number(salesRaw) : 0;
+        if(isNaN(sales)){ errors.push(`${loc}：金额不对`); return; }
+        let company = '';
+        if(companyRaw){
+          if(COMPANIES.includes(companyRaw)) company = companyRaw;
+          else errors.push(`${loc}：公司"${companyRaw}"不认得（可选：${COMPANIES.join('、')}），这行会先不分公司导入`);
+        }
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)){ errors.push(`${loc}：开始/结束日期看不懂，请用 2026-08-01 这种格式`); return; }
+        toAdd.push({addonName, qty, sales, company, startDate, endDate});
+      });
+      if(toAdd.length===0){ alert('没有成功解析到任何一行Addon记录：\n\n' + errors.join('\n')); fileInput.value=''; return; }
+      // 算库存扣减：按对照表匹配（不分大小写），没设对照的列进unmatched提醒
+      const deductions = {}; // key: 食材名小写 -> {name, qty, unit}
+      const unmatched = [];
+      toAdd.forEach(item=>{
+        const mapping = state.addonMappings.find(m=>m.addonName.trim().toLowerCase()===item.addonName.trim().toLowerCase());
+        if(!mapping){ unmatched.push(item.addonName); return; }
+        (mapping.components||[]).forEach(c=>{
+          const key = c.name.trim().toLowerCase();
+          const need = Number(c.qtyPerUse||0) * item.qty;
+          if(!deductions[key]) deductions[key] = {name:c.name, qty:0, unit:c.unit||''};
+          deductions[key].qty += need;
+        });
+      });
+      const batchAmount = toAdd.reduce((a,i)=>a+i.sales,0);
+      let msg = multi ? `准备从 ${fileTexts.length} 个文件里导入 ${toAdd.length} 个Addon选项` : `准备导入 ${toAdd.length} 个Addon选项`;
+      msg += `\n\n营收合计 RM${fmtPlain(batchAmount)}，会记进销售统计。`;
+      const deductList = Object.values(deductions);
+      if(deductList.length) msg += `\n\n将自动扣库存：\n` + deductList.map(d=>`${d.name} -${fmtPlain(d.qty)}${d.unit}`).join('\n');
+      if(unmatched.length) msg += `\n\n以下 ${unmatched.length} 个Addon选项还没设消耗对照，不会扣库存（可以去"采购"页的"Addon消耗"补上）：\n` + Array.from(new Set(unmatched)).join('、');
+      if(errors.length) msg += `\n\n另外有 ${errors.length} 行有问题：\n\n` + errors.join('\n') + '\n\n这些行不会被导入。';
+      msg += '\n\n确定继续导入吗？';
+      if(!confirm(msg)){ fileInput.value=''; return; }
+      const batchId = uid();
+      const importedFileName = multi ? `${fileTexts.length}个文件（${fileTexts.map(f=>f.name).join('、')}）` : (fileTexts[0] ? fileTexts[0].name : 'CSV导入');
+      mutate(()=>{
+        if(!state.importBatches) state.importBatches = [];
+        const dates = [];
+        toAdd.forEach(item=>{
+          const price = item.qty>0 ? item.sales/item.qty : 0;
+          state.sales.push({id:uid(), date:item.endDate, productId:null, productName:item.addonName, qty:item.qty, price, amount:item.sales, cost:0, payMethod:'', company:item.company, importBatch:batchId, isAddon:true});
+          dates.push(item.startDate, item.endDate);
+        });
+        // 每个食材各生成一笔库存扣减（出库），日期用这批报表的结束日期，方便对账
+        const maxEndDate = dates.length? dates.reduce((a,b)=>a>b?a:b) : todayStr();
+        const rangeCompanies = Array.from(new Set(toAdd.map(i=>i.company).filter(Boolean)));
+        const adjCompany = rangeCompanies.length===1 ? rangeCompanies[0] : '';
+        if(!state.stockAdjustments) state.stockAdjustments = [];
+        deductList.forEach(d=>{
+          state.stockAdjustments.push({id:uid(), date:maxEndDate, itemName:d.name, qty:-Math.abs(d.qty), note:`Addon报表导入自动扣耗料`, company:adjCompany, importBatch:batchId});
+        });
+        const minDate = dates.length? dates.reduce((a,b)=>a<b?a:b) : todayStr();
+        state.importBatches.push({id:batchId, type:'addon', fileName:importedFileName, importedAt:Date.now(), count:toAdd.length, amount:batchAmount, dateRange: minDate===maxEndDate? minDate : `${minDate} ~ ${maxEndDate}`});
+      });
+      alert(`已成功导入 ${toAdd.length} 个Addon选项，营收RM${fmtPlain(batchAmount)}${deductList.length? `，自动扣了 ${deductList.length} 项食材库存`:''}${unmatched.length? `\n\n提醒：${unmatched.length} 个选项还没设消耗对照，没扣库存`:''}`);
     }catch(err){
       alert('文件解析失败，请确认是不是用系统模板格式的CSV文件。\n' + err.message);
     }
