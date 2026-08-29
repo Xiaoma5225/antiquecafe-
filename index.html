@@ -656,7 +656,9 @@ let state = {
   recipes: [],
   recipeBatchLogs: [], // "这批腌好了，分成幾包" 按钮生成的完成记录，每条记着扣了哪些原料库存、加了几包成品
   addonMappings: [], // POS "Addon"加料选项 -> 消耗的食材对照表，导入Addon报表时用来自动算耗料、扣库存
-  addonMappingsSeeded: false // 是否已经自动补过一次默认的面包酱料/面条种类对照，补过一次之后不会再自动补（避免使用者删掉后又被重新加回来）
+  addonMappingsSeeded: false, // 是否已经自动补过一次默认的面包酱料/面条种类对照，补过一次之后不会再自动补（避免使用者删掉后又被重新加回来）
+  unitConversions: [] // 食材单位换算，比如"酱油：1桶=200000ml"——采购按桶记价，食材成本项/配方/Addon消耗按ml填的时候，
+                       // 系统会自动用这个换算算出每ml多少钱，不用自己心算
 };
 let loaded = false;
 let recentActivityFilterDate = '';
@@ -801,7 +803,7 @@ let cloudReady = false;
    下面这些变量用来记住"上一次已经跟云端对齐的样子"，saveState() 存档时会拿现在的
    state 跟这个做比对，只把真的有差异的记录写回云端。 */
 let firestoreDb = null;
-const SUBCOLLECTIONS = ['suppliers','purchases','payments','products','sales','cashflow','ingredients','importBatches','stockAdjustments','recipes','recipeBatchLogs','addonMappings'];
+const SUBCOLLECTIONS = ['suppliers','purchases','payments','products','sales','cashflow','ingredients','importBatches','stockAdjustments','recipes','recipeBatchLogs','addonMappings','unitConversions'];
 let lastSynced = {};
 SUBCOLLECTIONS.forEach(k=>{ lastSynced[k] = new Map(); });
 
@@ -1149,7 +1151,7 @@ function importData(fileInput){
     try{
       const parsed = JSON.parse(e.target.result);
       if(!confirm('导入会覆盖当前这台设备上的所有数据，确定继续吗？')) return;
-      state = Object.assign({initialCash:0, suppliers:[], purchases:[], payments:[], products:[], sales:[], cashflow:[], customExpenseCategories:[], ingredients:[], importBatches:[], stockAdjustments:[], recipes:[], recipeBatchLogs:[], addonMappings:[], addonMappingsSeeded:false}, parsed);
+      state = Object.assign({initialCash:0, suppliers:[], purchases:[], payments:[], products:[], sales:[], cashflow:[], customExpenseCategories:[], ingredients:[], importBatches:[], stockAdjustments:[], recipes:[], recipeBatchLogs:[], addonMappings:[], addonMappingsSeeded:false, unitConversions:[]}, parsed);
       saveState();
       renderAll();
       alert('导入成功');
@@ -1328,11 +1330,12 @@ function productUnitCost(p){
    改成"逐项分摊"：每一张采购品项自己算自己的——这个品项的钱，只在"直接"关联到这个品项的那几个产品之间，
    按它们各自的销售额比例分掉；一个产品的总成本，就是把它自己直接关联到的每一个采购品项、分摊到的那一份，
    加总起来。跟别的产品是不是"间接"扯上关系，完全不影响，不会再滚雪球。
-   关联方式两种都算：1) 采购单手动勾选 2) 总额法产品自己填了一样的"共同食材名字"。 */
+   关联方式两种都算：1) 采购单手动勾选 2) 产品自己填了一样的"共同食材名字"。
+   现在每个产品都可以同时有"食材成本项"(固定，比如半粒鸡蛋这种用量精确的)跟"共同食材"(份量抓不准、
+   要按采购实际总额分摊的，比如后腿肉)——两者会加总成这个产品的完整成本，不再是二选一。 */
 function totalMethodNameToProductIds(){
   const map = {};
   state.products.forEach(p=>{
-    if(p.costMethod!=='total') return;
     (p.sharedIngredients||[]).forEach(n=>{
       const key = (n||'').trim().toLowerCase();
       if(!key) return;
@@ -1358,7 +1361,7 @@ function purchaseItemProductIdsForTotal(item, nameMap){
    销售额占比分一份给本产品——不会因为别的品项把本产品跟其他产品"间接"连起来而扩大范围。 */
 function productTotalMethodBreakdown(productId, dateMatchFn, company){
   const match = dateMatchFn || (()=>true);
-  const totalIds = new Set(state.products.filter(p=>p.costMethod==='total').map(p=>p.id));
+  const totalIds = new Set(state.products.map(p=>p.id));
   const nameMap = totalMethodNameToProductIds();
   const revenueCache = {};
   const productRevenueInScope = (id)=>{
@@ -1412,11 +1415,10 @@ function monthlyProductProfitReport(monthSales, mk, company){
     if(!row.productId) return;
     const p = state.products.find(x=>x.id===row.productId);
     if(!p) return;
-    if(p.costMethod==='total'){
-      row.cost = productMonthlyTotalMethodBreakdown(row.productId, mk, company).allocatedCost;
-    } else {
-      row.cost = monthSales.filter(s=>s.productId===row.productId).reduce((a,s)=>a+Number(s.cost||0),0);
-    }
+    // 现在每个产品的成本 = 固定食材成本项(每笔销售当时存的cost) + 共同食材按月分摊的那份，两者加总
+    const fixedCost = monthSales.filter(s=>s.productId===row.productId).reduce((a,s)=>a+Number(s.cost||0),0);
+    const sharedCost = productMonthlyTotalMethodBreakdown(row.productId, mk, company).allocatedCost;
+    row.cost = fixedCost + sharedCost;
   });
   return Object.values(map).map(r=>({
     ...r, profit: r.revenue - r.cost, pct: r.revenue>0 ? ((r.revenue-r.cost)/r.revenue*100) : 0
@@ -1434,15 +1436,17 @@ function dayTotalMethodPurchaseCost(dateStr, company){
   return totalMethodPurchaseCost(d=>d===dateStr, company);
 }
 function totalMethodPurchaseCost(dateMatchFn, company){
-  const totalIds = new Set(state.products.filter(p=>p.costMethod==='total').map(p=>p.id));
-  if(totalIds.size===0) return 0;
   const nameMap = totalMethodNameToProductIds();
   let total = 0;
   state.purchases.forEach(pu=>{
     if(!dateMatchFn(pu.date)) return;
     (pu.items||[]).forEach(item=>{
       if(company && effCompany(item,pu)!==company) return;
-      if(purchaseItemProductIdsForTotal(item, nameMap).some(id=>totalIds.has(id))) total += Number(item.totalCost||0);
+      const linkedIds = purchaseItemProductIdsForTotal(item, nameMap);
+      // 只算真的被当"共同/分摊食材"处理的品项（勾了2个以上产品，或者用共同食材名字匹配到的）——
+      // 单纯只勾了1个产品的，那是"单位成本法"平均算成本那边在管，不要在这里重复算一次
+      const isPooled = linkedIds.length>1 || (item.name && nameMap[item.name.trim().toLowerCase()]);
+      if(isPooled) total += Number(item.totalCost||0);
     });
   });
   return total;
@@ -1470,6 +1474,29 @@ function findIngredient(name){
 }
 function getIngredientNames(){
   return (state.ingredients||[]).map(i=>i.name).sort((a,b)=>a.localeCompare(b,'zh'));
+}
+/* ---- 单位换算：解决"采购用的单位"跟"实际用的单位"不一样的问题 ----
+   比如酱油进货是按"桶"算价钱，但炒菜配方里是按"ml"算用量。食材字典里的unit/unitPrice
+   记的是"最近一次采购"的单位价钱（比如1桶RM80），这里让使用者额外设一条"1桶=多少ml"的换算，
+   之后食材成本项/配方用料/Addon消耗只要填的单位对上这里设的"使用单位"，就会自动拿食材字典的
+   采购单价除以换算比例，算出正确的每ml单价，不用自己心算。 */
+function findUnitConversion(ingredientName, usageUnit){
+  const n = (ingredientName||'').trim().toLowerCase();
+  const u = (usageUnit||'').trim().toLowerCase();
+  if(!n || !u) return null;
+  return (state.unitConversions||[]).find(c=>c.ingredientName.trim().toLowerCase()===n && c.usageUnit.trim().toLowerCase()===u) || null;
+}
+/* 算某个食材在"目标单位"下的单价：单位本来就跟食材字典记的一样，直接用；不一样的话找换算比例，
+   拿食材字典的单价除以比例；两个都没有就回传null，代表算不出来（沿用原本手动填的单价） */
+function ingredientPriceInUnit(ingredientName, targetUnit){
+  const ing = findIngredient(ingredientName);
+  if(!ing || !ing.unitPrice) return null;
+  const tu = (targetUnit||'').trim().toLowerCase();
+  if(!tu) return null;
+  if(ing.unit && ing.unit.trim().toLowerCase()===tu) return ing.unitPrice;
+  const conv = findUnitConversion(ingredientName, targetUnit);
+  if(conv && conv.ratio>0) return ing.unitPrice / conv.ratio;
+  return null;
 }
 /* ---- 通用输入建议：单位 + 历史备注 + 产品编号 ----
    这几类字段没有一个中心字典，用得到的地方很分散（采购品项、成本项、配方用料、Addon消耗、各种备注），
@@ -1948,6 +1975,7 @@ const RECIPE_SUPPLIER_NAME = '内部半成品制作';
 let purSubView = 'main'; // 'main' = 原本的采购单画面，'recipe' = 半成品配方画面，'addon' = Addon消耗对照画面
 let tempRecipe = null; // 目前正在新增/编辑的配方草稿，null 表示没在编辑
 let tempAddonMapping = null; // 目前正在新增/编辑的 Addon 消耗对照草稿，null 表示没在编辑
+let tempUnitConversion = null; // 目前正在新增/编辑的 单位换算 草稿，null 表示没在编辑
 let payPayMethod = PAY_METHODS[0];
 let payPurchaseIds = [];
 let payHistoryFilterDate = '';
@@ -1960,6 +1988,7 @@ function renderPurchase(){
       <button type="button" class="btn-toggle ${purSubView==='payment'?'active':''}" onclick="setPurSubView('payment')">💳 付款</button>
       <button type="button" class="btn-toggle ${purSubView==='recipe'?'active':''}" onclick="setPurSubView('recipe')">🧑‍🍳 半成品配方</button>
       <button type="button" class="btn-toggle ${purSubView==='addon'?'active':''}" onclick="setPurSubView('addon')">🧾 Addon消耗</button>
+      <button type="button" class="btn-toggle ${purSubView==='conv'?'active':''}" onclick="setPurSubView('conv')">🔄 单位换算</button>
     </div>`;
   if(purSubView==='payment'){
     el.innerHTML = purSubTabHtml + renderPaymentSectionHtml();
@@ -1996,6 +2025,16 @@ function renderPurchase(){
         wireSuggest('addonMapCompName_'+c.id, ingredientNames);
         wireSuggest('addonMapCompUnit_'+c.id, unitSuggestions);
       });
+    }
+    return;
+  }
+  if(purSubView==='conv'){
+    el.innerHTML = purSubTabHtml + renderUnitConversionSectionHtml();
+    const ingredientNames = getIngredientNames();
+    const unitSuggestions = getUnitSuggestions();
+    if(tempUnitConversion){
+      wireSuggest('convIngredientName', ingredientNames);
+      wireSuggest('convUsageUnit', unitSuggestions);
     }
     return;
   }
@@ -2215,6 +2254,7 @@ function setPurSubView(val){
   purSubView = val;
   tempRecipe = null;
   tempAddonMapping = null;
+  tempUnitConversion = null;
   renderPurchase();
 }
 function startNewRecipe(){
@@ -2271,6 +2311,17 @@ function autoLinkRecipeComponentPrice(id){
   if(ing.unit && !c.unit){ c.unit = ing.unit; changed = true; }
   if(ing.unitPrice && !c.unitPrice){ c.unitPrice = String(ing.unitPrice); changed = true; }
   if(changed) renderPurchase();
+}
+/* 单位换算：用料单位跟采购单位不一样时（比如采购按"桶"、配方按"ml"填），
+   打完单位后如果设过换算比例，自动帮你把单价换算好。 */
+function autoLinkRecipeComponentUnit(id){
+  if(!tempRecipe) return;
+  const c = tempRecipe.components.find(x=>x.id===id);
+  if(!c) return;
+  const price = ingredientPriceInUnit(c.name, c.unit);
+  if(price==null) return;
+  c.unitPrice = String(Math.round(price*10000)/10000);
+  renderPurchase();
 }
 function submitRecipe(){
   if(!tempRecipe) return;
@@ -2473,6 +2524,106 @@ function renderAddonMappingSectionHtml(){
   `;
   return html;
 }
+/* ---- 单位换算管理界面 ---- */
+function startNewUnitConversion(){
+  tempUnitConversion = {id:null, ingredientName:'', purchaseUnit:'', usageUnit:'', ratio:''};
+  renderPurchase();
+}
+function startEditUnitConversion(id){
+  const c = state.unitConversions.find(x=>x.id===id);
+  if(!c) return;
+  tempUnitConversion = {id:c.id, ingredientName:c.ingredientName, purchaseUnit:c.purchaseUnit||'', usageUnit:c.usageUnit, ratio:c.ratio!=null?String(c.ratio):''};
+  renderPurchase();
+}
+function cancelEditUnitConversion(){
+  tempUnitConversion = null;
+  renderPurchase();
+}
+function updateUnitConversionField(field, val){
+  if(!tempUnitConversion) return;
+  tempUnitConversion[field] = val;
+  if(field==='ingredientName'){
+    // 打完食材名字，自动带出食材字典里记的采购单位，省得再打一次
+    const ing = findIngredient(val);
+    const purchaseUnitEl = document.getElementById('convPurchaseUnit');
+    if(ing && ing.unit && purchaseUnitEl && !purchaseUnitEl.value){
+      purchaseUnitEl.value = ing.unit;
+      tempUnitConversion.purchaseUnit = ing.unit;
+    }
+  }
+}
+function submitUnitConversion(){
+  if(!tempUnitConversion) return;
+  const ingredientName = (tempUnitConversion.ingredientName||'').trim();
+  const purchaseUnit = (tempUnitConversion.purchaseUnit||'').trim();
+  const usageUnit = (tempUnitConversion.usageUnit||'').trim();
+  const ratio = Number(tempUnitConversion.ratio);
+  if(!ingredientName){ alert('请填食材名称（要跟"采购"页记的品名一样）'); return; }
+  if(!purchaseUnit){ alert('请填采购单位（比如：桶）'); return; }
+  if(!usageUnit){ alert('请填使用单位（比如：ml）'); return; }
+  if(!ratio || ratio<=0){ alert('请填换算比例（1个采购单位=多少个使用单位，要大于0）'); return; }
+  const idBeingEdited = tempUnitConversion.id;
+  const dupe = state.unitConversions.find(c=>c.id!==idBeingEdited && c.ingredientName.trim().toLowerCase()===ingredientName.toLowerCase() && c.usageUnit.trim().toLowerCase()===usageUnit.toLowerCase());
+  if(dupe){ alert(`"${ingredientName}"换算成"${usageUnit}"已经设过了，可以直接编辑那一份`); return; }
+  mutate(()=>{
+    if(idBeingEdited){
+      const c = state.unitConversions.find(x=>x.id===idBeingEdited);
+      if(c){ c.ingredientName=ingredientName; c.purchaseUnit=purchaseUnit; c.usageUnit=usageUnit; c.ratio=ratio; }
+    } else {
+      state.unitConversions.push({id:uid(), ingredientName, purchaseUnit, usageUnit, ratio});
+    }
+  });
+  tempUnitConversion = null;
+  renderPurchase();
+}
+function deleteUnitConversion(id){
+  if(!confirm('确定删除这条单位换算吗？（之前已经算过的价钱不会改，只是以后再遇到这个单位不会自动换算了）')) return;
+  mutate(()=>{ state.unitConversions = state.unitConversions.filter(c=>c.id!==id); });
+}
+function unitConversionFormHtml(){
+  if(!tempUnitConversion) return '';
+  return `
+    <div class="card">
+      <h3>${tempUnitConversion.id? '✏️ 编辑单位换算' : '新增单位换算'}</h3>
+      <label>食材名称（要跟"采购"页记的品名一样）</label>
+      <input id="convIngredientName" placeholder="例：酱油" autocomplete="off" value="${tempUnitConversion.ingredientName}" oninput="updateUnitConversionField('ingredientName', this.value)">
+      <div class="grid2" style="margin-top:10px">
+        <div><label>采购单位（进货怎么算的）</label><input id="convPurchaseUnit" placeholder="例：桶" value="${tempUnitConversion.purchaseUnit}" oninput="updateUnitConversionField('purchaseUnit', this.value)"></div>
+        <div><label>使用单位（配方/成本项怎么用的）</label><input id="convUsageUnit" placeholder="例：ml" autocomplete="off" value="${tempUnitConversion.usageUnit}" oninput="updateUnitConversionField('usageUnit', this.value)"></div>
+      </div>
+      <label style="margin-top:10px">换算比例：1个采购单位 = 多少个使用单位</label>
+      <input type="number" step="0.0001" placeholder="例：1桶=200000ml，这里填200000" value="${tempUnitConversion.ratio}" oninput="updateUnitConversionField('ratio', this.value)">
+      <button class="btn-main" onclick="submitUnitConversion()">${tempUnitConversion.id?'保存修改':'保存换算'}</button>
+      <button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditUnitConversion()">取消</button>
+    </div>
+  `;
+}
+function renderUnitConversionSectionHtml(){
+  let html = '';
+  if(tempUnitConversion) html += unitConversionFormHtml();
+  html += `
+    <div class="card">
+      <h3>单位换算 <span class="n">${state.unitConversions.length} 个</span></h3>
+      <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">
+        有些食材"进货"和"用的时候"单位不一样——比如酱油进货是按"桶"算价钱，炒菜配方却是按"ml"填用量。
+        在这里设好"1桶=多少ml"，之后不管是「食材成本项」「半成品配方」「Addon消耗」，只要食材名字对上、
+        单位填成使用单位，系统就会自动拿采购的单价换算成对应的每单位价钱，不用自己心算。
+      </div>
+      ${!tempUnitConversion? `<button class="btn-main" onclick="startNewUnitConversion()">+ 新增单位换算</button>` : ''}
+      <hr class="receipt-divider">
+      ${state.unitConversions.length? state.unitConversions.map(c=>`
+        <div class="supplier-card">
+          <b>${c.ingredientName}</b>
+          <div class="muted" style="font-size:11.5px; margin-top:2px;">1${c.purchaseUnit} = ${c.ratio}${c.usageUnit}</div>
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <button class="btn-ghost btn-small" style="flex:1;" onclick="startEditUnitConversion('${c.id}')">编辑</button>
+            <button class="btn-danger-text" onclick="deleteUnitConversion('${c.id}')">删除</button>
+          </div>
+        </div>`).join('') : `<div class="empty">还没有设单位换算，点上面新增一个</div>`}
+    </div>
+  `;
+  return html;
+}
 /* ---- 自动腌料：一笔采购单确定/导入之后，扫描品项，凡是跟某个配方的"触发原料名"对上的，
    就按比例算出腌料成本，另存一笔採购单（供应商=虚拟供应商，triggeredBy=触发它的那笔采购单id）。
    编辑/CSV重新导入时会先清掉旧的自动腌料记录再重新生成，避免重复；删除触发采购单时也会
@@ -2638,7 +2789,7 @@ function recipeComponentRowsHtml(){
       </div>
       <div class="pi-bottom" style="grid-template-columns:repeat(3,1fr);">
         <input placeholder="每单位用量" type="number" step="0.0001" value="${c.ratioQty}" oninput="updateRecipeComponent('${c.id}','ratioQty',this.value)">
-        <input id="recipeCompUnit_${c.id}" placeholder="单位" value="${c.unit}" oninput="updateRecipeComponent('${c.id}','unit',this.value)">
+        <input id="recipeCompUnit_${c.id}" placeholder="单位" value="${c.unit}" oninput="updateRecipeComponent('${c.id}','unit',this.value)" onchange="autoLinkRecipeComponentUnit('${c.id}')">
         <input placeholder="单价RM" type="number" step="0.01" value="${c.unitPrice}" oninput="updateRecipeComponent('${c.id}','unitPrice',this.value)">
       </div>
     </div>
@@ -3521,7 +3672,6 @@ let editingProductId = null;
 let costSearchQuery = '';
 let costCategoryFilter = '';
 let draftProductCompany = '';
-let draftCostMethod = 'unit';
 let tempSharedIngredients = [{id:uid(), name:''}];
 let prodSubView = 'product'; // 'product' = 名称/售价/分类等基本资料的新增编辑，'cost' = 食材成本/毛利细项
 
@@ -3538,7 +3688,7 @@ function renderCost(){
     </div>`;
   const editingProduct = editingProductId ? state.products.find(x=>x.id===editingProductId) : null;
   const draft = editingProduct ? {} : captureFormValues(['prodTitle','prodPrice','prodCategory','prodCode']);
-  if(editingProduct){ draftProductCompany = editingProduct.company || ''; draftCostMethod = editingProduct.costMethod==='total' ? 'total' : 'unit'; }
+  if(editingProduct){ draftProductCompany = editingProduct.company || ''; }
   const categoryOptions = Array.from(new Set([...MENU_CATEGORIES, ...state.products.map(p=>p.category).filter(Boolean)]));
   const catOrder = c => { const i = MENU_CATEGORIES.indexOf(c||''); return i===-1 ? 999 : i; };
   let displayProducts = state.products.slice().sort((a,b)=> catOrder(a.category) - catOrder(b.category) || a.name.localeCompare(b.name));
@@ -3556,51 +3706,18 @@ function renderCost(){
       </select>
       <div id="costSearchEmpty" class="empty" style="display:none;">没有找到符合的产品</div>` : ''}
       ${displayProducts.length? displayProducts.map(p=>{
-        const method = p.costMethod==='total' ? 'total' : 'unit';
         const tagsLine = (p.category||p.code||p.company) ? `<div class="muted" style="font-size:11px; margin:2px 0 6px;">${p.category?`📂 ${p.category}`:''}${p.code?`　#${p.code}`:''}${p.company?`　🏢 ${p.company}`:''}</div>` : '';
-        const methodToggle = `<div class="btn-group" style="margin-top:8px; margin-bottom:6px;">
-          <button type="button" class="btn-toggle ${method==='unit'?'active':''}" onclick="setProductCostMethod('${p.id}','unit')">单位成本法</button>
-          <button type="button" class="btn-toggle ${method==='total'?'active':''}" onclick="setProductCostMethod('${p.id}','total')">总额法</button>
-        </div>`;
-        if(method==='total'){
-          const b = productTotalMethodBreakdown(p.id);
-          return `
-          <div class="cost-product-card" data-pname="${p.name.toLowerCase().replace(/"/g,'&quot;')}" data-pcat="${(p.category||'').replace(/"/g,'&quot;')}" style="border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:10px;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <b>${p.name}</b>
-              <div style="display:flex; gap:6px;">
-                <button class="btn-ghost btn-small" onclick="startEditProduct('${p.id}')">编辑</button>
-                <button class="btn-danger-text" onclick="deleteProduct('${p.id}')">删除产品</button>
-              </div>
-            </div>
-            ${tagsLine}
-            ${methodToggle}
-            ${(p.sharedIngredients&&p.sharedIngredients.length)?`<div class="muted" style="font-size:11px; margin-bottom:2px;">共同食材：${p.sharedIngredients.join('、')}</div>`:''}
-            <div class="muted" style="font-size:11px; margin-bottom:4px;">总额法：按这个产品自己直接关联到的每一张采购品项，各自跟"也关联到那一项"的产品按销售额占比分摊，不会因为间接扯上关系而被拖进别的产品的成本里</div>
-            ${b.items.length? `<details style="margin-bottom:4px;">
-              <summary style="cursor:pointer; font-size:11px; color:var(--muted);">👉 分摊食材成本 ${fmtPlain(b.allocatedCost)} 具体是哪些采购（点开看）</summary>
-              <div style="font-size:11px; color:var(--muted); margin-top:4px;">
-                ${b.items.map(it=>`
-                <div style="padding:4px 0; border-bottom:1px dashed var(--border);">
-                  <div style="display:flex; justify-content:space-between;"><span>${it.name}</span><span class="mono">${fmtPlain(it.itemCost)}</span></div>
-                  <div style="padding-left:8px; margin-top:1px;">→ 本产品分到 ${(it.share*100).toFixed(1)}% = ${fmtPlain(it.allocated)}${it.coSharers.length?`（跟 ${it.coSharers.join('、')} 共用这一项）`:'（这一项只有本产品在用，全部算它的）'}</div>
-                </div>`).join('')}
-              </div>
-            </details>` : `<div class="muted" style="font-size:11px; margin-bottom:4px;">⚠️ 目前还没有任何采购记录关联到这个产品，成本会算不出来（分摊食材成本 RM0）——去"采购"页把品名跟这里的共同食材名字对上，或者在采购单手动勾选关联</div>`}
-            <table style="margin-top:6px">
-              <tr><td>本产品销售额</td><td class="num">${fmt(b.productRevenue)}</td></tr>
-              <tr><td>分摊食材成本</td><td class="num">${fmt(b.allocatedCost)}</td></tr>
-              <tr><td><b>毛利</b></td><td class="num" style="color:${b.profit>=0?'var(--green)':'var(--rust)'}"><b>${fmt(b.profit)}</b></td></tr>
-              <tr><td>毛利率</td><td class="num">${b.pct}%</td></tr>
-            </table>
-          </div>`;
-        }
         const spend = productIngredientSpend(p.id);
         const qtySold = productQtySold(p.id);
         const usingRealData = spend>0 && qtySold>0;
-        const cost = productUnitCost(p);
-        const profit = Number(p.price||0) - cost;
-        const pct = p.price>0? (profit/p.price*100).toFixed(1) : '0.0';
+        const fixedUnitCost = productUnitCost(p);
+        const b = productTotalMethodBreakdown(p.id);
+        const totalCost = fixedUnitCost*qtySold + b.allocatedCost;
+        const totalRevenue = b.productRevenue;
+        const totalProfit = totalRevenue - totalCost;
+        const totalPct = totalRevenue>0 ? (totalProfit/totalRevenue*100).toFixed(1) : '0.0';
+        const unitProfit = Number(p.price||0) - fixedUnitCost;
+        const unitPct = p.price>0 ? (unitProfit/p.price*100).toFixed(1) : '0.0';
         return `
         <div class="cost-product-card" data-pname="${p.name.toLowerCase().replace(/"/g,'&quot;')}" data-pcat="${(p.category||'').replace(/"/g,'&quot;')}" style="border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:10px;">
           <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3611,9 +3728,8 @@ function renderCost(){
             </div>
           </div>
           ${tagsLine}
-          ${methodToggle}
-          ${usingRealData? `<div class="muted" style="font-size:11px; margin-top:4px;">按实际数据算成本：关联采购总额 ${fmtPlain(spend)} ÷ 已售出 ${qtySold} 份 = 单位成本 ${fmtPlain(cost)}</div>` : `<div class="muted" style="font-size:11px; margin-top:4px;">还没有关联采购或销售数据，暂用下面手动填的食材成本项估算</div>`}
-          <table style="margin-top:6px">
+          <label style="font-size:11.5px; color:var(--muted); margin-top:6px;">食材成本项（固定，用量精确的）</label>
+          <table style="margin-top:2px">
             ${(p.costItems||[]).map(ci=>`<tr><td class="muted">${ci.name}</td><td class="num">${fmtPlain(ci.cost)}</td>
               <td style="width:24px"><button class="btn-danger-text" onclick="deleteCostItem('${p.id}','${ci.id}')">×</button></td></tr>`).join('')}
           </table>
@@ -3624,13 +3740,35 @@ function renderCost(){
             <input placeholder="金额" type="number" step="0.01" id="addCi_${p.id}_cost">
           </div>
           <button class="btn-line" onclick="appendCostItem('${p.id}')">+ 追加食材成本</button>
+          ${usingRealData? `<div class="muted" style="font-size:11px; margin-top:4px;">按实际数据算每份成本：关联采购总额 ${fmtPlain(spend)} ÷ 已售出 ${qtySold} 份 = ${fmtPlain(fixedUnitCost)}</div>` : ''}
           <hr class="receipt-divider">
-          ${p.price>0 ? vizBar([{value:cost,color:'var(--rust)'},{value:Math.max(profit,0),color:'var(--green)'}], p.price) : ''}
+          <label style="font-size:11.5px; color:var(--muted);">共同食材（份量抓不准、按采购分摊的）</label>
+          ${(p.sharedIngredients&&p.sharedIngredients.length)?`<div class="muted" style="font-size:11px; margin:2px 0;">${p.sharedIngredients.join('、')}</div>`:`<div class="muted" style="font-size:11px; margin:2px 0;">还没设，点上面「编辑」可以加</div>`}
+          ${b.items.length? `<details style="margin-bottom:4px;">
+            <summary style="cursor:pointer; font-size:11px; color:var(--muted);">👉 累计分摊成本 ${fmtPlain(b.allocatedCost)} 具体是哪些采购（点开看）</summary>
+            <div style="font-size:11px; color:var(--muted); margin-top:4px;">
+              ${b.items.map(it=>`
+              <div style="padding:4px 0; border-bottom:1px dashed var(--border);">
+                <div style="display:flex; justify-content:space-between;"><span>${it.name}</span><span class="mono">${fmtPlain(it.itemCost)}</span></div>
+                <div style="padding-left:8px; margin-top:1px;">→ 本产品分到 ${(it.share*100).toFixed(1)}% = ${fmtPlain(it.allocated)}${it.coSharers.length?`（跟 ${it.coSharers.join('、')} 共用这一项）`:'（这一项只有本产品在用，全部算它的）'}</div>
+              </div>`).join('')}
+            </div>
+          </details>` : (p.sharedIngredients&&p.sharedIngredients.length? `<div class="muted" style="font-size:11px; margin-bottom:4px;">⚠️ 还没有任何采购记录匹配到这个共同食材名字，分摊成本暂时是 RM0——去"采购"页把品名对上</div>` : '')}
+          <hr class="receipt-divider">
+          ${p.price>0 ? vizBar([{value:fixedUnitCost,color:'var(--rust)'},{value:Math.max(unitProfit,0),color:'var(--green)'}], p.price) : ''}
           <table>
             <tr><td>售价</td><td class="num">${fmt(p.price)}</td></tr>
-            <tr><td>食材成本</td><td class="num">${fmt(cost)}</td></tr>
-            <tr><td><b>毛利</b></td><td class="num" style="color:${profit>=0?'var(--green)':'var(--rust)'}"><b>${fmt(profit)}</b></td></tr>
-            <tr><td>毛利率</td><td class="num">${pct}%</td></tr>
+            <tr><td>每份固定成本</td><td class="num">${fmt(fixedUnitCost)}</td></tr>
+            <tr><td>每份毛利（未算分摊）</td><td class="num" style="color:${unitProfit>=0?'var(--green)':'var(--rust)'}"><b>${fmt(unitProfit)}</b></td></tr>
+            <tr><td>每份毛利率</td><td class="num">${unitPct}%</td></tr>
+          </table>
+          <hr class="receipt-divider">
+          <div class="muted" style="font-size:11px; margin-bottom:2px;">累计（固定成本×卖出份数 + 分摊成本，对比实际销售额）</div>
+          <table>
+            <tr><td>累计销售额</td><td class="num">${fmt(totalRevenue)}</td></tr>
+            <tr><td>累计总成本</td><td class="num">${fmt(totalCost)}</td></tr>
+            <tr><td><b>累计毛利</b></td><td class="num" style="color:${totalProfit>=0?'var(--green)':'var(--rust)'}"><b>${fmt(totalProfit)}</b></td></tr>
+            <tr><td>累计毛利率</td><td class="num">${totalPct}%</td></tr>
           </table>
         </div>`;
       }).join('') : `<div class="empty">${state.products.length? '这个分类下没有产品':'还没有产品，先在上面新增一个吧'}</div>`}
@@ -3660,22 +3798,17 @@ function renderCost(){
         <button type="button" class="btn-toggle ${draftProductCompany===''?'active':''}" data-val="" onclick="setProdCompany('')">不指定</button>
         ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${draftProductCompany===c?'active':''}" data-val="${c}" onclick="setProdCompany('${c}')">${c}</button>`).join('')}
       </div>
-      <label style="margin-top:10px">成本算法</label>
-      <div class="btn-group" id="prodCostMethodGroup">
-        <button type="button" class="btn-toggle ${draftCostMethod==='unit'?'active':''}" data-val="unit" onclick="setDraftCostMethod('unit')">单位成本法</button>
-        <button type="button" class="btn-toggle ${draftCostMethod==='total'?'active':''}" data-val="total" onclick="setDraftCostMethod('total')">总额法</button>
-      </div>
-      <div class="muted" style="font-size:11px; margin-top:4px; margin-bottom:2px;" id="prodCostMethodNote">${draftCostMethod==='total' ? '总额法：这个产品不用自己估算成本，是跟其他"填了同样共同食材名字"的总额法产品自动分成一组，一起分摊这个食材的实际采购总额（按各产品销售额占比分）' : '单位成本法：按下面填的食材成本项/关联采购来算这份产品的成本'}</div>
-      <div id="costItemsSection" style="${draftCostMethod==='total'?'display:none;':''}">
-        <label style="margin-top:14px">食材成本项（保底用：如果这个产品在"采购"页还没有关联到任何采购记录，就会用这里的估算；一旦有关联采购+销售数据，系统会自动改用实际数据算成本）</label>
+      <div class="muted" style="font-size:11.5px; margin-top:10px; line-height:1.5; background:var(--bg); padding:8px 10px; border-radius:8px;">这个产品的成本可以同时来自两边、加总算：<b>用量固定</b>的食材（比如半粒鸡蛋、固定几ml酱油）填「食材成本项」；<b>用量抓不准、按采购实际总额分摊</b>的食材（比如后腿肉）填「共同食材名称」。两边都可以填，也可以只填一边。</div>
+      <div id="costItemsSection">
+        <label style="margin-top:14px">食材成本项（用量固定的写这里：填数量+单位+单价，算出一个固定的每份成本；如果这个产品在"采购"页还没有关联到任何采购记录，也会先用这里的估算）</label>
         <div id="costItemsWrap"></div>
         <button class="btn-line" onclick="addCostItemRow()">+ 添加一项食材成本</button>
         <div style="margin-top:8px; font-size:13px; color:var(--muted)">
-          总成本：<b class="mono" id="costTotalPreview">RM 0.00</b>
+          固定成本合计：<b class="mono" id="costTotalPreview">RM 0.00</b>
         </div>
       </div>
-      <div id="sharedIngredientsSection" style="${draftCostMethod==='total'?'':'display:none;'}">
-        <label style="margin-top:14px">共同食材名称（只要名字打得一样，其他总额法产品填了同一个名字，就会自动跟这个产品分成一组一起分摊；名字要跟"采购"页记的品名对得上，才抓得到实际采购金额）</label>
+      <div id="sharedIngredientsSection">
+        <label style="margin-top:14px">共同食材名称（用量抓不准的写这里：只要名字打得一样，其他产品填了同一个名字，就会自动分成一组，按实际采购总额、按各自销售额占比分摊；名字要跟"采购"页记的品名对得上，才抓得到实际采购金额）</label>
         <div id="sharedIngredientsWrap"></div>
         <button class="btn-line" onclick="addSharedIngredientRow()">+ 添加一个共同食材</button>
         ${editingProduct? (()=>{
@@ -3727,7 +3860,7 @@ function renderCostItemRows(){
       </div>
       <div class="pi-bottom">
         <input id="ci_qty_${row.id}" placeholder="数量" type="number" value="${row.qty}" oninput="updateCostItem('${row.id}','qty',this.value)">
-        <input id="ci_unit_${row.id}" placeholder="单位" value="${row.unit}" oninput="updateCostItem('${row.id}','unit',this.value)">
+        <input id="ci_unit_${row.id}" placeholder="单位" value="${row.unit}" oninput="updateCostItem('${row.id}','unit',this.value)" onchange="autoLinkCostItemUnit('${row.id}')">
         <input placeholder="单价(选填)" type="number" step="0.01" value="${row.unitPrice}" oninput="updateCostItem('${row.id}','unitPrice',this.value)">
         <input id="ci_cost_${row.id}" placeholder="成本RM" type="number" step="0.01" value="${row.cost}" oninput="updateCostItem('${row.id}','cost',this.value)">
       </div>
@@ -3789,6 +3922,18 @@ function autoLinkCostItemIngredient(id){
   if(ing.unitPrice && !row.unitPrice){ row.unitPrice = String(ing.unitPrice); changed = true; }
   if(changed) renderCostItemRows();
 }
+/* 单位换算派上用场的地方：食材成本项本来用的单位跟采购单位不一样（比如采购按"桶"、这里想按"ml"填），
+   打完单位之后，如果"采购"页设过这个食材的换算比例，就自动帮你把单价换算好，不用自己心算。
+   只有真的换算得出来才覆盖(不会平白清空使用者自己填的单价)。 */
+function autoLinkCostItemUnit(id){
+  const row = tempCostItems.find(r=>r.id===id);
+  if(!row) return;
+  const price = ingredientPriceInUnit(row.name, row.unit);
+  if(price==null) return;
+  row.unitPrice = String(Math.round(price*10000)/10000);
+  updateCostItem(id, 'unitPrice', row.unitPrice);
+  renderCostItemRows();
+}
 function updateCostItem(id,field,val){
   const row = tempCostItems.find(r=>r.id===id);
   if(!row) return;
@@ -3838,21 +3983,20 @@ function submitProduct(){
     const targetId = editingProductId;
     mutate(()=>{
       const p = state.products.find(x=>x.id===targetId);
-      if(p){ p.name = name; p.price = price; p.costItems = costItems; p.sharedIngredients = sharedIngredients; p.category = category; p.code = code; p.company = company; p.costMethod = draftCostMethod; }
+      if(p){ p.name = name; p.price = price; p.costItems = costItems; p.sharedIngredients = sharedIngredients; p.category = category; p.code = code; p.company = company; }
       costItems.forEach(ci=>learnIngredientLink(ci.name, [targetId], {unit: ci.unit, unitPrice: ci.unitPrice}));
     });
     editingProductId = null;
   } else {
     const newId = uid();
     mutate(()=>{
-      state.products.push({id:newId, name, price, costItems, sharedIngredients, costMethod:draftCostMethod, category, code, company});
+      state.products.push({id:newId, name, price, costItems, sharedIngredients, category, code, company});
       costItems.forEach(ci=>learnIngredientLink(ci.name, [newId], {unit: ci.unit, unitPrice: ci.unitPrice}));
     });
   }
   tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
   tempSharedIngredients = [{id:uid(), name:''}];
   draftProductCompany = '';
-  draftCostMethod = 'unit';
   renderCost();
 }
 function startEditProduct(id){
@@ -3861,7 +4005,6 @@ function startEditProduct(id){
   editingProductId = id;
   prodSubView = 'product';
   draftProductCompany = p.company || '';
-  draftCostMethod = p.costMethod==='total' ? 'total' : 'unit';
   tempCostItems = (p.costItems&&p.costItems.length)
     ? p.costItems.map(ci=>({id:uid(), name:ci.name||'', qty:ci.qty?String(ci.qty):'', unit:ci.unit||'', unitPrice:ci.unitPrice?String(ci.unitPrice):'', cost:ci.cost!=null?String(ci.cost):''}))
     : [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
@@ -3875,7 +4018,6 @@ function startEditProduct(id){
 function cancelEditProduct(){
   editingProductId = null;
   draftProductCompany = '';
-  draftCostMethod = 'unit';
   tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
   tempSharedIngredients = [{id:uid(), name:''}];
   renderCost();
@@ -3900,12 +4042,6 @@ function deleteProduct(id){
     tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
     renderCost();
   }
-}
-function setProductCostMethod(id, method){
-  mutate(()=>{
-    const p = state.products.find(x=>x.id===id);
-    if(p) p.costMethod = method;
-  });
 }
 function deleteCostItem(prodId, ciId){
   mutate(()=>{
@@ -3940,17 +4076,6 @@ function setProdCompany(val){
   draftProductCompany = val;
   document.querySelectorAll('#prodCompanyGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
 }
-function setDraftCostMethod(val){
-  draftCostMethod = val;
-  document.querySelectorAll('#prodCostMethodGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
-  const noteEl = document.getElementById('prodCostMethodNote');
-  if(noteEl) noteEl.textContent = val==='total' ? '总额法：这个产品不用自己估算成本，是跟其他"填了同样共同食材名字"的总额法产品自动分成一组，一起分摊这个食材的实际采购总额（按各产品销售额占比分）' : '单位成本法：按下面填的食材成本项/关联采购来算这份产品的成本';
-  const sectionEl = document.getElementById('costItemsSection');
-  if(sectionEl) sectionEl.style.display = val==='total' ? 'none' : '';
-  const sharedEl = document.getElementById('sharedIngredientsSection');
-  if(sharedEl) sharedEl.style.display = val==='total' ? '' : 'none';
-  renderSharedIngredientRows();
-}
 function setCostCategoryFilter(val){
   costCategoryFilter = val;
   renderCost();
@@ -3976,7 +4101,7 @@ function syncPosMenu(){
         if(changed) updated++;
       } else {
         const newId = uid();
-        state.products.push({id:newId, name:m.name, price:m.price, costItems:[], costMethod:'unit', category:m.category, code:m.code, company:m.company});
+        state.products.push({id:newId, name:m.name, price:m.price, costItems:[], category:m.category, code:m.code, company:m.company});
         byName.set(norm(m.name), state.products[state.products.length-1]);
         created++;
       }
@@ -4200,12 +4325,13 @@ function updateSalePreview(){
   const price = Number(document.getElementById('salePrice').value)||0;
   document.getElementById('saleAmountPreview').textContent = fmt(qty*price);
 }
-/* 单位成本法产品卖出时，按食材成本项里"数量"这个比例（1份产品要用多少这个食材），
+/* 卖出的时候，按食材成本项里"数量"这个比例（1份产品要用多少这个食材），
    自动生成对应的库存扣减记录——这样卖出去的东西会真的从库存扣掉，不用像"半成品配方"那样再手动记一次。
-   总额法产品没有自己的食材成本项（是分摊别的产品的），不适用，直接跳过。
+   现在每个产品都可能有食材成本项(不再分单位法/总额法)，只要有填数量就会扣；没填的（比如份量抓不准、
+   只填了"共同食材名称"的那些）本来就没有固定数量可以扣，自然会跳过。
    tagFields 用来在扣减记录上打标记，方便之后删销售记录/删批量导入时能对应找回并撤销这些扣减。 */
 function pushSaleStockDeductions(product, saleQty, date, company, tagFields){
-  if(!product || product.costMethod==='total') return;
+  if(!product) return;
   (product.costItems||[]).forEach(ci=>{
     const perUnit = Number(ci.qty);
     if(!ci.name || !perUnit) return;
@@ -4226,7 +4352,7 @@ function submitSale(){
   const date = document.getElementById('saleDate').value || todayStr();
   if(qty<=0){ alert('请输入数量'); return; }
   const amount = qty*price;
-  const unitCost = p.costMethod==='total' ? 0 : productUnitCost(p);
+  const unitCost = productUnitCost(p);
   const payMethod = document.getElementById('salePayMethod').value || '其他';
   const company = saleCompany;
   ['saleProduct','salePrice'].forEach(id=>{ const elx=document.getElementById(id); if(elx) elx.value=''; });
@@ -4370,7 +4496,7 @@ function importSalesReport(fileInput){
           const key = productName.toLowerCase();
           product = newProductByKey[key];
           if(!product){
-            product = {id:uid(), name:productName, price:0, costItems:[], costMethod:'unit', _isNew:true};
+            product = {id:uid(), name:productName, price:0, costItems:[], _isNew:true};
             newProductByKey[key] = product;
             newProducts.push(product);
           }
@@ -4398,14 +4524,14 @@ function importSalesReport(fileInput){
       mutate(()=>{
         if(!state.importBatches) state.importBatches = [];
         newProducts.forEach(np=>{
-          state.products.push({id:np.id, name:np.name, price:np.price, costItems:[], costMethod:'unit'});
+          state.products.push({id:np.id, name:np.name, price:np.price, costItems:[]});
         });
         let batchAmount = 0;
         const dates = [];
         toAdd.forEach(item=>{
           const p = item.product;
           const amount = item.qty * item.price;
-          const unitCost = p.costMethod==='total' ? 0 : productUnitCost(p);
+          const unitCost = productUnitCost(p);
           const sid = uid();
           state.sales.push({id:sid, date:item.date, productId:p.id, productName:p.name, qty:item.qty, price:item.price, amount, cost: unitCost*item.qty, payMethod:item.payMethod, company:item.company, importBatch:batchId});
           // 销售记录不再自动生成收支流水——收支由用户自己手动记录，这里只做产品利润统计用
@@ -4600,7 +4726,7 @@ function importPurchasesReport(fileInput){
             const key = nm.toLowerCase();
             p = newProductByKey[key];
             if(!p){
-              p = {id:uid(), name:nm, price:0, costItems:[], costMethod:'unit', _isNew:true};
+              p = {id:uid(), name:nm, price:0, costItems:[], _isNew:true};
               newProductByKey[key] = p;
               newProducts.push(p);
             }
@@ -4627,7 +4753,7 @@ function importPurchasesReport(fileInput){
       mutate(()=>{
         if(!state.importBatches) state.importBatches = [];
         newProducts.forEach(np=>{
-          state.products.push({id:np.id, name:np.name, price:np.price, costItems:[], costMethod:'unit'});
+          state.products.push({id:np.id, name:np.name, price:np.price, costItems:[]});
         });
         let batchAmount = 0;
         const dates = [];
