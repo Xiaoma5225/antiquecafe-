@@ -1363,6 +1363,25 @@ function findIngredient(name){
 function getIngredientNames(){
   return (state.ingredients||[]).map(i=>i.name).sort((a,b)=>a.localeCompare(b,'zh'));
 }
+/* ---- 通用输入建议：单位 + 历史备注 + 产品编号 ----
+   这几类字段没有一个中心字典，用得到的地方很分散（采购品项、成本项、配方用料、Addon消耗、各种备注），
+   这里统一收集"以前记过的值"当建议清单，让同类输入框都能重复选、不用每次重打。 */
+const COMMON_UNITS = ['kg','g','ml','L','包','份','个','打','箱','瓶','罐','条','片','盒','袋','公斤','克','公升'];
+function getUnitSuggestions(){
+  const set = new Set(COMMON_UNITS);
+  (state.ingredients||[]).forEach(i=>{ if(i.unit) set.add(i.unit); });
+  return Array.from(set);
+}
+function getNoteSuggestions(arr){
+  const set = new Set();
+  (arr||[]).forEach(r=>{ if(r && r.note && r.note.trim()) set.add(r.note.trim()); });
+  return Array.from(set).sort((a,b)=>a.localeCompare(b,'zh'));
+}
+function getProductCodes(){
+  const set = new Set();
+  state.products.forEach(p=>{ if(p.code) set.add(p.code); });
+  return Array.from(set).sort((a,b)=>a.localeCompare(b,'zh'));
+}
 function supplierTotals(id){
   const bought = state.purchases.filter(p=>p.supplierId===id).reduce((a,p)=>a+Number(p.totalAmount||0),0);
   const paid = state.payments.filter(p=>p.supplierId===id).reduce((a,p)=>a+Number(p.amount||0),0);
@@ -1836,6 +1855,8 @@ function renderPurchase(){
   if(purSubView==='payment'){
     el.innerHTML = purSubTabHtml + renderPaymentSectionHtml();
     wireSuggest('paySupplier', state.suppliers.map(s=>s.name));
+    wireSuggest('payNote', getNoteSuggestions(state.payments));
+    wireSuggest('supTitle', state.suppliers.map(s=>s.name));
     const paySupplierEl = document.getElementById('paySupplier');
     if(paySupplierEl && paySupplierEl.value.trim()) onPaySupplierInput();
     return;
@@ -1843,18 +1864,29 @@ function renderPurchase(){
   if(purSubView==='recipe'){
     el.innerHTML = purSubTabHtml + renderRecipeSectionHtml();
     const ingredientNames = getIngredientNames();
+    const unitSuggestions = getUnitSuggestions();
     if(tempRecipe){
       wireSuggest('recipeTrigText', ingredientNames);
-      tempRecipe.components.forEach(c=>wireSuggest('recipeCompName_'+c.id, ingredientNames));
+      wireSuggest('recipeTriggerUnit', unitSuggestions);
+      wireSuggest('recipeOutputName', ingredientNames);
+      wireSuggest('recipeOutputUnit', unitSuggestions);
+      tempRecipe.components.forEach(c=>{
+        wireSuggest('recipeCompName_'+c.id, ingredientNames);
+        wireSuggest('recipeCompUnit_'+c.id, unitSuggestions);
+      });
     }
     return;
   }
   if(purSubView==='addon'){
     el.innerHTML = purSubTabHtml + renderAddonMappingSectionHtml();
     const ingredientNames = getIngredientNames();
+    const unitSuggestions = getUnitSuggestions();
     if(tempAddonMapping){
       wireSuggest('addonMapNameText', getAddonNamesFromSales());
-      tempAddonMapping.components.forEach(c=>wireSuggest('addonMapCompName_'+c.id, ingredientNames));
+      tempAddonMapping.components.forEach(c=>{
+        wireSuggest('addonMapCompName_'+c.id, ingredientNames);
+        wireSuggest('addonMapCompUnit_'+c.id, unitSuggestions);
+      });
     }
     return;
   }
@@ -1894,7 +1926,7 @@ function renderPurchase(){
         <div><label>采购日期</label><input type="date" id="purDate" value="${editingPurchase? editingPurchase.date : (draft.purDate||todayStr())}" onchange="this.blur()"></div>
       </div>
       <div id="purSupplierHistoryBox">${supplierHistoryBoxHtml()}</div>
-      <label>Invoice 号码（选填）</label><input id="purInvoiceNumber" placeholder="例：INV-00123" value="${editingPurchase? (editingPurchase.invoiceNumber||'') : (draft.purInvoiceNumber||'')}">
+      <label>Invoice 号码（选填）</label><input id="purInvoiceNumber" placeholder="例：INV-00123" autocomplete="off" value="${editingPurchase? (editingPurchase.invoiceNumber||'') : (draft.purInvoiceNumber||'')}">
       <label style="margin-top:14px">品项明细（同一供应商可一次拿多个不同产品）</label>
       <div id="purItemsWrap"></div>
       <button class="btn-line" onclick="addPurchaseItemRow()">+ 添加一项</button>
@@ -2054,6 +2086,8 @@ function renderPurchase(){
   `;
   renderPurchaseItemRows();
   wireSuggest('purSupplier', state.suppliers.map(s=>s.name));
+  const invoiceNumbers = Array.from(new Set(state.purchases.map(p=>p.invoiceNumber).filter(Boolean)));
+  wireSuggest('purInvoiceNumber', invoiceNumbers);
 }
 
 /* ================= 半成品/配方（采购页子页签）================= */
@@ -2274,7 +2308,7 @@ function addonMappingComponentRowsHtml(){
       </div>
       <div class="pi-bottom" style="grid-template-columns:repeat(2,1fr);">
         <input placeholder="每次用量" type="number" step="0.0001" value="${c.qtyPerUse}" oninput="updateAddonMappingComponent('${c.id}','qtyPerUse',this.value)">
-        <input placeholder="单位" value="${c.unit}" oninput="updateAddonMappingComponent('${c.id}','unit',this.value)">
+        <input id="addonMapCompUnit_${c.id}" placeholder="单位" value="${c.unit}" oninput="updateAddonMappingComponent('${c.id}','unit',this.value)">
       </div>
     </div>
   `).join('');
@@ -2484,7 +2518,7 @@ function recipeComponentRowsHtml(){
       </div>
       <div class="pi-bottom" style="grid-template-columns:repeat(3,1fr);">
         <input placeholder="每单位用量" type="number" step="0.0001" value="${c.ratioQty}" oninput="updateRecipeComponent('${c.id}','ratioQty',this.value)">
-        <input placeholder="单位" value="${c.unit}" oninput="updateRecipeComponent('${c.id}','unit',this.value)">
+        <input id="recipeCompUnit_${c.id}" placeholder="单位" value="${c.unit}" oninput="updateRecipeComponent('${c.id}','unit',this.value)">
         <input placeholder="单价RM" type="number" step="0.01" value="${c.unitPrice}" oninput="updateRecipeComponent('${c.id}','unitPrice',this.value)">
       </div>
     </div>
@@ -2507,9 +2541,9 @@ function recipeFormHtml(){
       <hr class="receipt-divider">
       <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:6px;">加工完之后你会重新包装成小包——下面填包出来的成品叫什么、单位是什么，之后在"这批做好了"那边记录完成时，系统会自动帮你把原料出库、成品入库（不填的话有默认值）。</div>
       <label>变成的成品名称（选填，比如：肉碎(半成品) 或 招牌酱料）</label>
-      <input placeholder="例：${tempRecipe.triggerName||'肉碎'}(半成品)" value="${tempRecipe.outputName||''}" oninput="updateRecipeField('outputName', this.value)">
+      <input id="recipeOutputName" placeholder="例：${tempRecipe.triggerName||'肉碎'}(半成品)" autocomplete="off" value="${tempRecipe.outputName||''}" oninput="updateRecipeField('outputName', this.value)">
       <label style="margin-top:10px">成品单位（比如：包）</label>
-      <input placeholder="例：包" value="${tempRecipe.outputUnit||''}" oninput="updateRecipeField('outputUnit', this.value)">
+      <input id="recipeOutputUnit" placeholder="例：包" value="${tempRecipe.outputUnit||''}" oninput="updateRecipeField('outputUnit', this.value)">
       <button class="btn-main" onclick="submitRecipe()">${tempRecipe.id?'保存修改':'保存配方'}</button>
       <button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditRecipe()">取消</button>
     </div>
@@ -2815,7 +2849,7 @@ function renderPurchaseItemRows(){
       })()}
       <div class="pi-bottom">
         <input id="pi_qty_${row.id}" placeholder="数量" type="number" value="${row.qty}" oninput="updatePurItem('${row.id}','qty',this.value)">
-        <input placeholder="单位" value="${row.unit}" oninput="updatePurItem('${row.id}','unit',this.value)">
+        <input id="pi_unit_${row.id}" placeholder="单位" value="${row.unit}" oninput="updatePurItem('${row.id}','unit',this.value)">
         <input placeholder="单价(选填)" type="number" step="0.01" value="${row.unitPrice}" oninput="updatePurItem('${row.id}','unitPrice',this.value)">
         <input id="pi_total_${row.id}" placeholder="总价RM" type="number" step="0.01" value="${row.total}" oninput="updatePurItem('${row.id}','total',this.value)">
       </div>
@@ -2825,7 +2859,11 @@ function renderPurchaseItemRows(){
   const total = tempPurchaseItems.reduce((a,r)=>a+Number(r.total||0),0);
   document.getElementById('purTotalPreview').textContent = fmt(total);
   const ingredientNames = getIngredientNames();
-  tempPurchaseItems.forEach(row=>wireSuggest('purItemName_'+row.id, ingredientNames));
+  const unitSuggestions = getUnitSuggestions();
+  tempPurchaseItems.forEach(row=>{
+    wireSuggest('purItemName_'+row.id, ingredientNames);
+    wireSuggest('pi_unit_'+row.id, unitSuggestions);
+  });
 }
 function updatePurItem(id, field, val){
   const row = tempPurchaseItems.find(r=>r.id===id);
@@ -3457,6 +3495,9 @@ function renderCost(){
     </div>
     `;
     if(costSearchQuery) filterCostProducts(costSearchQuery);
+    wireSuggest('costSearchInput', state.products.map(p=>p.name));
+    const ingNames = getIngredientNames();
+    displayProducts.forEach(p=>wireSuggest('addCi_'+p.id+'_name', ingNames));
     return;
   }
   el.innerHTML = prodSubTabHtml + `
@@ -3470,7 +3511,7 @@ function renderCost(){
         <div><label>分类（选填，方便下面按分类查找）</label>
           <input id="prodCategory" placeholder="例：肉类" value="${editingProduct?(editingProduct.category||''):(draft.prodCategory||'')}">
         </div>
-        <div><label>POS 编号（选填）</label><input id="prodCode" placeholder="例：M02" value="${editingProduct?(editingProduct.code||''):(draft.prodCode||'')}"></div>
+        <div><label>POS 编号（选填）</label><input id="prodCode" placeholder="例：M02" autocomplete="off" value="${editingProduct?(editingProduct.code||''):(draft.prodCode||'')}"></div>
       </div>
       <label style="margin-top:10px">所属公司（选填，两间都卖或不确定可以不选）</label>
       <div class="btn-group" id="prodCompanyGroup">
@@ -3503,6 +3544,7 @@ function renderCost(){
   const mergeNames = state.products.map(p=>p.name);
   wireSuggest('mergeFromList', mergeNames);
   wireSuggest('mergeToTarget', mergeNames);
+  wireSuggest('prodCode', getProductCodes());
 }
 function renderCostItemRows(){
   const wrap = document.getElementById('costItemsWrap');
@@ -3510,12 +3552,12 @@ function renderCostItemRows(){
   wrap.innerHTML = tempCostItems.map(row=>`
     <div class="pi-card">
       <div class="pi-top">
-        <input placeholder="食材名称，如：鸡胸肉" value="${row.name}" oninput="updateCostItem('${row.id}','name',this.value)">
+        <input id="ci_name_${row.id}" placeholder="食材名称，如：鸡胸肉" value="${row.name}" oninput="updateCostItem('${row.id}','name',this.value)" onchange="autoLinkCostItemIngredient('${row.id}')">
         ${tempCostItems.length>1?`<button class="rm" onclick="removeCostItem('${row.id}')">×</button>`:'<span style="width:20px"></span>'}
       </div>
       <div class="pi-bottom">
         <input id="ci_qty_${row.id}" placeholder="数量" type="number" value="${row.qty}" oninput="updateCostItem('${row.id}','qty',this.value)">
-        <input placeholder="单位" value="${row.unit}" oninput="updateCostItem('${row.id}','unit',this.value)">
+        <input id="ci_unit_${row.id}" placeholder="单位" value="${row.unit}" oninput="updateCostItem('${row.id}','unit',this.value)">
         <input placeholder="单价(选填)" type="number" step="0.01" value="${row.unitPrice}" oninput="updateCostItem('${row.id}','unitPrice',this.value)">
         <input id="ci_cost_${row.id}" placeholder="成本RM" type="number" step="0.01" value="${row.cost}" oninput="updateCostItem('${row.id}','cost',this.value)">
       </div>
@@ -3529,6 +3571,22 @@ function renderCostItemRows(){
   const total = tempCostItems.reduce((a,r)=>a+Number(r.cost||0),0);
   const preview = document.getElementById('costTotalPreview');
   if(preview) preview.textContent = fmt(total);
+  const ingredientNames = getIngredientNames();
+  const unitSuggestions = getUnitSuggestions();
+  tempCostItems.forEach(row=>{
+    wireSuggest('ci_name_'+row.id, ingredientNames);
+    wireSuggest('ci_unit_'+row.id, unitSuggestions);
+  });
+}
+function autoLinkCostItemIngredient(id){
+  const row = tempCostItems.find(r=>r.id===id);
+  if(!row) return;
+  const ing = findIngredient(row.name);
+  if(!ing) return;
+  let changed = false;
+  if(ing.unit && !row.unit){ row.unit = ing.unit; changed = true; }
+  if(ing.unitPrice && !row.unitPrice){ row.unitPrice = String(ing.unitPrice); changed = true; }
+  if(changed) renderCostItemRows();
 }
 function updateCostItem(id,field,val){
   const row = tempCostItems.find(r=>r.id===id);
@@ -4611,6 +4669,8 @@ function renderCash(){
     </div>
   `;
   renderCfBodyWrap(draft);
+  wireSuggest('cfEditNote', getNoteSuggestions(state.cashflow));
+  wireSuggest('cfNote', getNoteSuggestions(state.cashflow));
 }
 function setCfCompany(val){
   cfCompany = val;
@@ -4945,6 +5005,8 @@ function renderInventory(){
     </div>
   `;
   wireSuggest('stockAdjItemText', rows.map(r=>r.name));
+  wireSuggest('invSearchInput', rows.map(r=>r.name));
+  wireSuggest('stockAdjNote', getNoteSuggestions(state.stockAdjustments));
 }
 function setInvFilterCompany(val){ invFilterCompany = val; renderInventory(); }
 function setInvSearchText(val){ invSearchText = val; renderInventory(); }
