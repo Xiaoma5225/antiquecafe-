@@ -2304,7 +2304,7 @@ function autoLinkRecipeComponentUnit(id){
 function submitRecipe(){
   if(!tempRecipe) return;
   const triggerName = (tempRecipe.triggerName||'').trim();
-  if(!triggerName){ alert('请填触发原料名称（比如：肉碎）——以后采购单里品名跟这个一样，就会自动带出用料成本'); return; }
+  if(!triggerName){ alert('请填触发原料名称（比如：肉碎）——以后采购单里品名跟这个一样，就能在"这批做好了？"里对上，帮你算出这批的成本'); return; }
   const comps = tempRecipe.components.filter(c=>c.name && c.ratioQty!=='' && c.unitPrice!=='').map(c=>({id:uid(), name:c.name.trim(), ratioQty:Number(c.ratioQty), unit:c.unit||'', unitPrice:Number(c.unitPrice)}));
   if(!comps.length){ alert('请至少填一样用料（品名、每单位用量、单价都要有）'); return; }
   const idBeingEdited = tempRecipe.id;
@@ -2325,7 +2325,7 @@ function submitRecipe(){
   renderCost();
 }
 function deleteRecipe(id){
-  if(!confirm('确定删除这个配方吗？（已经自动生成过的用料采购记录不会被删除，只是以后再买这个原料不会再自动带出用料成本）')) return;
+  if(!confirm('确定删除这个配方吗？（已经完成过的批次记录不会被删除，只是以后再买这个原料，"这批做好了？"里不会再列出来）')) return;
   mutate(()=>{ state.recipes = state.recipes.filter(r=>r.id!==id); });
   renderCost();
 }
@@ -2740,7 +2740,7 @@ function recipeFormHtml(){
   return `
     <div class="card">
       <h3>${tempRecipe.id? '✏️ 编辑配方' : '新增半成品配方'}</h3>
-      <label>触发原料名称（采购单品名跟这个一样，就会自动带出用料成本；比如：肉碎）</label>
+      <label>触发原料名称（采购单品名跟这个一样，就能在"这批做好了？"里对上，帮你算这批的成本；比如：肉碎）</label>
       <input id="recipeTrigText" placeholder="触发原料名称" autocomplete="off" value="${tempRecipe.triggerName}" oninput="updateRecipeField('triggerName', this.value)">
       <label style="margin-top:10px">触发原料单位（比如：kg）</label>
       <input id="recipeTriggerUnit" placeholder="例：kg" value="${tempRecipe.triggerUnit}" oninput="updateRecipeField('triggerUnit', this.value)">
