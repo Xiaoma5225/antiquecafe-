@@ -1986,7 +1986,6 @@ function renderPurchase(){
     <div class="btn-group" style="margin-bottom:14px;">
       <button type="button" class="btn-toggle ${purSubView==='main'?'active':''}" onclick="setPurSubView('main')">🛒 采购单</button>
       <button type="button" class="btn-toggle ${purSubView==='payment'?'active':''}" onclick="setPurSubView('payment')">💳 付款</button>
-      <button type="button" class="btn-toggle ${purSubView==='recipe'?'active':''}" onclick="setPurSubView('recipe')">🧑‍🍳 半成品配方</button>
       <button type="button" class="btn-toggle ${purSubView==='addon'?'active':''}" onclick="setPurSubView('addon')">🧾 Addon消耗</button>
       <button type="button" class="btn-toggle ${purSubView==='conv'?'active':''}" onclick="setPurSubView('conv')">🔄 单位换算</button>
     </div>`;
@@ -1997,22 +1996,6 @@ function renderPurchase(){
     wireSuggest('supTitle', state.suppliers.map(s=>s.name));
     const paySupplierEl = document.getElementById('paySupplier');
     if(paySupplierEl && paySupplierEl.value.trim()) onPaySupplierInput();
-    return;
-  }
-  if(purSubView==='recipe'){
-    el.innerHTML = purSubTabHtml + renderRecipeSectionHtml();
-    const ingredientNames = getIngredientNames();
-    const unitSuggestions = getUnitSuggestions();
-    if(tempRecipe){
-      wireSuggest('recipeTrigText', ingredientNames);
-      wireSuggest('recipeTriggerUnit', unitSuggestions);
-      wireSuggest('recipeOutputName', ingredientNames);
-      wireSuggest('recipeOutputUnit', unitSuggestions);
-      tempRecipe.components.forEach(c=>{
-        wireSuggest('recipeCompName_'+c.id, ingredientNames);
-        wireSuggest('recipeCompUnit_'+c.id, unitSuggestions);
-      });
-    }
     return;
   }
   if(purSubView==='addon'){
@@ -3673,10 +3656,11 @@ let costSearchQuery = '';
 let costCategoryFilter = '';
 let draftProductCompany = '';
 let tempSharedIngredients = [{id:uid(), name:''}];
-let prodSubView = 'product'; // 'product' = 名称/售价/分类等基本资料的新增编辑，'cost' = 食材成本/毛利细项
+let prodSubView = 'product'; // 'product' = 名称/售价/分类等基本资料的新增编辑，'cost' = 食材成本/毛利细项，'recipe' = 半成品配方
 
 function setProdSubView(val){
   prodSubView = val;
+  tempRecipe = null;
   renderCost();
 }
 function renderCost(){
@@ -3685,7 +3669,24 @@ function renderCost(){
     <div class="btn-group" style="margin-bottom:14px;">
       <button type="button" class="btn-toggle ${prodSubView==='product'?'active':''}" onclick="setProdSubView('product')">🏷️ 产品</button>
       <button type="button" class="btn-toggle ${prodSubView==='cost'?'active':''}" onclick="setProdSubView('cost')">🧮 成本</button>
+      <button type="button" class="btn-toggle ${prodSubView==='recipe'?'active':''}" onclick="setProdSubView('recipe')">🧑‍🍳 半成品成本</button>
     </div>`;
+  if(prodSubView==='recipe'){
+    el.innerHTML = prodSubTabHtml + renderRecipeSectionHtml();
+    const ingredientNames = getIngredientNames();
+    const unitSuggestions = getUnitSuggestions();
+    if(tempRecipe){
+      wireSuggest('recipeTrigText', ingredientNames);
+      wireSuggest('recipeTriggerUnit', unitSuggestions);
+      wireSuggest('recipeOutputName', ingredientNames);
+      wireSuggest('recipeOutputUnit', unitSuggestions);
+      tempRecipe.components.forEach(c=>{
+        wireSuggest('recipeCompName_'+c.id, ingredientNames);
+        wireSuggest('recipeCompUnit_'+c.id, unitSuggestions);
+      });
+    }
+    return;
+  }
   const editingProduct = editingProductId ? state.products.find(x=>x.id===editingProductId) : null;
   const draft = editingProduct ? {} : captureFormValues(['prodTitle','prodPrice','prodCategory','prodCode']);
   if(editingProduct){ draftProductCompany = editingProduct.company || ''; }
