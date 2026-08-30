@@ -1972,7 +1972,7 @@ let editingPurchaseId = null;
    注意：如果同一道菜的腌料原料使用者自己也另外单独采购、并手动关联到同一个产品，会跟这里自动
    算出来的腌料成本重复计入——用了自动配方之后，同一批腌料就不用再手动关联了。 */
 const RECIPE_SUPPLIER_NAME = '内部半成品制作';
-let purSubView = 'main'; // 'main' = 原本的采购单画面，'recipe' = 半成品配方画面，'addon' = Addon消耗对照画面
+let purSubView = 'main'; // 'main' = 原本的采购单画面，'addon' = Addon消耗对照画面，'conv' = 单位换算画面（半成品配方已经搬去"产品"页了）
 let tempRecipe = null; // 目前正在新增/编辑的配方草稿，null 表示没在编辑
 let tempAddonMapping = null; // 目前正在新增/编辑的 Addon 消耗对照草稿，null 表示没在编辑
 let tempUnitConversion = null; // 目前正在新增/编辑的 单位换算 草稿，null 表示没在编辑
@@ -2242,7 +2242,7 @@ function setPurSubView(val){
 }
 function startNewRecipe(){
   tempRecipe = {id:null, triggerName:'', triggerUnit:'', outputName:'', outputUnit:'包', components:[{id:uid(), name:'', ratioQty:'', unit:'', unitPrice:''}]};
-  renderPurchase();
+  renderCost();
 }
 function startEditRecipe(id){
   const r = state.recipes.find(x=>x.id===id);
@@ -2252,11 +2252,11 @@ function startEditRecipe(id){
     outputName:r.outputName||'', outputUnit:r.outputUnit||'包',
     components:(r.components&&r.components.length)? r.components.map(c=>({id:uid(), name:c.name, ratioQty:c.ratioQty!=null?String(c.ratioQty):'', unit:c.unit||'', unitPrice:c.unitPrice!=null?String(c.unitPrice):''})) : [{id:uid(), name:'', ratioQty:'', unit:'', unitPrice:''}]
   };
-  renderPurchase();
+  renderCost();
 }
 function cancelEditRecipe(){
   tempRecipe = null;
-  renderPurchase();
+  renderCost();
 }
 function updateRecipeField(field, val){
   if(!tempRecipe) return;
@@ -2265,13 +2265,13 @@ function updateRecipeField(field, val){
 function addRecipeComponentRow(){
   if(!tempRecipe) return;
   tempRecipe.components.push({id:uid(), name:'', ratioQty:'', unit:'', unitPrice:''});
-  renderPurchase();
+  renderCost();
 }
 function removeRecipeComponent(id){
   if(!tempRecipe) return;
   tempRecipe.components = tempRecipe.components.filter(c=>c.id!==id);
   if(tempRecipe.components.length===0) tempRecipe.components.push({id:uid(), name:'', ratioQty:'', unit:'', unitPrice:''});
-  renderPurchase();
+  renderCost();
 }
 function updateRecipeComponent(id, field, val){
   if(!tempRecipe) return;
@@ -2293,7 +2293,7 @@ function autoLinkRecipeComponentPrice(id){
   let changed = false;
   if(ing.unit && !c.unit){ c.unit = ing.unit; changed = true; }
   if(ing.unitPrice && !c.unitPrice){ c.unitPrice = String(ing.unitPrice); changed = true; }
-  if(changed) renderPurchase();
+  if(changed) renderCost();
 }
 /* 单位换算：用料单位跟采购单位不一样时（比如采购按"桶"、配方按"ml"填），
    打完单位后如果设过换算比例，自动帮你把单价换算好。 */
@@ -2304,7 +2304,7 @@ function autoLinkRecipeComponentUnit(id){
   const price = ingredientPriceInUnit(c.name, c.unit);
   if(price==null) return;
   c.unitPrice = String(Math.round(price*10000)/10000);
-  renderPurchase();
+  renderCost();
 }
 function submitRecipe(){
   if(!tempRecipe) return;
@@ -2327,11 +2327,12 @@ function submitRecipe(){
     }
   });
   tempRecipe = null;
-  renderPurchase();
+  renderCost();
 }
 function deleteRecipe(id){
   if(!confirm('确定删除这个配方吗？（已经自动生成过的用料采购记录不会被删除，只是以后再买这个原料不会再自动带出用料成本）')) return;
   mutate(()=>{ state.recipes = state.recipes.filter(r=>r.id!==id); });
+  renderCost();
 }
 /* ---- Addon消耗对照表：POS的"Addon"加料选项（比如"加央+雪油"、"手工面"）本身不是产品，
    而是加在某个产品上、会额外耗用食材的选项。这里让使用者把"Addon选项名称"对到"耗用了哪些食材、每次多少"，
@@ -2704,10 +2705,10 @@ function pendingRecipeBatches(){
 function completeRecipeBatch(purchaseId, recipeId){
   const pu = state.purchases.find(p=>p.id===purchaseId);
   const recipe = state.recipes.find(r=>r.id===recipeId);
-  if(!pu || !recipe){ alert('找不到对应的采购单或配方，可能已经被删除或改过了'); renderPurchase(); return; }
+  if(!pu || !recipe){ alert('找不到对应的采购单或配方，可能已经被删除或改过了'); renderCost(); return; }
   const key = (recipe.triggerName||'').trim().toLowerCase();
   const matched = (pu.items||[]).filter(i=>(i.name||'').trim().toLowerCase()===key && Number(i.qty)>0);
-  if(!matched.length){ alert('这张采购单里找不到对得上的触发原料品项了，可能已经被改掉了'); renderPurchase(); return; }
+  if(!matched.length){ alert('这张采购单里找不到对得上的触发原料品项了，可能已经被改掉了'); renderCost(); return; }
   const packInput = document.getElementById('batchPackQty_'+purchaseId+'_'+recipeId);
   const packQty = packInput ? Number(packInput.value) : NaN;
   if(!packQty || packQty<=0 || isNaN(packQty)){ alert('请先填这批分成了幾' + effectiveOutputUnit(recipe)); return; }
@@ -2739,7 +2740,7 @@ function completeRecipeBatch(purchaseId, recipeId){
     state.recipeBatchLogs.push({id:uid(), recipeId, purchaseId, itemIds:matched.map(i=>i.id), date:pu.date, triggerName:recipe.triggerName, triggerQty, triggerUnit, packQty:Number(packQty), outputName, outputUnit, company, stockAdjIds:newAdjIds});
   });
   alert(`已记录：${recipe.triggerName} ${triggerQty}${triggerUnit} 腌成 ${packQty}${outputUnit} ${outputName}\n库存已经自动帮你把原料出库、成品入库，可以去"库存"页确认。`);
-  renderPurchase();
+  renderCost();
 }
 function undoRecipeBatch(logId){
   const log = (state.recipeBatchLogs||[]).find(l=>l.id===logId);
@@ -2750,7 +2751,7 @@ function undoRecipeBatch(logId){
     state.stockAdjustments = (state.stockAdjustments||[]).filter(a=>!idSet.has(a.id));
     state.recipeBatchLogs = (state.recipeBatchLogs||[]).filter(l=>l.id!==logId);
   });
-  renderPurchase();
+  renderCost();
 }
 /* 删除触发用的原始采购单时，一并撤销已经记过的批次完成记录（出入库调整也一起清掉），
    避免留下对不上任何采购单的孤儿库存记录。 */
