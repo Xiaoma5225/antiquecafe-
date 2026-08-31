@@ -3036,10 +3036,13 @@ function renderPurchaseItemRows(){
       ${(()=>{
         const ing = findIngredient(row.name);
         if(!ing) return '';
+        const hasLinked = row.productIds && row.productIds.length;
         const parts = [];
         if(ing.unit) parts.push(`单位 ${ing.unit}`);
         if(ing.unitPrice>0) parts.push(`参考单价 RM${fmtPlain(ing.unitPrice)}`);
-        if(ing.productIds && ing.productIds.length) parts.push(`是给：${ing.productIds.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean).join('、')}`);
+        // 「是给哪些产品」这个信息，如果这一行已经关联了产品（下面会显示可移除的标签），
+        // 就不用在这里再重复列一次了；只有还没关联的时候，才提示"系统记得上次是给这些"。
+        if(!hasLinked && ing.productIds && ing.productIds.length) parts.push(`是给：${ing.productIds.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean).join('、')}`);
         return parts.length ? `<div class="muted" style="font-size:11px; margin-bottom:4px;">💡 系统记得这个食材 · ${parts.join(' · ')}</div>` : '';
       })()}
       ${(()=>{
@@ -4042,7 +4045,10 @@ function setCostCategoryFilter(val){
    - 不会删除任何现有产品（就算它不在这份 POS 菜单里，比如已经下架的老菜、或手动加的杂项）。
    可以重复点击，不会重复新增或越同步越乱。 */
 function syncPosMenu(){
-  const norm = s => (s||'').trim().toLowerCase();
+  // 光 trim() 只清头尾空白，比如"Pot (小)"跟"Pot(小)"这种字中间空格数量不一样的，会被当成
+  // 两个不同名字，每次同步 POS 菜单只要那次导出的空格打法有点差异，就会一直多建重复产品。
+  // 这里额外把字中间连续的空格也压缩成一个再比对，防止这种情况继续发生。
+  const norm = s => (s||'').trim().replace(/\s+/g,' ').toLowerCase();
   const byName = new Map(state.products.map(p=>[norm(p.name), p]));
   let updated = 0, created = 0;
   mutate(()=>{
