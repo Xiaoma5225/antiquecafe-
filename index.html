@@ -1182,10 +1182,12 @@ function reconcileIngredients(){
   state.products.forEach(p=>{
     (p.costItems||[]).forEach(ci=>{ learnIngredientLink(ci.name, [p.id], {unit: ci.unit, unitPrice: ci.unitPrice}); });
   });
+  // 采购单这边不再往食材字典里"教"关联产品了（那是「产品→食材关联」页手动设定的事）——
+  // 这里只是确保每个买过的食材在字典里都有一条记录（方便在"食材关联"页看到、去设定），
+  // 顺便把单位/参考单价更新成最新一次采购的数据，但完全不碰 productIds。
   state.purchases.forEach(pu=>{
     (pu.items||[]).forEach(item=>{
-      const pids = purchaseItemProductIds(item);
-      learnIngredientLink(item.name, pids, {unit: item.unit, unitPrice: item.unitPrice});
+      learnIngredientLink(item.name, [], {unit: item.unit, unitPrice: item.unitPrice});
     });
   });
   return JSON.stringify(state.ingredients) !== before;
@@ -1249,35 +1251,28 @@ function removeSalesCashflow(){
 
 /* ---------------- 计算辅助 ---------------- */
 function supplierName(id){ const s = state.suppliers.find(x=>x.id===id); return s? s.name : '未知供应商'; }
-/* 给"编辑产品"表单用：找出这个产品透过"采购单手动勾选"这个老方式关联到的所有采购品项，
-   按品名汇总（同一个食材买了好几次，合并成一行，不然列表会太长太乱），
-   让使用者在编辑产品的地方就能直接看到、一次性取消这个食材的全部关联，不用跑去采购页一张一张找 */
+/* 给"编辑产品"表单用：这个产品目前透过"食材关联"（全局字典）关联到的所有食材，
+   按品名汇总买了几次、总金额多少，让使用者在编辑产品的地方就能直接看到、一次性取消这个食材的全部关联，
+   不用跑去"产品→食材关联"页一个个找。取消之后是直接改字典，所有历史采购单立刻一起生效。 */
 function productLinkedPurchaseItems(productId){
   const byName = {};
   state.purchases.forEach(pu=>{
     (pu.items||[]).forEach(item=>{
       if(purchaseItemProductIds(item).includes(productId)){
         const key = (item.name||'(未命名)').trim();
-        if(!byName[key]) byName[key] = {name:key, count:0, totalCost:0, latestDate:'', refs:[]};
+        if(!byName[key]) byName[key] = {name:key, count:0, totalCost:0, latestDate:''};
         byName[key].count += 1;
         byName[key].totalCost += Number(item.totalCost||0);
         if(!byName[key].latestDate || pu.date>byName[key].latestDate) byName[key].latestDate = pu.date;
-        byName[key].refs.push({purchaseId:pu.id, itemId:item.id});
       }
     });
   });
   return Object.values(byName).sort((a,b)=>(b.latestDate||'').localeCompare(a.latestDate||''));
 }
-function removeProductPurchaseLink(refsJson, productId){
-  const refs = JSON.parse(refsJson);
+function removeProductPurchaseLink(ingredientName, productId){
   mutate(()=>{
-    refs.forEach(({purchaseId, itemId})=>{
-      const pu = state.purchases.find(p=>p.id===purchaseId);
-      if(!pu) return;
-      const item = (pu.items||[]).find(it=>it.id===itemId);
-      if(!item) return;
-      item.productIds = purchaseItemProductIds(item).filter(id=>id!==productId);
-    });
+    const ing = findIngredient(ingredientName);
+    if(ing) ing.productIds = (ing.productIds||[]).filter(id=>id!==productId);
   });
   renderCost();
 }
@@ -1302,11 +1297,13 @@ function findOrCreateSupplierId(typedName){
   return s.id;
 }
 function productCost(p){ return (p.costItems||[]).reduce((a,c)=>a+Number(c.cost||0),0); }
-/* 一项采购可以同时关联好几个产品（比如一箱蛋同时算进两道菜）。
-   老数据只有单一的 productId/productName，这里统一转成数组来处理，兼容新旧数据。 */
+/* 「食材属于哪个产品」现在统一从全局的食材字典（state.ingredients，按品名查）读取，
+   不再是每一张采购单自己各自存一份 —— 这样在「产品→食材关联」改一次某个食材的关联，
+   所有历史采购单（不管新旧）的成本分摊会立刻一起跟着更新，不用一张一张回去改旧单据。
+   旧数据里如果 item 本身还留着 productIds 字段，那个字段已经不再使用（保留着不影响什么）。 */
 function purchaseItemProductIds(item){
-  if(Array.isArray(item.productIds)) return item.productIds.filter(Boolean);
-  return item.productId ? [item.productId] : [];
+  const ing = findIngredient(item && item.name);
+  return ing && Array.isArray(ing.productIds) ? ing.productIds.filter(Boolean) : [];
 }
 /* 算法一：单位成本法——把同一个产品关联的采购金额加总，除以这个产品已经卖出的总数量，得到平均单位成本。
    如果还没有关联采购或还没卖出过，就退回手动填的"食材成本项"当保底。 */
@@ -3042,41 +3039,21 @@ function renderPurchaseItemRows(){
       ${(()=>{
         const ing = findIngredient(row.name);
         if(!ing) return '';
-        const hasLinked = row.productIds && row.productIds.length;
         const parts = [];
         if(ing.unit) parts.push(`单位 ${ing.unit}`);
         if(ing.unitPrice>0) parts.push(`参考单价 RM${fmtPlain(ing.unitPrice)}`);
-        // 「是给哪些产品」这个信息，如果这一行已经关联了产品（下面会显示可移除的标签），
-        // 就不用在这里再重复列一次了；只有还没关联的时候，才提示"系统记得上次是给这些"。
-        if(!hasLinked && ing.productIds && ing.productIds.length) parts.push(`是给：${ing.productIds.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean).join('、')}`);
         return parts.length ? `<div class="muted" style="font-size:11px; margin-bottom:4px;">💡 系统记得这个食材 · ${parts.join(' · ')}</div>` : '';
       })()}
       ${(()=>{
-        /* 只要这一项目前还没有关联到任何产品，就摊开输入框等着选（不管这个食材名字系统认不认得）；
-           一旦已经关联了至少一个产品，就收起来只留个"+改关联"小连结，需要改的时候再手动点开。 */
-        const hasLinked = row.productIds && row.productIds.length;
-        const showInputArea = !hasLinked || row._pickerOpen;
-        return `
-        ${hasLinked ? `
-        <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:6px;">
-          ${row.productIds.map(pid=>{
-            const prod = state.products.find(x=>x.id===pid);
-            return `<span class="pill clear" style="cursor:pointer;" onclick="removePurItemProduct('${row.id}','${pid}')" title="点击移除">${prod?prod.name:'?'} ×</span>`;
-          }).join('')}
-          <button type="button" class="btn-line" style="padding:2px 4px; font-size:11.5px;" onclick="togglePurItemProductPicker('${row.id}')">${row._pickerOpen?'收起 ▴':'+ 改关联'}</button>
-        </div>` : ''}
-        ${showInputArea ? `
-        <div style="display:flex; gap:6px; margin-bottom:6px;">
-          <input id="pi_product_${row.id}" placeholder="属于哪个产品（选填，可加多个，用来自动算成本；打字可以过滤下面的多选清单）" autocomplete="off" value="${row.productInput||''}" oninput="updatePurItem('${row.id}','productInput',this.value); filterPurItemPicker('${row.id}');" onkeydown="if(event.key==='Enter'){ setTimeout(()=>addPurItemProduct('${row.id}'), 0); }" style="flex:1;">
-          <button type="button" class="btn-ghost btn-small" onclick="addPurItemProduct('${row.id}')">+ 加入</button>
-          ${!hasLinked ? `<button type="button" class="btn-ghost btn-small" onclick="togglePurItemProductPicker('${row.id}')">${row._pickerOpen?'收起 ▴':'☰ 多选 ▾'}</button>` : ''}
-        </div>
-        ${row._pickerOpen ? `
-        <div id="pi_picker_${row.id}" style="border:1px solid var(--border); border-radius:8px; padding:8px 10px; margin-bottom:6px; max-height:200px; overflow:auto;">
-          ${purItemPickerListHtml(row.id)}
-        </div>` : ''}
-        ` : ''}
-        `;
+        /* 「这个食材属于哪个产品」现在统一在「产品→食材关联」那个子页签管理（全局一份，改一次全部
+           历史采购单一起生效），采购单这里不再让你逐笔手动勾选，只显示目前的关联结果当参考。 */
+        if(!row.name) return '';
+        const ing = findIngredient(row.name);
+        const ids = ing && ing.productIds ? ing.productIds.filter(Boolean) : [];
+        const names = ids.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean);
+        return names.length
+          ? `<div class="muted" style="font-size:11px; margin-bottom:6px;">🔗 关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="goToIngredientLinkTab('${row.name.replace(/'/g,"\\'")}')">改关联</a></div>`
+          : `<div class="muted" style="font-size:11px; margin-bottom:6px; color:var(--rust);">⚠️ 还没关联产品　<a href="javascript:void(0)" onclick="goToIngredientLinkTab('${row.name.replace(/'/g,"\\'")}')">去设定</a></div>`;
       })()}
       <div class="pi-bottom">
         <input id="pi_qty_${row.id}" placeholder="数量" type="number" value="${row.qty}" oninput="updatePurItem('${row.id}','qty',this.value)">
@@ -3121,93 +3098,12 @@ function removePurItem(id){
   if(tempPurchaseItems.length===0) tempPurchaseItems=[{id:uid(),name:'',category:'食材',productIds:[],productInput:'',qty:'',unit:'',unitPrice:'',total:''}];
   renderPurchaseItemRows();
 }
-function addPurItemProduct(rowId){
-  const row = tempPurchaseItems.find(r=>r.id===rowId);
-  if(!row) return;
-  const inputEl = document.getElementById('pi_product_'+rowId);
-  if(inputEl) row.productInput = inputEl.value;
-  const typed = (row.productInput||'').trim();
-  if(!typed) return;
-  const matched = state.products.find(p=>p.name.toLowerCase()===typed.toLowerCase());
-  if(!matched){ alert('找不到这个产品，请先去"成本"页新增该产品，或从建议列表里选一个已有的名字'); return; }
-  if(!row.productIds) row.productIds = [];
-  if(!row.productIds.includes(matched.id)) row.productIds.push(matched.id);
-  row.productInput = '';
-  renderPurchaseItemRows();
-}
-function togglePurItemProductPicker(rowId){
-  const row = tempPurchaseItems.find(r=>r.id===rowId);
-  if(!row) return;
-  row._pickerOpen = !row._pickerOpen;
-  renderPurchaseItemRows();
-}
-/* 多选清单会跟着"属于哪个产品"输入框的文字即时过滤，方便产品很多的时候快速找到要选的那几个。
-   全选/取消全选只作用在目前过滤后看得到的那几个，不影响清单外、已经选好的其他产品。 */
-function purItemFilteredProducts(rowId){
-  const row = tempPurchaseItems.find(r=>r.id===rowId);
-  const q = (row && row.productInput || '').trim().toLowerCase();
-  return q ? state.products.filter(p=>p.name.toLowerCase().includes(q)) : state.products;
-}
-function purItemPickerListHtml(rowId){
-  const row = tempPurchaseItems.find(r=>r.id===rowId);
-  if(!row) return '';
-  const filtered = purItemFilteredProducts(rowId);
-  if(!state.products.length) return `<div class="muted" style="font-size:12px;">还没有产品，先去"成本"页新增</div>`;
-  if(!filtered.length) return `<div class="muted" style="font-size:12px;">没有符合"${row.productInput||''}"的产品</div>`;
-  const allChecked = filtered.every(p=>(row.productIds||[]).includes(p.id));
-  return `
-    <label style="display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; margin-bottom:6px; cursor:pointer;">
-      <input type="checkbox" ${allChecked?'checked':''} onchange="togglePurItemAllProducts('${rowId}', this.checked)"> 全选（${row.productInput?'符合的 '+filtered.length+' 个':'共 '+filtered.length+' 个产品'}）
-    </label>
-    ${filtered.map(p=>`
-      <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-bottom:4px; cursor:pointer;">
-        <input type="checkbox" ${(row.productIds||[]).includes(p.id)?'checked':''} onchange="togglePurItemProductId('${rowId}','${p.id}', this.checked)"> ${p.name}
-      </label>
-    `).join('')}
-  `;
-}
-/* 打字过滤只更新多选清单那一小块 DOM，不整行重建，这样输入框不会丢失焦点/光标位置。 */
-function filterPurItemPicker(rowId){
-  const panel = document.getElementById('pi_picker_'+rowId);
-  if(!panel) return; // 面板没打开就不用管
-  panel.innerHTML = purItemPickerListHtml(rowId);
-}
-function togglePurItemProductId(rowId, productId, checked){
-  const row = tempPurchaseItems.find(r=>r.id===rowId);
-  if(!row) return;
-  if(!row.productIds) row.productIds = [];
-  if(checked){ if(!row.productIds.includes(productId)) row.productIds.push(productId); }
-  else { row.productIds = row.productIds.filter(id=>id!==productId); }
-  renderPurchaseItemRows();
-}
-function togglePurItemAllProducts(rowId, checked){
-  const row = tempPurchaseItems.find(r=>r.id===rowId);
-  if(!row) return;
-  if(!row.productIds) row.productIds = [];
-  const filteredIds = purItemFilteredProducts(rowId).map(p=>p.id);
-  if(checked){
-    filteredIds.forEach(id=>{ if(!row.productIds.includes(id)) row.productIds.push(id); });
-  } else {
-    row.productIds = row.productIds.filter(id=>!filteredIds.includes(id));
-  }
-  renderPurchaseItemRows();
-}
-function removePurItemProduct(rowId, productId){
-  const row = tempPurchaseItems.find(r=>r.id===rowId);
-  if(!row) return;
-  row.productIds = (row.productIds||[]).filter(id=>id!==productId);
-  renderPurchaseItemRows();
-}
 function autoLinkPurItemIngredient(rowId){
   const row = tempPurchaseItems.find(r=>r.id===rowId);
   if(!row) return;
   const ing = findIngredient(row.name);
   let changed = false;
   if(ing){
-    if(ing.productIds && ing.productIds.length){
-      if(!row.productIds) row.productIds = [];
-      ing.productIds.forEach(pid=>{ if(!row.productIds.includes(pid)){ row.productIds.push(pid); changed = true; } });
-    }
     if(ing.unit && !row.unit){ row.unit = ing.unit; changed = true; }
     if(ing.unitPrice && !row.unitPrice){
       row.unitPrice = String(ing.unitPrice);
@@ -3215,12 +3111,6 @@ function autoLinkPurItemIngredient(rowId){
       const qty = Number(row.qty);
       if(row.qty!=='' && !isNaN(qty)) row.total = String(Math.round(qty*ing.unitPrice*100)/100);
     }
-  }
-  /* 这一项目前还没有关联到任何产品（不管这个食材名字系统认不认得）——自动把"属于哪个产品"
-     的多选清单弹开，不用还要多点一次"多选"按钮才能选。 */
-  if(row.name && row.name.trim() && !(row.productIds && row.productIds.length) && !row._pickerOpen){
-    row._pickerOpen = true;
-    changed = true;
   }
   if(changed) renderPurchaseItemRows();
 }
@@ -3619,7 +3509,92 @@ let costSearchQuery = '';
 let costCategoryFilter = '';
 let draftProductCompany = '';
 let tempSharedIngredients = [{id:uid(), name:''}];
-let prodSubView = 'product'; // 'product' = 名称/售价/分类等基本资料的新增编辑，'cost' = 食材成本/毛利细项，'recipe' = 半成品配方
+let prodSubView = 'product'; // 'product' = 名称/售价/分类等基本资料的新增编辑，'cost' = 食材成本/毛利细项，'recipe' = 半成品配方，'link' = 食材关联
+let ingredientLinkSearchQuery = '';
+/* 食材关联页要把"半成品配方本身用到的食材"排除掉——那些原料/用料的成本已经透过配方自动流进
+   做出来的半成品成本里了，不需要使用者再额外去关联产品，免得清单上一堆用不着理会的东西。
+   但配方做出来的那个"半成品"本身（比如"肉碎(半成品)"）不算在这个排除名单里——它才是真正
+   要接到菜品成本上的地方，没被任何产品用到的话，应该继续提醒使用者。 */
+function recipeOccupiedIngredientNames(){
+  const set = new Set();
+  (state.recipes||[]).forEach(r=>{
+    if(r.triggerName) set.add(r.triggerName.trim().toLowerCase());
+    (r.components||[]).forEach(c=>{ if(c.name) set.add(c.name.trim().toLowerCase()); });
+  });
+  return set;
+}
+function ingredientLinkRowHtml(ing){
+  const linkedIds = ing.productIds||[];
+  const infoParts = [];
+  if(ing.unit) infoParts.push(`单位 ${ing.unit}`);
+  if(ing.unitPrice>0) infoParts.push(`参考单价 RM${fmtPlain(ing.unitPrice)}`);
+  return `
+    <div class="supplier-card">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+        <b>${ing.name}</b>
+        ${infoParts.length? `<span class="muted" style="font-size:11px; text-align:right;">${infoParts.join(' · ')}</span>` : ''}
+      </div>
+      <div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:6px;">
+        ${state.products.length? state.products.map(p=>`
+          <label style="display:flex; align-items:center; gap:4px; font-size:12.5px; border:1px solid var(--border); border-radius:14px; padding:3px 10px 3px 6px; cursor:pointer; ${linkedIds.includes(p.id)?'background:var(--green-dim); border-color:var(--green);':''}">
+            <input type="checkbox" style="margin:0;" ${linkedIds.includes(p.id)?'checked':''} onchange="toggleIngredientLinkProduct('${ing.id}','${p.id}', this.checked)">${p.name}
+          </label>
+        `).join('') : `<span class="muted" style="font-size:12px;">还没有产品，先去"产品"子页签新增</span>`}
+      </div>
+    </div>`;
+}
+function ingredientLinkListHtml(){
+  const occupied = recipeOccupiedIngredientNames();
+  const q = (ingredientLinkSearchQuery||'').trim().toLowerCase();
+  let list = (state.ingredients||[]).filter(ing=>ing.name && !occupied.has(ing.name.trim().toLowerCase()));
+  if(q) list = list.filter(ing=>ing.name.toLowerCase().includes(q));
+  list = list.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh'));
+  const unlinked = list.filter(ing=>!ing.productIds || !ing.productIds.length);
+  const linked = list.filter(ing=>ing.productIds && ing.productIds.length);
+  return `
+    <div class="card" style="border-top-color:var(--rust);">
+      <h3>⚠️ 还没关联的食材 <span class="n">${unlinked.length} 个</span></h3>
+      <div class="muted" style="font-size:12px; margin-bottom:8px;">这些食材目前还没关联到任何产品，成本算不进任何产品里——勾选下面的产品名字就能关联。</div>
+      ${unlinked.length? unlinked.map(ingredientLinkRowHtml).join('') : `<div class="empty">都关联好了，没有遗漏的食材 👍</div>`}
+    </div>
+    <div class="card">
+      <h3>已关联的食材 <span class="n">${linked.length} 个</span></h3>
+      ${linked.length? linked.map(ingredientLinkRowHtml).join('') : `<div class="empty">还没有已关联的食材</div>`}
+    </div>
+  `;
+}
+function renderIngredientLinkSectionHtml(){
+  return `
+    <div class="card">
+      <h3>食材关联 <span class="n">${(state.ingredients||[]).length} 个食材</span></h3>
+      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">这里统一管理"哪个食材算给哪个产品的成本"——改一次，所有历史采购单（不管新旧）都会一起用新的关联去重新算成本，不用回去一张一张改旧采购单。半成品配方本身用到的原料/用料不会出现在这里（它们的成本走配方那边自动算），但配方做出来、还没被任何产品用到的半成品会出现在下面提醒你。</div>
+      <input id="ingredientLinkSearchInput" placeholder="🔍 搜索食材名称..." value="${ingredientLinkSearchQuery.replace(/"/g,'&quot;')}" oninput="filterIngredientLinkList(this.value)">
+    </div>
+    <div id="ingredientLinkListWrap">${ingredientLinkListHtml()}</div>
+  `;
+}
+function filterIngredientLinkList(q){
+  ingredientLinkSearchQuery = q;
+  const wrap = document.getElementById('ingredientLinkListWrap');
+  if(wrap) wrap.innerHTML = ingredientLinkListHtml();
+}
+function toggleIngredientLinkProduct(ingredientId, productId, checked){
+  mutate(()=>{
+    const ing = (state.ingredients||[]).find(i=>i.id===ingredientId);
+    if(!ing) return;
+    if(!ing.productIds) ing.productIds = [];
+    if(checked){ if(!ing.productIds.includes(productId)) ing.productIds.push(productId); }
+    else { ing.productIds = ing.productIds.filter(id=>id!==productId); }
+  });
+}
+/* 从"采购"页那个"还没关联/去设定"小连结跳过来：切到"产品"页、开到"食材关联"子页签，
+   顺便把搜索框帮你填好这个食材的名字，直接定位过去不用自己找。 */
+function goToIngredientLinkTab(name){
+  prodSubView = 'link';
+  ingredientLinkSearchQuery = name || '';
+  switchToTab('cost');
+  window.scrollTo({top:0, behavior:'smooth'});
+}
 
 function setProdSubView(val){
   prodSubView = val;
@@ -3633,7 +3608,14 @@ function renderCost(){
       <button type="button" class="btn-toggle ${prodSubView==='product'?'active':''}" onclick="setProdSubView('product')">🏷️ 产品</button>
       <button type="button" class="btn-toggle ${prodSubView==='cost'?'active':''}" onclick="setProdSubView('cost')">🧮 成本</button>
       <button type="button" class="btn-toggle ${prodSubView==='recipe'?'active':''}" onclick="setProdSubView('recipe')">🧑‍🍳 半成品成本</button>
+      <button type="button" class="btn-toggle ${prodSubView==='link'?'active':''}" onclick="setProdSubView('link')">🔗 食材关联</button>
     </div>`;
+  if(prodSubView==='link'){
+    el.innerHTML = prodSubTabHtml + renderIngredientLinkSectionHtml();
+    if(ingredientLinkSearchQuery) filterIngredientLinkList(ingredientLinkSearchQuery);
+    wireSuggest('ingredientLinkSearchInput', getIngredientNames());
+    return;
+  }
   if(prodSubView==='recipe'){
     el.innerHTML = prodSubTabHtml + renderRecipeSectionHtml();
     const ingredientNames = getIngredientNames();
@@ -3778,15 +3760,15 @@ function renderCost(){
         ${editingProduct? (()=>{
           const links = productLinkedPurchaseItems(editingProduct.id);
           return `
-          <label style="margin-top:14px">已关联的采购品项（老方式：在"采购"页手动勾选关联的，按品名汇总；跟上面的共同食材名字是两回事，两种都会一起算成本）</label>
+          <label style="margin-top:14px">已关联的食材（在"产品→食材关联"页设定的，按品名汇总；跟上面的共同食材名字是两回事，两种都会一起算成本）</label>
           ${links.length? links.map(l=>`
             <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border);">
               <div style="font-size:12.5px;">
                 <div>${l.name} <span class="muted">· 共${l.count}笔 · 最近${l.latestDate}</span></div>
                 <div class="muted" style="font-size:11px;">合计 RM${fmtPlain(l.totalCost)}</div>
               </div>
-              <button class="btn-danger-text" onclick='removeProductPurchaseLink(${JSON.stringify(JSON.stringify(l.refs))}, "${editingProduct.id}")'>取消关联</button>
-            </div>`).join('') : `<div class="muted" style="font-size:12px;">还没有任何采购品项手动勾选关联这个产品</div>`}
+              <button class="btn-danger-text" onclick="removeProductPurchaseLink('${l.name.replace(/'/g,"\\'")}', '${editingProduct.id}')">取消关联</button>
+            </div>`).join('') : `<div class="muted" style="font-size:12px;">还没有任何食材关联这个产品</div>`}
           `;
         })() : ''}
       </div>
