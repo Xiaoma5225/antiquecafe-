@@ -3149,10 +3149,15 @@ function renderPurchaseItemRows(){
       })()}
       ${(()=>{
         /* 「这个食材属于哪个产品」现在统一在「产品→食材关联」那个子页签管理（全局一份，改一次全部
-           历史采购单一起生效），采购单这里不再让你逐笔手动勾选，只显示目前的关联结果当参考。 */
+           历史采购单一起生效），采购单这里不再让你逐笔手动勾选，只显示目前的关联结果当参考。
+           要注意：这里的 row.name 是"打进去的文字"，不代表已经存进系统的食材字典（state.ingredients）
+           ——那要等这张采购单真的保存/提交之后，reconcileIngredients() 才会把它加进字典。
+           所以完全没打过的全新食材，不能直接给"去设定"连结（点过去食材关联页会查不到、变成0个，
+           看起来像bug），要先请使用者保存这张单。 */
         if(!row.name) return '';
         const ing = findIngredient(row.name);
-        const ids = ing && ing.productIds ? ing.productIds.filter(Boolean) : [];
+        if(!ing) return `<div class="muted" style="font-size:11px; margin-bottom:6px;">🆕 新食材，先保存这张采购单，保存后才能去"产品→食材关联"设定要算给哪个产品</div>`;
+        const ids = ing.productIds ? ing.productIds.filter(Boolean) : [];
         const names = ids.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean);
         return names.length
           ? `<div class="muted" style="font-size:11px; margin-bottom:6px;">🔗 关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="goToIngredientLinkTab('${row.name.replace(/'/g,"\\'")}')">改关联</a></div>`
@@ -3646,11 +3651,18 @@ function ingredientLinkRowHtml(ing){
       </div>
     </div>`;
 }
+/* 食材数量一多（比如几百个），每个食材列出全部产品的打勾格子，一次要生出好几万个DOM元素，
+   会很卡。所以：①没输入搜索字时，食材数量超过40个就先不列出全部，请使用者先搜索；
+   ②搜索框加个小小的防抖（stopped typing 200ms 后才重新画），不用每打一个字就整个重画一次列表。 */
 function ingredientLinkListHtml(){
   const occupied = recipeOccupiedIngredientNames();
   const q = (ingredientLinkSearchQuery||'').trim().toLowerCase();
   let list = (state.ingredients||[]).filter(ing=>ing.name && !occupied.has(ing.name.trim().toLowerCase()));
-  if(q) list = list.filter(ing=>ing.name.toLowerCase().includes(q));
+  if(q){
+    list = list.filter(ing=>ing.name.toLowerCase().includes(q));
+  } else if(list.length > 40){
+    return `<div class="card"><div class="muted" style="font-size:12.5px; line-height:1.6; padding:4px 0;">食材共 ${list.length} 个，数量比较多——请在上面搜索框输入食材名称来查看（一次列出全部会很卡，所以先请你搜索缩小范围）。</div></div>`;
+  }
   list = list.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh'));
   const unlinked = list.filter(ing=>!ing.productIds || !ing.productIds.length);
   const linked = list.filter(ing=>ing.productIds && ing.productIds.length);
@@ -3676,10 +3688,14 @@ function renderIngredientLinkSectionHtml(){
     <div id="ingredientLinkListWrap">${ingredientLinkListHtml()}</div>
   `;
 }
+let ingredientLinkFilterTimer = null;
 function filterIngredientLinkList(q){
   ingredientLinkSearchQuery = q;
-  const wrap = document.getElementById('ingredientLinkListWrap');
-  if(wrap) wrap.innerHTML = ingredientLinkListHtml();
+  if(ingredientLinkFilterTimer) clearTimeout(ingredientLinkFilterTimer);
+  ingredientLinkFilterTimer = setTimeout(()=>{
+    const wrap = document.getElementById('ingredientLinkListWrap');
+    if(wrap) wrap.innerHTML = ingredientLinkListHtml();
+  }, 200);
 }
 function toggleIngredientLinkProduct(ingredientId, productId, checked){
   mutate(()=>{
@@ -5746,6 +5762,16 @@ document.getElementById('bottomNav').addEventListener('click', (e)=>{
   const btn = e.target.closest('button[data-tab]');
   if(!btn) return;
   switchToTab(btn.dataset.tab);
+});
+
+/* iPad/iOS 上 <input type="number"> 有时候弹出来的数字键盘没有小数点键，导致单价/数量这些
+   需要打小数的地方打不出"."。这里用事件委派，聚焦到任何数字输入框时都补上 inputmode="decimal"，
+   让键盘一律带小数点——不用去改App里每一个数字输入框（现在、以后新增的都一起涵盖）。 */
+document.addEventListener('focusin', (e)=>{
+  const t = e.target;
+  if(t && t.tagName==='INPUT' && t.type==='number' && !t.hasAttribute('inputmode')){
+    t.setAttribute('inputmode','decimal');
+  }
 });
 
 loadState();
