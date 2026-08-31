@@ -689,6 +689,9 @@ function captureFormValues(ids){
 function wireSuggest(inputId, options){
   const inputEl = document.getElementById(inputId);
   if(!inputEl) return;
+  // 传进来的名单如果本身有重复（比如底层数据有两条名字一样的记录），这里去重一次，
+  // 免得建议清单里出现两个看起来一模一样的选项。
+  options = Array.from(new Set(options.map(o=>String(o).trim()).filter(Boolean)));
   let wrap = inputEl.parentElement;
   if(!wrap || !wrap.classList.contains('suggest-wrap')){
     wrap = document.createElement('div');
@@ -1459,7 +1462,10 @@ function learnIngredientLink(name, productIds, extra){
   const n = (name||'').trim();
   if(!n) return;
   if(!state.ingredients) state.ingredients = [];
-  let ing = state.ingredients.find(i=>i.name.toLowerCase()===n.toLowerCase());
+  // 之前这里拿存起来的 i.name 直接比对、没有先 trim，如果某个食材名字当初存进去的时候
+  // 头尾带了空格（比如"白菜 "），之后打"白菜"（没空格）就会找不到、又新建一个一模一样看起来的食材，
+  // 建议清单里就会出现两个长得一样的"白菜"。这里补上 trim() 让新旧写法都能对上同一条记录。
+  let ing = state.ingredients.find(i=>i.name.trim().toLowerCase()===n.toLowerCase());
   if(!ing){ ing = {id:uid(), name:n, productIds:[], unit:'', unitPrice:0}; state.ingredients.push(ing); }
   (productIds||[]).filter(Boolean).forEach(pid=>{ if(!ing.productIds.includes(pid)) ing.productIds.push(pid); });
   if(extra){
@@ -1470,7 +1476,7 @@ function learnIngredientLink(name, productIds, extra){
 function findIngredient(name){
   const n = (name||'').trim().toLowerCase();
   if(!n) return null;
-  return (state.ingredients||[]).find(i=>i.name.toLowerCase()===n) || null;
+  return (state.ingredients||[]).find(i=>i.name.trim().toLowerCase()===n) || null;
 }
 function getIngredientNames(){
   return (state.ingredients||[]).map(i=>i.name).sort((a,b)=>a.localeCompare(b,'zh'));
@@ -2453,12 +2459,12 @@ function addonMappingComponentRowsHtml(){
   return tempAddonMapping.components.map(c=>`
     <div class="pi-card">
       <div class="pi-top">
-        <input id="addonMapCompName_${c.id}" placeholder="耗用的食材品名" value="${c.name}" oninput="updateAddonMappingComponent('${c.id}','name',this.value)" onchange="autoLinkAddonMappingComponentUnit('${c.id}')">
+        <input autocomplete="off" id="addonMapCompName_${c.id}" placeholder="耗用的食材品名" value="${c.name}" oninput="updateAddonMappingComponent('${c.id}','name',this.value)" onchange="autoLinkAddonMappingComponentUnit('${c.id}')">
         ${tempAddonMapping.components.length>1? `<button class="rm" onclick="removeAddonMappingComponent('${c.id}')">×</button>` : '<span style="width:20px"></span>'}
       </div>
       <div class="pi-bottom" style="grid-template-columns:repeat(2,1fr);">
         <input placeholder="每次用量" type="number" step="0.0001" value="${c.qtyPerUse}" oninput="updateAddonMappingComponent('${c.id}','qtyPerUse',this.value)">
-        <input id="addonMapCompUnit_${c.id}" placeholder="单位" value="${c.unit}" oninput="updateAddonMappingComponent('${c.id}','unit',this.value)">
+        <input autocomplete="off" id="addonMapCompUnit_${c.id}" placeholder="单位" value="${c.unit}" oninput="updateAddonMappingComponent('${c.id}','unit',this.value)">
       </div>
     </div>
   `).join('');
@@ -2567,7 +2573,7 @@ function unitConversionFormHtml(){
       <label>食材名称（要跟"采购"页记的品名一样）</label>
       <input id="convIngredientName" placeholder="例：酱油" autocomplete="off" value="${tempUnitConversion.ingredientName}" oninput="updateUnitConversionField('ingredientName', this.value)">
       <div class="grid2" style="margin-top:10px">
-        <div><label>采购单位（进货怎么算的）</label><input id="convPurchaseUnit" placeholder="例：桶" value="${tempUnitConversion.purchaseUnit}" oninput="updateUnitConversionField('purchaseUnit', this.value)"></div>
+        <div><label>采购单位（进货怎么算的）</label><input autocomplete="off" id="convPurchaseUnit" placeholder="例：桶" value="${tempUnitConversion.purchaseUnit}" oninput="updateUnitConversionField('purchaseUnit', this.value)"></div>
         <div><label>使用单位（配方/成本项怎么用的）</label><input id="convUsageUnit" placeholder="例：ml" autocomplete="off" value="${tempUnitConversion.usageUnit}" oninput="updateUnitConversionField('usageUnit', this.value)"></div>
       </div>
       <label style="margin-top:10px">换算比例：1个采购单位 = 多少个使用单位</label>
@@ -2723,12 +2729,12 @@ function recipeComponentRowsHtml(){
   return tempRecipe.components.map(c=>`
     <div class="pi-card">
       <div class="pi-top">
-        <input id="recipeCompName_${c.id}" placeholder="用料品名" value="${c.name}" oninput="updateRecipeComponent('${c.id}','name',this.value)" onchange="autoLinkRecipeComponentPrice('${c.id}')">
+        <input autocomplete="off" id="recipeCompName_${c.id}" placeholder="用料品名" value="${c.name}" oninput="updateRecipeComponent('${c.id}','name',this.value)" onchange="autoLinkRecipeComponentPrice('${c.id}')">
         ${tempRecipe.components.length>1? `<button class="rm" onclick="removeRecipeComponent('${c.id}')">×</button>` : '<span style="width:20px"></span>'}
       </div>
       <div class="pi-bottom" style="grid-template-columns:repeat(3,1fr);">
         <input placeholder="每单位用量" type="number" step="0.0001" value="${c.ratioQty}" oninput="updateRecipeComponent('${c.id}','ratioQty',this.value)">
-        <input id="recipeCompUnit_${c.id}" placeholder="单位" value="${c.unit}" oninput="updateRecipeComponent('${c.id}','unit',this.value)" onchange="autoLinkRecipeComponentUnit('${c.id}')">
+        <input autocomplete="off" id="recipeCompUnit_${c.id}" placeholder="单位" value="${c.unit}" oninput="updateRecipeComponent('${c.id}','unit',this.value)" onchange="autoLinkRecipeComponentUnit('${c.id}')">
         <input placeholder="单价RM" type="number" step="0.01" value="${c.unitPrice}" oninput="updateRecipeComponent('${c.id}','unitPrice',this.value)">
       </div>
     </div>
@@ -2743,7 +2749,7 @@ function recipeFormHtml(){
       <label>原料名称（采购单品名跟这个一样，就能在"这批做好了？"里对上，帮你算这批的成本；比如：肉碎）</label>
       <input id="recipeTrigText" placeholder="原料名称" autocomplete="off" value="${tempRecipe.triggerName}" oninput="updateRecipeField('triggerName', this.value)">
       <label style="margin-top:10px">原料单位（比如：kg）</label>
-      <input id="recipeTriggerUnit" placeholder="例：kg" value="${tempRecipe.triggerUnit}" oninput="updateRecipeField('triggerUnit', this.value)">
+      <input autocomplete="off" id="recipeTriggerUnit" placeholder="例：kg" value="${tempRecipe.triggerUnit}" oninput="updateRecipeField('triggerUnit', this.value)">
       <label style="margin-top:14px">每 1 单位原料要配的用料（比如每1kg肉碎配多少蒜蓉、生抽…）</label>
       <div id="recipeComponentsWrap">${recipeComponentRowsHtml()}</div>
       <button class="btn-line" onclick="addRecipeComponentRow()">+ 添加一样用料</button>
@@ -2753,7 +2759,7 @@ function recipeFormHtml(){
       <label>变成的成品名称（选填，比如：肉碎(半成品) 或 招牌酱料）</label>
       <input id="recipeOutputName" placeholder="例：${tempRecipe.triggerName||'肉碎'}(半成品)" autocomplete="off" value="${tempRecipe.outputName||''}" oninput="updateRecipeField('outputName', this.value)">
       <label style="margin-top:10px">成品单位（比如：包）</label>
-      <input id="recipeOutputUnit" placeholder="例：包" value="${tempRecipe.outputUnit||''}" oninput="updateRecipeField('outputUnit', this.value)">
+      <input autocomplete="off" id="recipeOutputUnit" placeholder="例：包" value="${tempRecipe.outputUnit||''}" oninput="updateRecipeField('outputUnit', this.value)">
       <button class="btn-main" onclick="submitRecipe()">${tempRecipe.id?'保存修改':'保存配方'}</button>
       <button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditRecipe()">取消</button>
     </div>
@@ -2878,7 +2884,7 @@ function renderPaymentSectionHtml(){
       <div class="btn-group" id="payMethodGroup">
         ${PAY_METHODS.map(m=>`<button type="button" class="btn-toggle ${payPayMethod===m?'active':''}" data-val="${m}" onclick="setPayPayMethod('${m}')">${m}</button>`).join('')}
       </div>
-      <label>备注（选填）</label><input id="payNote" placeholder="例：结清上月货款" value="${draft.payNote||''}">
+      <label>备注（选填）</label><input autocomplete="off" id="payNote" placeholder="例：结清上月货款" value="${draft.payNote||''}">
       <button class="btn-main" onclick="submitPayment()">记录付款</button>
     </div>
 
@@ -2910,7 +2916,7 @@ function renderPaymentSectionHtml(){
       <h3>供应商 <span class="n">${state.suppliers.length} 家</span></h3>
       <div class="grid2">
         <div><label>供应商名称</label><input id="supTitle" placeholder="例：新鲜蔬果行" autocomplete="off" value="${supplierDraft.supTitle||''}"></div>
-        <div><label>联系电话（选填）</label><input id="supPhone" placeholder="012-3456789" value="${supplierDraft.supPhone||''}"></div>
+        <div><label>联系电话（选填）</label><input autocomplete="off" id="supPhone" placeholder="012-3456789" value="${supplierDraft.supPhone||''}"></div>
       </div>
       <button class="btn-main" onclick="addSupplier()">+ 添加供应商</button>
       <hr class="receipt-divider">
@@ -3023,7 +3029,7 @@ function renderPurchaseItemRows(){
   ` + tempPurchaseItems.map((row,idx)=>`
     <div class="pi-card">
       <div class="pi-top">
-        <input id="purItemName_${row.id}" placeholder="品名" value="${row.name}" oninput="updatePurItem('${row.id}','name',this.value)" onchange="autoLinkPurItemIngredient('${row.id}')">
+        <input autocomplete="off" id="purItemName_${row.id}" placeholder="品名" value="${row.name}" oninput="updatePurItem('${row.id}','name',this.value)" onchange="autoLinkPurItemIngredient('${row.id}')">
         <select style="flex:0 0 108px" onchange="updatePurItem('${row.id}','category',this.value)">
           ${PURCHASE_CATEGORIES.map(c=>`<option value="${c}" ${row.category===c?'selected':''}>${c}</option>`).join('')}
         </select>
@@ -3074,7 +3080,7 @@ function renderPurchaseItemRows(){
       })()}
       <div class="pi-bottom">
         <input id="pi_qty_${row.id}" placeholder="数量" type="number" value="${row.qty}" oninput="updatePurItem('${row.id}','qty',this.value)">
-        <input id="pi_unit_${row.id}" placeholder="单位" value="${row.unit}" oninput="updatePurItem('${row.id}','unit',this.value)">
+        <input autocomplete="off" id="pi_unit_${row.id}" placeholder="单位" value="${row.unit}" oninput="updatePurItem('${row.id}','unit',this.value)">
         <input placeholder="单价(选填)" type="number" step="0.01" value="${row.unitPrice}" oninput="updatePurItem('${row.id}','unitPrice',this.value)">
         <input id="pi_total_${row.id}" placeholder="总价RM" type="number" step="0.01" value="${row.total}" oninput="updatePurItem('${row.id}','total',this.value)">
       </div>
@@ -3657,7 +3663,7 @@ function renderCost(){
       <h3>产品成本一览 <span class="n">${state.products.length} 项</span></h3>
       <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">下面这颗按钮会拿 POS 系统导出的官方菜单（共 ${POS_MENU.length} 项）去补现有产品的分类/编号/所属公司，不会动已经填好的食材成本和售价，也不会删掉任何产品；菜单里有、但这里还没建档的产品会自动新增（售价照抄 POS，食材成本留空待填）。</div>
       <button class="btn-line" onclick="syncPosMenu()">📋 从 POS 官方菜单同步餐品</button>
-      ${state.products.length? `<input id="costSearchInput" placeholder="🔍 搜索产品名称..." value="${costSearchQuery.replace(/"/g,'&quot;')}" oninput="filterCostProducts(this.value)" style="margin-top:10px; margin-bottom:10px;">
+      ${state.products.length? `<input autocomplete="off" id="costSearchInput" placeholder="🔍 搜索产品名称..." value="${costSearchQuery.replace(/"/g,'&quot;')}" oninput="filterCostProducts(this.value)" style="margin-top:10px; margin-bottom:10px;">
       <select id="costCategoryFilterSelect" onchange="setCostCategoryFilter(this.value)" style="margin-bottom:10px;">
         <option value="">全部分类（${state.products.length}）</option>
         ${categoryOptions.map(c=>`<option value="${c.replace(/"/g,'&quot;')}" ${costCategoryFilter===c?'selected':''}>${c}（${state.products.filter(x=>(x.category||'')===c).length}）</option>`).join('')}
@@ -3692,7 +3698,7 @@ function renderCost(){
               <td style="width:24px"><button class="btn-danger-text" onclick="deleteCostItem('${p.id}','${ci.id}')">×</button></td></tr>`).join('')}
           </table>
           <div class="pi-bottom" style="margin-top:8px">
-            <input placeholder="追加食材" id="addCi_${p.id}_name">
+            <input autocomplete="off" placeholder="追加食材" id="addCi_${p.id}_name">
             <input placeholder="数量" type="number" id="addCi_${p.id}_qty" oninput="updateAppendCostPreview('${p.id}')">
             <input placeholder="单价(选填)" type="number" step="0.01" id="addCi_${p.id}_unitPrice" oninput="updateAppendCostPreview('${p.id}')">
             <input placeholder="金额" type="number" step="0.01" id="addCi_${p.id}_cost">
@@ -3747,7 +3753,7 @@ function renderCost(){
       </div>
       <div class="grid2" style="margin-top:10px">
         <div><label>分类（选填，方便下面按分类查找）</label>
-          <input id="prodCategory" placeholder="例：肉类" value="${editingProduct?(editingProduct.category||''):(draft.prodCategory||'')}">
+          <input autocomplete="off" id="prodCategory" placeholder="例：肉类" value="${editingProduct?(editingProduct.category||''):(draft.prodCategory||'')}">
         </div>
         <div><label>POS 编号（选填）</label><input id="prodCode" placeholder="例：M02" autocomplete="off" value="${editingProduct?(editingProduct.code||''):(draft.prodCode||'')}"></div>
       </div>
@@ -3813,12 +3819,12 @@ function renderCostItemRows(){
   wrap.innerHTML = tempCostItems.map(row=>`
     <div class="pi-card">
       <div class="pi-top">
-        <input id="ci_name_${row.id}" placeholder="食材名称，如：鸡胸肉" value="${row.name}" oninput="updateCostItem('${row.id}','name',this.value)" onchange="autoLinkCostItemIngredient('${row.id}')">
+        <input autocomplete="off" id="ci_name_${row.id}" placeholder="食材名称，如：鸡胸肉" value="${row.name}" oninput="updateCostItem('${row.id}','name',this.value)" onchange="autoLinkCostItemIngredient('${row.id}')">
         ${tempCostItems.length>1?`<button class="rm" onclick="removeCostItem('${row.id}')">×</button>`:'<span style="width:20px"></span>'}
       </div>
       <div class="pi-bottom">
         <input id="ci_qty_${row.id}" placeholder="数量" type="number" value="${row.qty}" oninput="updateCostItem('${row.id}','qty',this.value)">
-        <input id="ci_unit_${row.id}" placeholder="单位" value="${row.unit}" oninput="updateCostItem('${row.id}','unit',this.value)" onchange="autoLinkCostItemUnit('${row.id}')">
+        <input autocomplete="off" id="ci_unit_${row.id}" placeholder="单位" value="${row.unit}" oninput="updateCostItem('${row.id}','unit',this.value)" onchange="autoLinkCostItemUnit('${row.id}')">
         <input placeholder="单价(选填)" type="number" step="0.01" value="${row.unitPrice}" oninput="updateCostItem('${row.id}','unitPrice',this.value)">
         <input id="ci_cost_${row.id}" placeholder="成本RM" type="number" step="0.01" value="${row.cost}" oninput="updateCostItem('${row.id}','cost',this.value)">
       </div>
@@ -4847,7 +4853,7 @@ function cashflowEditRowHtml(ids, group){
       <div class="btn-group" id="cfEditPayMethodGroup">
         ${PAY_METHODS.map(m=>`<button type="button" class="btn-toggle ${first.payMethod===m?'active':''}" data-val="${m}" onclick="setEditPayMethod('${m}')">${m}</button>`).join('')}
       </div>
-      <label>备注（选填）</label><input id="cfEditNote" value="${noteVal}">
+      <label>备注（选填）</label><input autocomplete="off" id="cfEditNote" value="${noteVal}">
       <div style="display:flex; gap:8px; margin-top:10px;">
         <button class="btn-main" style="flex:1" onclick="saveEditAutoCashflow('${ids}')">保存</button>
         <button class="btn-ghost" style="flex:1" onclick="cancelEditCashflow()">取消</button>
@@ -4868,7 +4874,7 @@ function cashflowEditRowHtml(ids, group){
           return `<div><label style="margin-top:0">${cat}</label><input type="number" step="0.01" id="cfEditIncome_${cat}" value="${rec?rec.amount:''}"></div>`;
         }).join('')}
       </div>
-      <label>备注（选填）</label><input id="cfEditNote" value="${noteVal}">
+      <label>备注（选填）</label><input autocomplete="off" id="cfEditNote" value="${noteVal}">
       <div style="display:flex; gap:8px; margin-top:10px;">
         <button class="btn-main" style="flex:1" onclick="saveEditGroupCashflow('${ids}')">保存</button>
         <button class="btn-ghost" style="flex:1" onclick="cancelEditCashflow()">取消</button>
@@ -4894,7 +4900,7 @@ function cashflowEditRowHtml(ids, group){
     <div class="btn-group" id="cfEditPayMethodGroup">
       ${PAY_METHODS.map(m=>`<button type="button" class="btn-toggle ${first.payMethod===m?'active':''}" data-val="${m}" onclick="setEditPayMethod('${m}')">${m}</button>`).join('')}
     </div>`}
-    <label>备注（选填）</label><input id="cfEditNote" value="${noteVal}">
+    <label>备注（选填）</label><input autocomplete="off" id="cfEditNote" value="${noteVal}">
     <div style="display:flex; gap:8px; margin-top:10px;">
       <button class="btn-main" style="flex:1" onclick="saveEditSingleCashflow('${ids}')">保存</button>
       <button class="btn-ghost" style="flex:1" onclick="cancelEditCashflow()">取消</button>
@@ -4922,7 +4928,7 @@ function renderCash(){
         ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${cfCompany===c?'active':''}" data-val="${c}" onclick="setCfCompany('${c}')">${c}</button>`).join('')}
       </div>
       <div id="cfBodyWrap"></div>
-      <label>备注（选填）</label><input id="cfNote" value="${draft.cfNote||''}">
+      <label>备注（选填）</label><input autocomplete="off" id="cfNote" value="${draft.cfNote||''}">
       <button class="btn-main" onclick="submitCashflow()">保存记录</button>
     </div>
 
@@ -5274,7 +5280,7 @@ function renderInventory(){
         <button type="button" class="btn-toggle ${!invFilterCompany?'active':''}" onclick="setInvFilterCompany('')">全部</button>
         ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${invFilterCompany===c?'active':''}" onclick="setInvFilterCompany('${c}')">${c}</button>`).join('')}
       </div>
-      <input id="invSearchInput" placeholder="搜索品名…" value="${draft.invSearchInput!==undefined?draft.invSearchInput:invSearchText}" oninput="setInvSearchText(this.value)" style="margin-bottom:10px;">
+      <input autocomplete="off" id="invSearchInput" placeholder="搜索品名…" value="${draft.invSearchInput!==undefined?draft.invSearchInput:invSearchText}" oninput="setInvSearchText(this.value)" style="margin-bottom:10px;">
       ${rows.length? `<table>
         <tr><th>品名</th><th>单位</th><th class="num">已采购</th><th class="num">手动调整</th><th class="num">目前库存</th><th></th></tr>
         ${rows.map(r=>`
@@ -5309,7 +5315,7 @@ function renderInventory(){
         <div><label>数量</label><input type="number" step="0.01" id="stockAdjQty" placeholder="正数就好" value="${draft.stockAdjQty||''}"></div>
       </div>
       <label>日期</label><input type="date" id="stockAdjDate" value="${draft.stockAdjDate||todayStr()}" onchange="this.blur()">
-      <label>备注（选填）</label><input id="stockAdjNote" placeholder="例：打翻了、盘点校正" value="${draft.stockAdjNote||''}">
+      <label>备注（选填）</label><input autocomplete="off" id="stockAdjNote" placeholder="例：打翻了、盘点校正" value="${draft.stockAdjNote||''}">
       <button class="btn-main" onclick="submitStockAdjustment()">+ 记录调整</button>
     </div>
 
