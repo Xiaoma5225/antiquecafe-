@@ -100,6 +100,7 @@
   #tab-overview .card{border-top-color:var(--green);}
   #tab-export .card, #tab-settings .card{border-top-color:var(--gold);}
   #tab-home .card{border-top-color:var(--green);}
+  #tab-pos .card{border-top-color:var(--gold);}
 
   /* 首页：问候语卡 + 图标磁贴快捷入口 */
   .greet-card{
@@ -311,6 +312,7 @@
   nav.bottom button[data-tab="inventory"] .ic{background:var(--plum-dim);}
   nav.bottom button[data-tab="cash"] .ic{background:var(--teal-dim);}
   nav.bottom button[data-tab="overview"] .ic{background:var(--green-dim);}
+  nav.bottom button[data-tab="pos"] .ic{background:var(--gold-dim);}
   nav.bottom button.active{color:var(--green); background:var(--green-dim);}
   nav.bottom button.active .ic{transform:scale(1.1);}
 
@@ -352,6 +354,79 @@
     header.top{display:none;}
     .header-desktop{max-width:none; margin:0; padding:18px 26px 0;}
   }
+
+  /* ---------------- 点餐 / POS ---------------- */
+  .pos-mode-row{display:flex; gap:8px; margin-bottom:10px;}
+  .pos-mode-row .btn-toggle{flex:1; padding:12px 8px; font-size:14px; border-radius:10px;}
+  .pos-mode-row .btn-toggle.active{background:var(--gold); border-color:var(--gold);}
+  .pos-company-row{display:flex; gap:8px; margin-bottom:14px;}
+  .pos-company-row .btn-toggle{flex:1;}
+  .pos-table-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:10px;}
+  .pos-table-tile{
+    position:relative; border-radius:12px; padding:14px 8px; text-align:center; cursor:pointer;
+    background:#FFFDF9; border:1px solid var(--border); min-height:64px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
+  }
+  .pos-table-tile:active{opacity:.8;}
+  .pos-table-tile .tname{font-weight:600; font-size:14px;}
+  .pos-table-tile .tsub{font-size:11px; color:var(--muted);}
+  .pos-table-tile.occupied{background:var(--gold-dim); border-color:var(--gold);}
+  .pos-table-tile.occupied .tsub{color:var(--rust); font-weight:600;}
+  .pos-table-tile .tdel{position:absolute; top:2px; right:4px; font-size:11px; color:var(--muted); padding:4px 6px;}
+  .pos-order-row{
+    display:flex; justify-content:space-between; align-items:center; cursor:pointer;
+    padding:12px 10px; border:1px solid var(--border); border-radius:10px; margin-bottom:8px; background:#FFFDF9;
+  }
+  .pos-order-row:active{opacity:.8;}
+  .pos-order-row .oname{font-weight:600; font-size:14px;}
+  .pos-order-row .osub{font-size:11.5px; color:var(--muted); margin-top:2px;}
+  .pos-order-row .oamt{font-family:'IBM Plex Mono',monospace; font-weight:600; color:var(--gold);}
+  .pos-add-tile{
+    border:1.5px dashed var(--border); color:var(--muted); background:transparent;
+  }
+  .pos-order-header{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px;}
+  .pos-order-header .ttl{font-family:'Fraunces',serif; font-size:17px; font-weight:600;}
+  .pos-cat-tabs{display:flex; gap:6px; overflow-x:auto; padding-bottom:4px; margin-bottom:10px;}
+  .pos-cat-tabs .btn-toggle{flex:0 0 auto; padding:7px 12px; font-size:12.5px;}
+  .pos-menu-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:8px;}
+  .pos-menu-item{
+    text-align:left; background:#FFFDF9; border:1px solid var(--border); border-radius:10px;
+    padding:10px; cursor:pointer;
+  }
+  .pos-menu-item:active{opacity:.75; background:var(--gold-dim);}
+  .pos-menu-item .pname{font-size:13px; font-weight:600; line-height:1.3;}
+  .pos-menu-item .pprice{font-size:12px; color:var(--gold); margin-top:4px; font-family:'IBM Plex Mono',monospace;}
+  .pos-cart-line{display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid var(--border);}
+  .pos-cart-line:last-child{border-bottom:none;}
+  .pos-cart-line .cname{flex:1; font-size:13.5px;}
+  .pos-cart-line .cname .csub{display:block; font-size:11px; color:var(--muted);}
+  .pos-qty-stepper{display:flex; align-items:center; gap:6px;}
+  .pos-qty-stepper button{
+    width:26px; height:26px; padding:0; border-radius:50%; background:var(--bg); border:1px solid var(--border); color:var(--ink); font-size:15px;
+  }
+  .pos-qty-stepper .qn{min-width:20px; text-align:center; font-family:'IBM Plex Mono',monospace; font-size:13.5px;}
+  .pos-cart-amt{width:64px; text-align:right; font-family:'IBM Plex Mono',monospace; font-size:13px;}
+  .pos-cart-total-row{display:flex; justify-content:space-between; align-items:center; padding-top:10px; margin-top:4px; border-top:2px solid var(--ink); font-weight:700; font-size:15.5px;}
+  .pos-checkout-row{display:flex; gap:8px; margin-top:12px;}
+  .pos-checkout-row button{flex:1; background:linear-gradient(135deg,#26886F,var(--green)); color:#fff; padding:12px 4px; font-size:13px; border-radius:10px;}
+  .pos-manage-panel{background:var(--bg); border-radius:10px; padding:10px; margin-top:10px;}
+  .pos-manage-panel .prow{display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border); font-size:13px;}
+  .pos-manage-panel .prow:last-child{border-bottom:none;}
+
+  /* 收据打印：平常这个区块是空的、隐藏的；结账时用 innerHTML 塞进收据内容再呼叫 window.print()，
+     @media print 让打印出来的纸只有这一块，其他画面全部隐藏。 */
+  #receiptPrintArea{display:none;}
+  .receipt-doc{font-family:'IBM Plex Mono',monospace; font-size:12px; width:100%; max-width:280px;}
+  .receipt-doc .rc-store{text-align:center; font-weight:700; font-size:15px; margin-bottom:2px;}
+  .receipt-doc .rc-sub{text-align:center; font-size:11px; margin-bottom:10px;}
+  .receipt-doc .rc-line{display:flex; justify-content:space-between; margin:3px 0;}
+  .receipt-doc hr{border:none; border-top:1px dashed #000; margin:8px 0;}
+  .receipt-doc .rc-total{font-weight:700; font-size:14px;}
+  @media print{
+    body *{visibility:hidden;}
+    #receiptPrintArea, #receiptPrintArea *{visibility:visible;}
+    #receiptPrintArea{display:block; position:absolute; top:0; left:0; width:100%; padding:10px;}
+  }
 </style>
 </head>
 <body>
@@ -367,6 +442,9 @@
 </div>
 
 <div id="payPopupOverlay" onclick="closePurchasePayPopup()"></div>
+
+<!-- 点餐结账后打印用的收据，平常隐藏，只在按"打印"时透过 @media print 单独显示这块出来 -->
+<div id="receiptPrintArea"></div>
 
 <header class="top">
   <div class="row">
@@ -391,6 +469,7 @@
 <div class="layout">
 <nav class="bottom" id="bottomNav">
   <button data-tab="home" class="active"><span class="ic">🏠</span>首页</button>
+  <button data-tab="pos"><span class="ic">🧾</span>点餐</button>
   <button data-tab="purchase"><span class="ic">🛒</span>采购</button>
   <button data-tab="cost"><span class="ic">🧮</span>产品</button>
   <button data-tab="sales"><span class="ic">💰</span>销售</button>
@@ -402,6 +481,7 @@
 <main>
 
   <section class="tab-panel active" id="tab-home"></section>
+  <section class="tab-panel" id="tab-pos"></section>
   <section class="tab-panel" id="tab-purchase"></section>
   <section class="tab-panel" id="tab-cost"></section>
   <section class="tab-panel" id="tab-sales"></section>
@@ -657,8 +737,12 @@ let state = {
   recipeBatchLogs: [], // "这批腌好了，分成幾包" 按钮生成的完成记录，每条记着扣了哪些原料库存、加了几包成品
   addonMappings: [], // POS "Addon"加料选项 -> 消耗的食材对照表，导入Addon报表时用来自动算耗料、扣库存
   addonMappingsSeeded: false, // 是否已经自动补过一次默认的面包酱料/面条种类对照，补过一次之后不会再自动补（避免使用者删掉后又被重新加回来）
-  unitConversions: [] // 食材单位换算，比如"酱油：1桶=200000ml"——采购按桶记价，食材成本项/配方/Addon消耗按ml填的时候，
+  unitConversions: [], // 食材单位换算，比如"酱油：1桶=200000ml"——采购按桶记价，食材成本项/配方/Addon消耗按ml填的时候，
                        // 系统会自动用这个换算算出每ml多少钱，不用自己心算
+  posTables: [], // 点餐用的桌号，每个 {id, name, company}——两间公司各自的桌号分开管理
+  posTablesSeeded: false, // 是否已自动补过一次默认桌号（补过一次之后不会再自动补，避免使用者删掉后又被加回来）
+  posOrders: [], // 点餐目前"进行中"（还没结账）的单，每个 {id, mode:'dine-in'|'takeaway', tableId, tableName, company, items:[{id,productId,name,price,qty}], createdAt}——结账后会转成销售记录并从这里删除
+  posTakeawayCounter: 0 // 外带单编号流水号，只增不减，用来生成"外带#3"这种票号
 };
 let loaded = false;
 let recentActivityFilterDate = '';
@@ -806,7 +890,7 @@ let cloudReady = false;
    下面这些变量用来记住"上一次已经跟云端对齐的样子"，saveState() 存档时会拿现在的
    state 跟这个做比对，只把真的有差异的记录写回云端。 */
 let firestoreDb = null;
-const SUBCOLLECTIONS = ['suppliers','purchases','payments','products','sales','cashflow','ingredients','importBatches','stockAdjustments','recipes','recipeBatchLogs','addonMappings','unitConversions'];
+const SUBCOLLECTIONS = ['suppliers','purchases','payments','products','sales','cashflow','ingredients','importBatches','stockAdjustments','recipes','recipeBatchLogs','addonMappings','unitConversions','posTables','posOrders'];
 let lastSynced = {};
 SUBCOLLECTIONS.forEach(k=>{ lastSynced[k] = new Map(); });
 
@@ -859,7 +943,8 @@ function loadLocalThenApp(){
   const changed1 = reconcileCashflow();
   const changed2 = reconcileIngredients();
   const changed3 = ensureDefaultAddonMappings();
-  if(changed1 || changed2 || changed3) saveState();
+  const changed4 = ensureDefaultPosTables();
+  if(changed1 || changed2 || changed3 || changed4) saveState();
   renderAll();
 }
 function doLogin(){
@@ -926,6 +1011,8 @@ function attachMetaListener(sharedRef){
     if(remote.initialCash!=null) state.initialCash = remote.initialCash;
     if(remote.customExpenseCategories) state.customExpenseCategories = remote.customExpenseCategories;
     if(remote.addonMappingsSeeded!=null) state.addonMappingsSeeded = remote.addonMappingsSeeded;
+    if(remote.posTablesSeeded!=null) state.posTablesSeeded = remote.posTablesSeeded;
+    if(remote.posTakeawayCounter!=null) state.posTakeawayCounter = remote.posTakeawayCounter;
     scheduleRenderAfterSync();
   }, (err)=>{ console.error(err); setSyncStatus('云同步失败，暂时仅用本机存储'); });
 }
@@ -980,7 +1067,8 @@ function scheduleRenderAfterSync(){
     const changed1 = reconcileCashflow();
     const changed2 = reconcileIngredients();
     const changed3 = ensureDefaultAddonMappings();
-    if(changed1 || changed2 || changed3) saveState();
+    const changed4 = ensureDefaultPosTables();
+    if(changed1 || changed2 || changed3 || changed4) saveState();
     renderAll();
     setSyncStatus('云同步：已连接 ✓（共享账本）');
   }, 200);
@@ -1016,6 +1104,8 @@ function pushToCloud(){
     initialCash: state.initialCash||0,
     customExpenseCategories: state.customExpenseCategories||[],
     addonMappingsSeeded: state.addonMappingsSeeded||false,
+    posTablesSeeded: state.posTablesSeeded||false,
+    posTakeawayCounter: state.posTakeawayCounter||0,
     updatedAt: state.updatedAt,
     subcollectionsMigrated: true
   }, {merge:true}).catch(err=>console.error('云同步写入失败', err));
@@ -2380,6 +2470,19 @@ function ensureDefaultAddonMappings(){
   });
   state.addonMappingsSeeded = true;
   return true; // 就算这次没实际新增（比如已经手动设过同名的），旗标本身也是一次状态变化，要存
+}
+/* 点餐页第一次使用时，自动帮两间公司各补8张预设桌号（桌1~桌8），之后使用者可以自己在
+   "管理桌号"里增加/删除，不会因为同步又被重新补回来（用 posTablesSeeded 旗标挡住）。 */
+function ensureDefaultPosTables(){
+  if(state.posTablesSeeded) return false;
+  if(!state.posTables) state.posTables = [];
+  COMPANIES.forEach(co=>{
+    const hasAny = state.posTables.some(t=>t.company===co);
+    if(hasAny) return;
+    for(let i=1;i<=8;i++){ state.posTables.push({id:uid(), name:'桌'+i, company:co}); }
+  });
+  state.posTablesSeeded = true;
+  return true;
 }
 function startNewAddonMapping(){
   tempAddonMapping = {id:null, addonName:'', components:[{id:uid(), name:'', qtyPerUse:'', unit:''}]};
@@ -5362,8 +5465,231 @@ function deleteStockAdjustment(id){
    其实没在看的分页当下画不画都没差，只要"切过去的时候"是新的就好。
    所以改成：header的现金条随时更新，分页内容只画"目前正在看的那一页"，
    切换分页的时候再当场重画一次该页，保证看到的一定是最新的。 */
+/* ================= 点餐 / POS ================= */
+let posMode = 'dine-in';       // 'dine-in' 堂食 或 'takeaway' 外带
+let posCompany = COMPANIES[0]; // 点餐画面目前选的是哪间公司
+let posViewOrderId = null;     // 目前在看哪一单的点餐详情画面；null = 显示桌号格子/外带单列表
+let posCatFilter = '';         // 点餐详情画面的菜单分类筛选，''=全部
+let posManagingTables = false; // 是否在"管理桌号"模式（点桌号格子变成删除，而不是开单）
+
+function setPosMode(m){ posMode = m; posManagingTables = false; renderPOS(); }
+function setPosCompany(c){ posCompany = c; posManagingTables = false; renderPOS(); }
+function posOrdersFor(mode, company){ return (state.posOrders||[]).filter(o=>o.mode===mode && o.company===company); }
+function posOrderTotal(order){ return (order.items||[]).reduce((a,i)=>a+Number(i.price||0)*Number(i.qty||0),0); }
+function posOrderItemCount(order){ return (order.items||[]).reduce((a,i)=>a+Number(i.qty||0),0); }
+
+function renderPOS(){
+  const el = document.getElementById('tab-pos');
+  if(!el) return;
+  const order = posViewOrderId ? (state.posOrders||[]).find(o=>o.id===posViewOrderId) : null;
+  el.innerHTML = order ? posOrderScreenHtml(order) : posListScreenHtml();
+}
+
+/* ---------- 列表画面：堂食显示桌号格子（空/已占用），外带显示目前进行中的外带单 ---------- */
+function posListScreenHtml(){
+  const tables = (state.posTables||[]).filter(t=>t.company===posCompany);
+  const openDineIn = posOrdersFor('dine-in', posCompany);
+  const openTakeaway = posOrdersFor('takeaway', posCompany);
+  const orderByTable = {}; openDineIn.forEach(o=>{ orderByTable[o.tableId]=o; });
+  return `
+    <div class="pos-mode-row">
+      <button type="button" class="btn-toggle ${posMode==='dine-in'?'active':''}" onclick="setPosMode('dine-in')">🍽 堂食</button>
+      <button type="button" class="btn-toggle ${posMode==='takeaway'?'active':''}" onclick="setPosMode('takeaway')">🥡 外带</button>
+    </div>
+    <div class="pos-company-row">
+      ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${posCompany===c?'active':''}" onclick="setPosCompany('${c}')">${c}</button>`).join('')}
+    </div>
+    ${posMode==='dine-in' ? `
+    <div class="card">
+      <h3 style="justify-content:space-between">选桌号 <span class="n">${posCompany}</span>
+        <button type="button" class="btn-line" style="font-size:12px; margin-left:auto;" onclick="togglePosManageTables()">${posManagingTables?'完成':'⚙ 管理桌号'}</button>
+      </h3>
+      <div class="pos-table-grid">
+        ${tables.map(t=>{
+          const o = orderByTable[t.id];
+          const tap = posManagingTables ? '' : (o? `openPosOrder('${o.id}')` : `startDineInOrder('${t.id}')`);
+          return `
+          <div class="pos-table-tile ${o?'occupied':''}" onclick="${tap}">
+            ${posManagingTables? `<span class="tdel" onclick="event.stopPropagation(); deletePosTable('${t.id}')">✕</span>` : ''}
+            <div class="tname">${t.name}</div>
+            <div class="tsub">${o? (posOrderItemCount(o)+'件 · RM '+fmtPlain(posOrderTotal(o))) : '空'}</div>
+          </div>`;
+        }).join('')}
+        ${posManagingTables? `<div class="pos-table-tile pos-add-tile" onclick="addPosTable()">+ 新增桌号</div>` : ''}
+      </div>
+      ${!tables.length? `<div class="empty">这间公司还没有桌号，点上面「管理桌号」新增</div>` : ''}
+    </div>
+    ` : `
+    <div class="card">
+      <h3>外带单 <span class="n">${posCompany}</span></h3>
+      <button class="btn-main" style="margin-top:0; margin-bottom:12px;" onclick="startTakeawayOrder()">+ 新外带单</button>
+      ${openTakeaway.length? openTakeaway.slice().reverse().map(o=>`
+        <div class="pos-order-row" onclick="openPosOrder('${o.id}')">
+          <div>
+            <div class="oname">${o.tableName}</div>
+            <div class="osub">${posOrderItemCount(o)} 件</div>
+          </div>
+          <div class="oamt">RM ${fmtPlain(posOrderTotal(o))}</div>
+        </div>`).join('') : `<div class="empty">目前没有进行中的外带单</div>`}
+    </div>
+    `}
+  `;
+}
+function togglePosManageTables(){ posManagingTables = !posManagingTables; renderPOS(); }
+function addPosTable(){
+  const name = prompt('新桌号名称（例如：桌9、VIP房）：');
+  if(!name || !name.trim()) return;
+  mutate(()=>{ if(!state.posTables) state.posTables=[]; state.posTables.push({id:uid(), name:name.trim(), company:posCompany}); });
+  renderPOS();
+}
+function deletePosTable(tableId){
+  const occupied = (state.posOrders||[]).some(o=>o.tableId===tableId);
+  if(occupied){ alert('这张桌还有进行中的单，请先结账或取消那一单，才能删除桌号'); return; }
+  if(!confirm('确定删除这个桌号？')) return;
+  mutate(()=>{ state.posTables = state.posTables.filter(t=>t.id!==tableId); });
+  renderPOS();
+}
+function startDineInOrder(tableId){
+  const t = (state.posTables||[]).find(x=>x.id===tableId);
+  if(!t) return;
+  const order = {id:uid(), mode:'dine-in', tableId:t.id, tableName:t.name, company:posCompany, items:[], createdAt:Date.now()};
+  mutate(()=>{ if(!state.posOrders) state.posOrders=[]; state.posOrders.push(order); });
+  posViewOrderId = order.id;
+  renderPOS();
+}
+function startTakeawayOrder(){
+  mutate(()=>{ state.posTakeawayCounter = (state.posTakeawayCounter||0) + 1; });
+  const order = {id:uid(), mode:'takeaway', tableId:null, tableName:'外带#'+state.posTakeawayCounter, company:posCompany, items:[], createdAt:Date.now()};
+  mutate(()=>{ if(!state.posOrders) state.posOrders=[]; state.posOrders.push(order); });
+  posViewOrderId = order.id;
+  renderPOS();
+}
+function openPosOrder(orderId){ posViewOrderId = orderId; posCatFilter=''; renderPOS(); }
+function backToPosList(){ posViewOrderId = null; posCatFilter=''; renderPOS(); }
+function cancelPosOrder(orderId){
+  if(!confirm('确定取消这一单？已经点的东西会清空，不会产生任何销售记录。')) return;
+  mutate(()=>{ state.posOrders = (state.posOrders||[]).filter(o=>o.id!==orderId); });
+  posViewOrderId = null;
+  renderPOS();
+}
+
+/* ---------- 点餐详情画面：菜单格子 + 购物车 ---------- */
+function posOrderScreenHtml(order){
+  const products = state.products.filter(p=>p.company===order.company);
+  const catOrderFn = c => { const i = MENU_CATEGORIES.indexOf(c||''); return i===-1?999:i; };
+  const cats = Array.from(new Set(products.map(p=>p.category).filter(Boolean))).sort((a,b)=>catOrderFn(a)-catOrderFn(b));
+  const shown = posCatFilter ? products.filter(p=>p.category===posCatFilter) : products;
+  const sortedShown = shown.slice().sort((a,b)=> catOrderFn(a.category)-catOrderFn(b.category) || a.name.localeCompare(b.name));
+  const total = posOrderTotal(order);
+  return `
+    <div class="pos-order-header">
+      <button type="button" class="btn-line" onclick="backToPosList()">‹ 返回</button>
+      <div class="ttl">${order.tableName}</div>
+      <button type="button" class="btn-danger-text" onclick="cancelPosOrder('${order.id}')">取消这一单</button>
+    </div>
+    <div class="card">
+      <div class="pos-cat-tabs">
+        <button type="button" class="btn-toggle ${!posCatFilter?'active':''}" onclick="setPosCatFilter('')">全部</button>
+        ${cats.map(c=>`<button type="button" class="btn-toggle ${posCatFilter===c?'active':''}" onclick="setPosCatFilter('${c.replace(/'/g,"\\'")}')">${c}</button>`).join('')}
+      </div>
+      <div class="pos-menu-grid">
+        ${sortedShown.map(p=>`
+          <div class="pos-menu-item" onclick="addItemToPosOrder('${order.id}','${p.id}')">
+            <div class="pname">${p.name}</div>
+            <div class="pprice">RM ${fmtPlain(p.price)}</div>
+          </div>`).join('')}
+      </div>
+      ${!sortedShown.length? `<div class="empty">这个分类下没有产品，先去"产品"页新增</div>` : ''}
+    </div>
+    <div class="card">
+      <h3>已点 <span class="n">${posOrderItemCount(order)} 件</span></h3>
+      ${(order.items||[]).length? order.items.map(i=>`
+        <div class="pos-cart-line">
+          <div class="cname">${i.name}<span class="csub">RM ${fmtPlain(i.price)} / 份</span></div>
+          <div class="pos-qty-stepper">
+            <button type="button" onclick="changePosItemQty('${order.id}','${i.id}',-1)">−</button>
+            <span class="qn">${i.qty}</span>
+            <button type="button" onclick="changePosItemQty('${order.id}','${i.id}',1)">+</button>
+          </div>
+          <div class="pos-cart-amt">${fmtPlain(i.price*i.qty)}</div>
+        </div>`).join('') : `<div class="empty">还没点任何东西，点上面的菜单加进来</div>`}
+      <div class="pos-cart-total-row"><span>合计</span><span class="mono">RM ${fmt(total)}</span></div>
+      ${(order.items||[]).length? `
+      <div class="pos-checkout-row">
+        ${INCOME_CATEGORIES.map(m=>`<button type="button" onclick="confirmPosCheckout('${order.id}','${m}')">${m} 结账</button>`).join('')}
+      </div>` : ''}
+    </div>
+  `;
+}
+function setPosCatFilter(c){ posCatFilter = c; renderPOS(); }
+function addItemToPosOrder(orderId, productId){
+  const p = state.products.find(x=>x.id===productId);
+  if(!p) return;
+  mutate(()=>{
+    const order = state.posOrders.find(o=>o.id===orderId);
+    if(!order) return;
+    const line = order.items.find(i=>i.productId===productId);
+    if(line) line.qty = Number(line.qty||0)+1;
+    else order.items.push({id:uid(), productId:p.id, name:p.name, price:p.price, qty:1});
+  });
+  renderPOS();
+}
+function changePosItemQty(orderId, lineId, delta){
+  mutate(()=>{
+    const order = state.posOrders.find(o=>o.id===orderId);
+    if(!order) return;
+    const line = order.items.find(i=>i.id===lineId);
+    if(!line) return;
+    line.qty = Number(line.qty||0) + delta;
+    if(line.qty<=0) order.items = order.items.filter(i=>i.id!==lineId);
+  });
+  renderPOS();
+}
+/* 结账：把这一单里的每个品项各自转成一笔销售记录（跟手动记销售用同一套逻辑，
+   照样会依产品的食材成本项自动扣库存），结完账把这张"进行中的单"删掉，再叫出打印。
+   跟手动记销售一样，不自动生成收支流水（收支页自己手动记）。 */
+function confirmPosCheckout(orderId, payMethod){
+  const orderSnapshot = (state.posOrders||[]).find(o=>o.id===orderId);
+  if(!orderSnapshot || !orderSnapshot.items.length) return;
+  const date = todayStr();
+  const items = orderSnapshot.items.map(i=>Object.assign({}, i));
+  const company = orderSnapshot.company;
+  const tableName = orderSnapshot.tableName;
+  mutate(()=>{
+    items.forEach(i=>{
+      const p = state.products.find(x=>x.id===i.productId);
+      const unitCost = p ? productUnitCost(p) : 0;
+      const sid = uid();
+      state.sales.push({id:sid, date, productId:i.productId, productName:i.name, qty:i.qty, price:i.price, amount:i.price*i.qty, cost:unitCost*i.qty, payMethod, company, posOrderId:orderId, posTableName:tableName});
+      if(p) pushSaleStockDeductions(p, i.qty, date, company, {_saleId:sid});
+    });
+    state.posOrders = state.posOrders.filter(o=>o.id!==orderId);
+  });
+  printPosReceipt({tableName, company, items, payMethod, date});
+  posViewOrderId = null;
+  renderPOS();
+}
+function printPosReceipt(order){
+  const total = order.items.reduce((a,i)=>a+i.price*i.qty,0);
+  const timeStr = new Date().toTimeString().slice(0,5);
+  const html = `
+    <div class="receipt-doc">
+      <div class="rc-store">${order.company}</div>
+      <div class="rc-sub">${order.date} ${timeStr} · ${order.tableName}</div>
+      <hr>
+      ${order.items.map(i=>`<div class="rc-line"><span>${i.name} ×${i.qty}</span><span>${fmtPlain(i.price*i.qty)}</span></div>`).join('')}
+      <hr>
+      <div class="rc-line rc-total"><span>合计</span><span>RM ${fmtPlain(total)}</span></div>
+      <div class="rc-line"><span>付款方式</span><span>${order.payMethod}</span></div>
+    </div>
+  `;
+  const area = document.getElementById('receiptPrintArea');
+  if(area){ area.innerHTML = html; setTimeout(()=>{ window.print(); }, 80); }
+}
+
 const TAB_RENDERERS = {
   home: renderHome,
+  pos: renderPOS,
   overview: renderOverview,
   purchase: renderPurchase,
   cost: renderCost,
