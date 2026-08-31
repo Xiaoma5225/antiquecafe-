@@ -1272,12 +1272,13 @@ function reconcileIngredients(){
   state.products.forEach(p=>{
     (p.costItems||[]).forEach(ci=>{ learnIngredientLink(ci.name, [p.id], {unit: ci.unit, unitPrice: ci.unitPrice}); });
   });
-  // 采购单这边不再往食材字典里"教"关联产品了（那是「产品→食材关联」页手动设定的事）——
-  // 这里只是确保每个买过的食材在字典里都有一条记录（方便在"食材关联"页看到、去设定），
-  // 顺便把单位/参考单价更新成最新一次采购的数据，但完全不碰 productIds。
+  // 采购单这边现在会把使用者在「新食材直接勾选」那里选的 productIds 一起教进食材字典
+  // （原本是完全不碰，因为那是「产品→食材关联」页的事——但现在采购单也能直接勾选了，
+  // 所以这里要把使用者刚勾的选择也算进去，不然勾了也没用）。
+  // 顺便更新单位/参考单价成最新一次采购的数据。
   state.purchases.forEach(pu=>{
     (pu.items||[]).forEach(item=>{
-      learnIngredientLink(item.name, [], {unit: item.unit, unitPrice: item.unitPrice});
+      learnIngredientLink(item.name, item.productIds||[], {unit: item.unit, unitPrice: item.unitPrice});
     });
   });
   return JSON.stringify(state.ingredients) !== before;
@@ -3129,7 +3130,7 @@ function renderPurchaseItemRows(){
   ` + tempPurchaseItems.map((row,idx)=>`
     <div class="pi-card">
       <div class="pi-top">
-        <input autocomplete="off" id="purItemName_${row.id}" placeholder="品名" value="${row.name}" oninput="updatePurItem('${row.id}','name',this.value)" onchange="autoLinkPurItemIngredient('${row.id}')">
+        <input autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="pi_title_${row.id}" id="purItemTitle_${row.id}" placeholder="品名" value="${row.name}" oninput="updatePurItem('${row.id}','name',this.value)" onchange="autoLinkPurItemIngredient('${row.id}')">
         <select style="flex:0 0 108px" onchange="updatePurItem('${row.id}','category',this.value)">
           ${PURCHASE_CATEGORIES.map(c=>`<option value="${c}" ${row.category===c?'selected':''}>${c}</option>`).join('')}
         </select>
@@ -3148,20 +3149,31 @@ function renderPurchaseItemRows(){
         return parts.length ? `<div class="muted" style="font-size:11px; margin-bottom:4px;">💡 系统记得这个食材 · ${parts.join(' · ')}</div>` : '';
       })()}
       ${(()=>{
-        /* 「这个食材属于哪个产品」现在统一在「产品→食材关联」那个子页签管理（全局一份，改一次全部
-           历史采购单一起生效），采购单这里不再让你逐笔手动勾选，只显示目前的关联结果当参考。
-           要注意：这里的 row.name 是"打进去的文字"，不代表已经存进系统的食材字典（state.ingredients）
-           ——那要等这张采购单真的保存/提交之后，reconcileIngredients() 才会把它加进字典。
-           所以完全没打过的全新食材，不能直接给"去设定"连结（点过去食材关联页会查不到、变成0个，
-           看起来像bug），要先请使用者保存这张单。 */
+        /* 「这个食材属于哪个产品」原本统一在「产品→食材关联」那个子页签管理，要先保存这张采购单、
+           跳过去搜索才能设。现在改成：只要这个食材还没关联任何产品（不管是全新食材，还是已经在
+           字典里但还没设关联的），就直接在这里勾选——勾好的选择存在这一行草稿的 productIds 里，
+           等这张采购单真的保存/提交时会一起生效教进食材字典，不用先保存再跳页找。
+           已经关联好的食材，还是照旧只显示结果+"改关联"连结（改关联本来就该去那个统一管理的页面）。 */
         if(!row.name) return '';
         const ing = findIngredient(row.name);
-        if(!ing) return `<div class="muted" style="font-size:11px; margin-bottom:6px;">🆕 新食材，先保存这张采购单，保存后才能去"产品→食材关联"设定要算给哪个产品</div>`;
-        const ids = ing.productIds ? ing.productIds.filter(Boolean) : [];
-        const names = ids.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean);
-        return names.length
-          ? `<div class="muted" style="font-size:11px; margin-bottom:6px;">🔗 关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="goToIngredientLinkTab('${row.name.replace(/'/g,"\\'")}')">改关联</a></div>`
-          : `<div class="muted" style="font-size:11px; margin-bottom:6px; color:var(--rust);">⚠️ 还没关联产品　<a href="javascript:void(0)" onclick="goToIngredientLinkTab('${row.name.replace(/'/g,"\\'")}')">去设定</a></div>`;
+        const linkedIds = ing && ing.productIds ? ing.productIds.filter(Boolean) : [];
+        if(linkedIds.length){
+          const names = linkedIds.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean);
+          return `<div class="muted" style="font-size:11px; margin-bottom:6px;">🔗 关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="goToIngredientLinkTab('${row.name.replace(/'/g,"\\'")}')">改关联</a></div>`;
+        }
+        const picked = row.productIds||[];
+        const newFlag = ing ? '' : '🆕 新食材，';
+        return `
+          <div class="muted" style="font-size:11px; margin-bottom:4px; color:var(--rust);">⚠️ ${newFlag}还没关联产品，勾选这个算给哪个产品的成本（保存这张单会一起生效）：</div>
+          ${state.products.length>8? `<input placeholder="🔍 搜索产品名称..." style="margin-bottom:6px; font-size:12px; padding:6px 8px;" oninput="filterProductPickList('purProdPicks_${row.id}', this.value)">` : ''}
+          <div id="purProdPicks_${row.id}" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px;">
+            ${state.products.length? state.products.map(p=>`
+              <label data-pname="${p.name.toLowerCase().replace(/"/g,'&quot;')}" style="display:flex; align-items:center; gap:4px; font-size:12px; border:1px solid var(--border); border-radius:14px; padding:3px 10px 3px 6px; cursor:pointer; ${picked.includes(p.id)?'background:var(--green-dim); border-color:var(--green);':''}">
+                <input type="checkbox" style="margin:0;" ${picked.includes(p.id)?'checked':''} onchange="togglePurItemProductPick('${row.id}','${p.id}', this.checked)">${p.name}
+              </label>
+            `).join('') : `<span class="muted" style="font-size:12px;">还没有产品，先去"产品"子页签新增</span>`}
+          </div>
+        `;
       })()}
       <div class="pi-bottom">
         <input id="pi_qty_${row.id}" placeholder="数量" type="number" value="${row.qty}" oninput="updatePurItem('${row.id}','qty',this.value)">
@@ -3177,7 +3189,7 @@ function renderPurchaseItemRows(){
   const ingredientNames = getIngredientNames();
   const unitSuggestions = getUnitSuggestions();
   tempPurchaseItems.forEach(row=>{
-    wireSuggest('purItemName_'+row.id, ingredientNames);
+    wireSuggest('purItemTitle_'+row.id, ingredientNames);
     wireSuggest('pi_unit_'+row.id, unitSuggestions);
   });
 }
@@ -3206,21 +3218,29 @@ function removePurItem(id){
   if(tempPurchaseItems.length===0) tempPurchaseItems=[{id:uid(),name:'',category:'食材',productIds:[],productInput:'',qty:'',unit:'',unitPrice:'',total:''}];
   renderPurchaseItemRows();
 }
+function togglePurItemProductPick(rowId, productId, checked){
+  const row = tempPurchaseItems.find(r=>r.id===rowId);
+  if(!row) return;
+  if(!row.productIds) row.productIds = [];
+  if(checked){ if(!row.productIds.includes(productId)) row.productIds.push(productId); }
+  else { row.productIds = row.productIds.filter(id=>id!==productId); }
+  renderPurchaseItemRows();
+}
 function autoLinkPurItemIngredient(rowId){
   const row = tempPurchaseItems.find(r=>r.id===rowId);
   if(!row) return;
   const ing = findIngredient(row.name);
-  let changed = false;
   if(ing){
-    if(ing.unit && !row.unit){ row.unit = ing.unit; changed = true; }
+    if(ing.unit && !row.unit) row.unit = ing.unit;
     if(ing.unitPrice && !row.unitPrice){
       row.unitPrice = String(ing.unitPrice);
-      changed = true;
       const qty = Number(row.qty);
       if(row.qty!=='' && !isNaN(qty)) row.total = String(Math.round(qty*ing.unitPrice*100)/100);
     }
   }
-  if(changed) renderPurchaseItemRows();
+  // 名字打完（失焦）之后，不管有没有自动补到单位/单价，都重画一次，
+  // 让"还没关联产品"的勾选区块能跟上最新打的名字（不然新食材那个提示要等别的动作才会出现）。
+  renderPurchaseItemRows();
 }
 
 function addSupplier(){
@@ -3642,14 +3662,25 @@ function ingredientLinkRowHtml(ing){
         <b>${ing.name}</b>
         ${infoParts.length? `<span class="muted" style="font-size:11px; text-align:right;">${infoParts.join(' · ')}</span>` : ''}
       </div>
-      <div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:6px;">
+      ${state.products.length>8? `<input id="ingProdFilter_${ing.id}" placeholder="🔍 搜索产品名称..." style="margin-top:8px; font-size:12.5px; padding:6px 8px;" oninput="filterProductPickList('ingProdPicks_${ing.id}', this.value)">` : ''}
+      <div id="ingProdPicks_${ing.id}" style="margin-top:8px; display:flex; flex-wrap:wrap; gap:6px;">
         ${state.products.length? state.products.map(p=>`
-          <label style="display:flex; align-items:center; gap:4px; font-size:12.5px; border:1px solid var(--border); border-radius:14px; padding:3px 10px 3px 6px; cursor:pointer; ${linkedIds.includes(p.id)?'background:var(--green-dim); border-color:var(--green);':''}">
+          <label data-pname="${p.name.toLowerCase().replace(/"/g,'&quot;')}" style="display:flex; align-items:center; gap:4px; font-size:12.5px; border:1px solid var(--border); border-radius:14px; padding:3px 10px 3px 6px; cursor:pointer; ${linkedIds.includes(p.id)?'background:var(--green-dim); border-color:var(--green);':''}">
             <input type="checkbox" style="margin:0;" ${linkedIds.includes(p.id)?'checked':''} onchange="toggleIngredientLinkProduct('${ing.id}','${p.id}', this.checked)">${p.name}
           </label>
         `).join('') : `<span class="muted" style="font-size:12px;">还没有产品，先去"产品"子页签新增</span>`}
       </div>
     </div>`;
+}
+/* 通用的"打勾清单搜索框"：不重画整个清单（那样贵），只是把不符合关键字的 label 藏起来，
+   食材关联页、采购单的新食材内联勾选都共用这个。 */
+function filterProductPickList(wrapId, q){
+  const wrap = document.getElementById(wrapId);
+  if(!wrap) return;
+  const query = (q||'').trim().toLowerCase();
+  wrap.querySelectorAll('label[data-pname]').forEach(lbl=>{
+    lbl.style.display = (!query || lbl.dataset.pname.includes(query)) ? '' : 'none';
+  });
 }
 /* 食材数量一多（比如几百个），每个食材列出全部产品的打勾格子，一次要生出好几万个DOM元素，
    会很卡。所以：①没输入搜索字时，食材数量超过40个就先不列出全部，请使用者先搜索；
