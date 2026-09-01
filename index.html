@@ -236,6 +236,12 @@
   .cat-detail .di .l{color:var(--muted); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-right:6px;}
   .cat-detail .di .r{flex:0 0 auto;}
   .supplier-card{border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:8px;}
+  .opt-choice-chips{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;}
+  .opt-choice-chip{
+    display:inline-flex; align-items:center; gap:5px; padding:4px 10px; border-radius:20px;
+    background:#FFFDF9; border:1px solid var(--border); font-size:12px; color:var(--ink);
+  }
+  .opt-choice-chip b{color:var(--green); font-weight:700; font-size:11px;}
   .supplier-card .row{display:flex; justify-content:space-between; align-items:center;}
   .invoice-pick{
     display:flex; justify-content:space-between; align-items:center; cursor:pointer;
@@ -1800,7 +1806,7 @@ function renderPayPopup(){
       ${showAmountBlock ? `
       <div class="pay-fade-block">
         <label style="margin-top:0;">付款金额</label>
-        <input type="number" step="0.01" value="${s.amount}" oninput="onPurchasePayPopupAmountInput(this.value)">
+        <input type="text" inputmode="decimal" step="0.01" value="${s.amount}" oninput="onPurchasePayPopupAmountInput(this.value)">
         <label>付款方式</label>
         <div class="pay-methods-row">
           ${PAY_METHODS.map(m=>`<button type="button" class="btn-toggle ${s.method===m?'method-active':''}" onclick="setPurchasePayPopupMethod('${m}')">${m}</button>`).join('')}
@@ -2730,7 +2736,7 @@ function addonMappingComponentRowsHtml(){
         ${tempAddonMapping.components.length>1? `<button class="rm" onclick="removeAddonMappingComponent('${c.id}')">×</button>` : '<span style="width:20px"></span>'}
       </div>
       <div class="pi-bottom" style="grid-template-columns:repeat(2,1fr);">
-        <input placeholder="每次用量" type="number" step="0.0001" value="${c.qtyPerUse}" oninput="updateAddonMappingComponent('${c.id}','qtyPerUse',this.value)">
+        <input placeholder="每次用量" type="text" inputmode="decimal" step="0.0001" value="${c.qtyPerUse}" oninput="updateAddonMappingComponent('${c.id}','qtyPerUse',this.value)">
         <input autocomplete="off" id="addonMapCompUnit_${c.id}" placeholder="单位" value="${c.unit}" oninput="updateAddonMappingComponent('${c.id}','unit',this.value)">
       </div>
     </div>
@@ -2844,7 +2850,7 @@ function unitConversionFormHtml(){
         <div><label>使用单位（配方/成本项怎么用的）</label><input id="convUsageUnit" placeholder="例：ml" autocomplete="off" value="${tempUnitConversion.usageUnit}" oninput="updateUnitConversionField('usageUnit', this.value)"></div>
       </div>
       <label style="margin-top:10px">换算比例：1个采购单位 = 多少个使用单位</label>
-      <input type="number" step="0.0001" placeholder="例：1桶=200000ml，这里填200000" value="${tempUnitConversion.ratio}" oninput="updateUnitConversionField('ratio', this.value)">
+      <input type="text" inputmode="decimal" step="0.0001" placeholder="例：1桶=200000ml，这里填200000" value="${tempUnitConversion.ratio}" oninput="updateUnitConversionField('ratio', this.value)">
       <button class="btn-main" onclick="submitUnitConversion()">${tempUnitConversion.id?'保存修改':'保存换算'}</button>
       <button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditUnitConversion()">取消</button>
     </div>
@@ -2915,9 +2921,9 @@ function recipeComponentRowsHtml(){
         ${tempRecipe.components.length>1? `<button class="rm" onclick="removeRecipeComponent('${c.id}')">×</button>` : '<span style="width:20px"></span>'}
       </div>
       <div class="pi-bottom" style="grid-template-columns:repeat(3,1fr);">
-        <input placeholder="这次用了多少" type="number" step="0.0001" value="${c.qty}" oninput="updateRecipeComponent('${c.id}','qty',this.value)">
+        <input placeholder="这次用了多少" type="text" inputmode="decimal" step="0.0001" value="${c.qty}" oninput="updateRecipeComponent('${c.id}','qty',this.value)">
         <input autocomplete="off" id="recipeCompUnit_${c.id}" placeholder="单位" value="${c.unit}" oninput="updateRecipeComponent('${c.id}','unit',this.value)" onchange="autoLinkRecipeComponentUnit('${c.id}')">
-        <input placeholder="单价RM" type="number" step="0.01" value="${c.unitPrice}" oninput="updateRecipeComponent('${c.id}','unitPrice',this.value)">
+        <input placeholder="单价RM" type="text" inputmode="decimal" step="0.01" value="${c.unitPrice}" oninput="updateRecipeComponent('${c.id}','unitPrice',this.value)">
       </div>
     </div>
   `).join('');
@@ -2936,7 +2942,7 @@ function recipeFormHtml(){
       <input id="recipeOutputName" placeholder="半成品名称" autocomplete="off" value="${tempRecipe.outputName||''}" oninput="updateRecipeField('outputName', this.value)">
       <label style="margin-top:10px">分成了幾份（这批实际分装出来的数量）</label>
       <div style="display:flex; gap:8px;">
-        <input id="recipePackQty" type="number" step="0.01" placeholder="例：25" style="flex:1;" value="${tempRecipe.packQty}" oninput="updateRecipeField('packQty', this.value)">
+        <input id="recipePackQty" type="text" inputmode="decimal" step="0.01" placeholder="例：25" style="flex:1;" value="${tempRecipe.packQty}" oninput="updateRecipeField('packQty', this.value)">
         <input autocomplete="off" id="recipeOutputUnit" placeholder="单位，例：包" style="flex:1;" value="${tempRecipe.outputUnit||''}" oninput="updateRecipeField('outputUnit', this.value)">
       </div>
       <label style="margin-top:14px">这次用了什么食材、各自多少量（品名、这次用了多少、单价）</label>
@@ -3084,7 +3090,7 @@ function optionGroupChoiceRowsHtml(){
         ${tempOptionGroup.choices.length>1? `<button class="rm" onclick="removeOptionGroupChoice('${c.id}')">×</button>` : '<span style="width:20px"></span>'}
       </div>
       <div class="pi-bottom" style="grid-template-columns:repeat(4,1fr);">
-        <input placeholder="加价RM(不加填0)" type="number" step="0.01" value="${c.priceAdd}" oninput="updateOptionGroupChoice('${c.id}','priceAdd',this.value)">
+        <input placeholder="加价RM(不加填0)" type="text" inputmode="decimal" step="0.01" value="${c.priceAdd}" oninput="updateOptionGroupChoice('${c.id}','priceAdd',this.value)">
         <input autocomplete="off" id="ogIng_${c.id}" placeholder="扣哪个食材(选填)" value="${c.ingredientName}" oninput="updateOptionGroupChoice('${c.id}','ingredientName',this.value)" onchange="autoLinkOptionChoiceIngredientUnit('${c.id}')">
         <input placeholder="扣多少" type="text" inputmode="decimal" value="${c.ingredientQty}" oninput="updateOptionGroupChoice('${c.id}','ingredientQty',this.value)">
         <input autocomplete="off" id="ogUnit_${c.id}" placeholder="单位" value="${c.ingredientUnit}" oninput="updateOptionGroupChoice('${c.id}','ingredientUnit',this.value)">
@@ -3122,8 +3128,10 @@ function renderOptionGroupSectionHtml(){
         return `
         <div class="supplier-card">
           <b>${g.name}</b> <span class="muted" style="font-size:11.5px;">（${g.choices.length}个选项）</span>
-          <div class="muted" style="font-size:11.5px; margin-top:2px;">${g.choices.map(c=>c.name+(c.priceAdd?`（${c.priceAdd>0?'+':''}RM${fmtPlain(c.priceAdd)}）`:'')).join('、')}</div>
-          <div class="muted" style="font-size:11.5px;">挂在：${usedBy.length? usedBy.map(p=>p.name).join('、') : '（还没有产品用这组）'}</div>
+          <div class="opt-choice-chips">
+            ${g.choices.map(c=>`<span class="opt-choice-chip">${c.name}${c.priceAdd?`<b>${c.priceAdd>0?'+':''}RM${fmtPlain(c.priceAdd)}</b>`:''}</span>`).join('')}
+          </div>
+          <div class="muted" style="font-size:11.5px; margin-top:6px;">挂在：${usedBy.length? usedBy.map(p=>p.name).join('、') : '（还没有产品用这组）'}</div>
           <div style="display:flex; gap:8px; margin-top:8px;">
             <button class="btn-ghost btn-small" style="flex:1;" onclick="startEditOptionGroup('${g.id}')">编辑</button>
             <button class="btn-danger-text" onclick="deleteOptionGroup('${g.id}')">删除</button>
@@ -3174,7 +3182,7 @@ function renderPaymentSectionHtml(){
         <div><label>付款日期</label><input type="date" id="payDate" value="${draft.payDate||todayStr()}" onchange="this.blur()"></div>
       </div>
       <div id="payInvoiceListWrap"></div>
-      <label>付款金额</label><input type="number" step="0.01" id="payAmount" placeholder="0.00" value="${draft.payAmount||''}">
+      <label>付款金额</label><input type="text" inputmode="decimal" step="0.01" id="payAmount" placeholder="0.00" value="${draft.payAmount||''}">
       <label>付款方式</label>
       <div class="btn-group" id="payMethodGroup">
         ${PAY_METHODS.map(m=>`<button type="button" class="btn-toggle ${payPayMethod===m?'active':''}" data-val="${m}" onclick="setPayPayMethod('${m}')">${m}</button>`).join('')}
@@ -3377,10 +3385,10 @@ function renderPurchaseItemRows(){
         `;
       })()}
       <div class="pi-bottom">
-        <input id="pi_qty_${row.id}" placeholder="数量" type="number" value="${row.qty}" oninput="updatePurItem('${row.id}','qty',this.value)">
+        <input id="pi_qty_${row.id}" placeholder="数量" type="text" inputmode="decimal" value="${row.qty}" oninput="updatePurItem('${row.id}','qty',this.value)">
         <input autocomplete="off" id="pi_unit_${row.id}" placeholder="单位" value="${row.unit}" oninput="updatePurItem('${row.id}','unit',this.value)">
-        <input placeholder="单价(选填)" type="number" step="0.01" value="${row.unitPrice}" oninput="updatePurItem('${row.id}','unitPrice',this.value)">
-        <input id="pi_total_${row.id}" placeholder="总价RM" type="number" step="0.01" value="${row.total}" oninput="updatePurItem('${row.id}','total',this.value)">
+        <input placeholder="单价(选填)" type="text" inputmode="decimal" step="0.01" value="${row.unitPrice}" oninput="updatePurItem('${row.id}','unitPrice',this.value)">
+        <input id="pi_total_${row.id}" placeholder="总价RM" type="text" inputmode="decimal" step="0.01" value="${row.total}" oninput="updatePurItem('${row.id}','total',this.value)">
       </div>
       <div class="muted" style="font-size:11px; margin-top:3px;">填了"数量"和"单价"会自动算出总价；不想算就直接填"总价"就好</div>
     </div>
@@ -4106,9 +4114,9 @@ function renderCost(){
           </table>
           <div class="pi-bottom" style="margin-top:8px">
             <input autocomplete="off" placeholder="追加食材" id="addCi_${p.id}_name">
-            <input placeholder="数量" type="number" id="addCi_${p.id}_qty" oninput="updateAppendCostPreview('${p.id}')">
-            <input placeholder="单价(选填)" type="number" step="0.01" id="addCi_${p.id}_unitPrice" oninput="updateAppendCostPreview('${p.id}')">
-            <input placeholder="金额" type="number" step="0.01" id="addCi_${p.id}_cost">
+            <input placeholder="数量" type="text" inputmode="decimal" id="addCi_${p.id}_qty" oninput="updateAppendCostPreview('${p.id}')">
+            <input placeholder="单价(选填)" type="text" inputmode="decimal" step="0.01" id="addCi_${p.id}_unitPrice" oninput="updateAppendCostPreview('${p.id}')">
+            <input placeholder="金额" type="text" inputmode="decimal" step="0.01" id="addCi_${p.id}_cost">
           </div>
           <button class="btn-line" onclick="appendCostItem('${p.id}')">+ 追加食材成本</button>
           ${usingRealData? `<div class="muted" style="font-size:11px; margin-top:4px;">按实际数据算每份成本：关联采购总额 ${fmtPlain(spend)} ÷ 已售出 ${qtySold} 份 = ${fmtPlain(fixedUnitCost)}</div>` : ''}
@@ -4156,7 +4164,7 @@ function renderCost(){
       <h3>${editingProduct? `✏️ 编辑产品：${editingProduct.name}` : '新增菜品 / 产品'}</h3>
       <div class="grid2">
         <div><label>产品名称</label><input id="prodTitle" placeholder="例：招牌炒河粉" autocomplete="off" value="${editingProduct?editingProduct.name:(draft.prodTitle||'')}"></div>
-        <div><label>售价</label><input id="prodPrice" type="number" step="0.01" placeholder="0.00" value="${editingProduct?editingProduct.price:(draft.prodPrice||'')}"></div>
+        <div><label>售价</label><input id="prodPrice" type="text" inputmode="decimal" step="0.01" placeholder="0.00" value="${editingProduct?editingProduct.price:(draft.prodPrice||'')}"></div>
       </div>
       <div class="grid2" style="margin-top:10px">
         <div><label>分类（选填，方便下面按分类查找）</label>
@@ -4254,15 +4262,15 @@ function renderCostItemRows(){
         ${tempCostItems.length>1?`<button class="rm" onclick="removeCostItem('${row.id}')">×</button>`:'<span style="width:20px"></span>'}
       </div>
       <div class="pi-bottom">
-        <input id="ci_qty_${row.id}" placeholder="数量" type="number" value="${row.qty}" oninput="updateCostItem('${row.id}','qty',this.value)">
+        <input id="ci_qty_${row.id}" placeholder="数量" type="text" inputmode="decimal" value="${row.qty}" oninput="updateCostItem('${row.id}','qty',this.value)">
         <input autocomplete="off" id="ci_unit_${row.id}" placeholder="单位" value="${row.unit}" oninput="updateCostItem('${row.id}','unit',this.value)" onchange="autoLinkCostItemUnit('${row.id}')">
-        <input placeholder="单价(选填)" type="number" step="0.01" value="${row.unitPrice}" oninput="updateCostItem('${row.id}','unitPrice',this.value)">
-        <input id="ci_cost_${row.id}" placeholder="成本RM" type="number" step="0.01" value="${row.cost}" oninput="updateCostItem('${row.id}','cost',this.value)">
+        <input placeholder="单价(选填)" type="text" inputmode="decimal" step="0.01" value="${row.unitPrice}" oninput="updateCostItem('${row.id}','unitPrice',this.value)">
+        <input id="ci_cost_${row.id}" placeholder="成本RM" type="text" inputmode="decimal" step="0.01" value="${row.cost}" oninput="updateCostItem('${row.id}','cost',this.value)">
       </div>
       <div class="muted" style="font-size:11px; margin-top:3px;">填了"数量"和"单价"会自动算出成本；不想算就直接填"成本"就好</div>
       <div style="margin-top:6px; display:flex; align-items:center; gap:6px;">
         <span class="muted" style="font-size:11px; white-space:nowrap;">或者：买1${row.unit||'单位'}这个食材，能做几份这个产品？</span>
-        <input placeholder="能出几份" type="number" step="0.01" style="max-width:90px;" oninput="applyYieldToCostItem('${row.id}', this.value)">
+        <input placeholder="能出几份" type="text" inputmode="decimal" step="0.01" style="max-width:90px;" oninput="applyYieldToCostItem('${row.id}', this.value)">
       </div>
     </div>
   `).join('');
@@ -4321,7 +4329,7 @@ function renderVariantRows(){
         ${tempVariants.length>1?`<button class="rm" onclick="removeVariantRow('${row.id}')">×</button>`:'<span style="width:20px"></span>'}
       </div>
       <div class="pi-bottom" style="grid-template-columns:1fr;">
-        <input id="vr_price_${row.id}" placeholder="这个规格的售价" type="number" step="0.01" value="${row.price}" oninput="updateVariantRow('${row.id}','price',this.value)">
+        <input id="vr_price_${row.id}" placeholder="这个规格的售价" type="text" inputmode="decimal" step="0.01" value="${row.price}" oninput="updateVariantRow('${row.id}','price',this.value)">
       </div>
     </div>
   `).join('');
@@ -4715,8 +4723,8 @@ function renderSales(){
       <label style="margin-top:10px">产品</label>
       <input id="saleProduct" placeholder="输入或选择产品" autocomplete="off" value="${draft.saleProduct||''}" oninput="onSaleProductChange()">
       <div class="grid2" style="margin-top:10px">
-        <div><label>数量</label><input type="number" id="saleQty" value="${draft.saleQty||'1'}" min="1"></div>
-        <div><label>单价（可改，例如打折）</label><input type="number" step="0.01" id="salePrice" value="${draft.salePrice||''}"></div>
+        <div><label>数量</label><input type="text" inputmode="decimal" id="saleQty" value="${draft.saleQty||'1'}" min="1"></div>
+        <div><label>单价（可改，例如打折）</label><input type="text" inputmode="decimal" step="0.01" id="salePrice" value="${draft.salePrice||''}"></div>
       </div>
       <label>日期</label><input type="date" id="saleDate" value="${draft.saleDate||todayStr()}" onchange="this.blur()">
       <label>收款方式</label>
@@ -5456,7 +5464,7 @@ function cashflowEditRowHtml(ids, group){
     return `<tr><td colspan="4"><div style="padding:10px 0;">
       <div class="grid2">
         <div><label>日期</label><input type="date" id="cfEditDate" value="${first.date}"></div>
-        <div><label>金额</label><input type="number" step="0.01" id="cfEditAmount" value="${first.amount}"></div>
+        <div><label>金额</label><input type="text" inputmode="decimal" step="0.01" id="cfEditAmount" value="${first.amount}"></div>
       </div>
       <label>付款方式</label>
       <div class="btn-group" id="cfEditPayMethodGroup">
@@ -5480,7 +5488,7 @@ function cashflowEditRowHtml(ids, group){
       <div class="grid3">
         ${INCOME_CATEGORIES.map(cat=>{
           const rec = group.find(g=>g.category===cat);
-          return `<div><label style="margin-top:0">${cat}</label><input type="number" step="0.01" id="cfEditIncome_${cat}" value="${rec?rec.amount:''}"></div>`;
+          return `<div><label style="margin-top:0">${cat}</label><input type="text" inputmode="decimal" step="0.01" id="cfEditIncome_${cat}" value="${rec?rec.amount:''}"></div>`;
         }).join('')}
       </div>
       <label>备注（选填）</label><input autocomplete="off" id="cfEditNote" value="${noteVal}">
@@ -5494,7 +5502,7 @@ function cashflowEditRowHtml(ids, group){
   return `<tr><td colspan="4"><div style="padding:10px 0;">
     <div class="grid2">
       <div><label>日期</label><input type="date" id="cfEditDate" value="${first.date}"></div>
-      <div><label>金额</label><input type="number" step="0.01" id="cfEditAmount" value="${first.amount}"></div>
+      <div><label>金额</label><input type="text" inputmode="decimal" step="0.01" id="cfEditAmount" value="${first.amount}"></div>
     </div>
     <label>公司</label>
     <div class="btn-group" id="cfEditCompanyGroup">
@@ -5629,7 +5637,7 @@ function renderCfBodyWrap(draft){
     wrap.innerHTML = `
       <label>收入金额（可同时填多个，比如 Cash + TNG 一起入账）</label>
       <div class="grid3">
-        ${INCOME_CATEGORIES.map(c=>`<div><label style="margin-top:0">${c}</label><input type="number" step="0.01" id="cfIncome_${c}" placeholder="0.00" value="${draft['cfIncome_'+c]||''}"></div>`).join('')}
+        ${INCOME_CATEGORIES.map(c=>`<div><label style="margin-top:0">${c}</label><input type="text" inputmode="decimal" step="0.01" id="cfIncome_${c}" placeholder="0.00" value="${draft['cfIncome_'+c]||''}"></div>`).join('')}
       </div>
     `;
   }else{
@@ -5637,7 +5645,7 @@ function renderCfBodyWrap(draft){
       <label>分类</label>
       <div class="btn-group" id="cfCategoryGroup"></div>
       <div id="cfPayMethodWrap"></div>
-      <label>金额</label><input type="number" step="0.01" id="cfAmount" value="${draft.cfAmount||''}">
+      <label>金额</label><input type="text" inputmode="decimal" step="0.01" id="cfAmount" value="${draft.cfAmount||''}">
     `;
     renderCfCategoryGroup();
     renderCfPayMethodGroup();
@@ -5987,7 +5995,7 @@ function renderInventory(){
             <button type="button" class="btn-toggle ${stockAdjType==='in'?'active':''}" data-val="in" onclick="setStockAdjType('in')">入库/盘盈</button>
           </div>
         </div>
-        <div><label>数量</label><input type="number" step="0.01" id="stockAdjQty" placeholder="正数就好" value="${draft.stockAdjQty||''}"></div>
+        <div><label>数量</label><input type="text" inputmode="decimal" step="0.01" id="stockAdjQty" placeholder="正数就好" value="${draft.stockAdjQty||''}"></div>
       </div>
       <label>日期</label><input type="date" id="stockAdjDate" value="${draft.stockAdjDate||todayStr()}" onchange="this.blur()">
       <label>备注（选填）</label><input autocomplete="off" id="stockAdjNote" placeholder="例：打翻了、盘点校正" value="${draft.stockAdjNote||''}">
@@ -6458,16 +6466,6 @@ document.getElementById('bottomNav').addEventListener('click', (e)=>{
   const btn = e.target.closest('button[data-tab]');
   if(!btn) return;
   switchToTab(btn.dataset.tab);
-});
-
-/* iPad/iOS 上 <input type="number"> 有时候弹出来的数字键盘没有小数点键，导致单价/数量这些
-   需要打小数的地方打不出"."。这里用事件委派，聚焦到任何数字输入框时都补上 inputmode="decimal"，
-   让键盘一律带小数点——不用去改App里每一个数字输入框（现在、以后新增的都一起涵盖）。 */
-document.addEventListener('focusin', (e)=>{
-  const t = e.target;
-  if(t && t.tagName==='INPUT' && t.type==='number' && !t.hasAttribute('inputmode')){
-    t.setAttribute('inputmode','decimal');
-  }
 });
 
 loadState();
