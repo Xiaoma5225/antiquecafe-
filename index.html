@@ -127,6 +127,16 @@
     display:none; position:fixed; inset:0; z-index:60; background:rgba(43,38,32,0.55);
     align-items:center; justify-content:center; padding:16px;
   }
+  #posVariantOverlay{
+    display:none; position:fixed; inset:0; z-index:60; background:rgba(43,38,32,0.55);
+    align-items:center; justify-content:center; padding:16px;
+  }
+  .pos-variant-list{display:flex; flex-direction:column; gap:8px; margin-top:10px;}
+  .pos-variant-opt{
+    display:flex; justify-content:space-between; align-items:center; width:100%;
+    padding:12px 14px; border:1px solid var(--border); border-radius:10px; background:#FFFDF9; font-size:14.5px;
+  }
+  .pos-variant-opt:active{background:var(--gold-dim);}
   .pay-sheet{
     position:relative; width:100%; max-width:420px; background:var(--paper);
     border-radius:18px; padding:20px 18px 22px;
@@ -409,6 +419,37 @@
   .pos-cart-total-row{display:flex; justify-content:space-between; align-items:center; padding-top:10px; margin-top:4px; border-top:2px solid var(--ink); font-weight:700; font-size:15.5px;}
   .pos-checkout-row{display:flex; gap:8px; margin-top:12px;}
   .pos-checkout-row button{flex:1; background:linear-gradient(135deg,#26886F,var(--green)); color:#fff; padding:12px 4px; font-size:13px; border-radius:10px;}
+
+  /* ---- 点餐购物车布局：手机版收进右下角浮动按钮，桌面/iPad版固定在右边 ---- */
+  .pos-order-layout{display:block;}
+  .pos-order-menu-col{min-width:0;}
+  .pos-cart-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;}
+  .pos-cart-close{display:none;}
+  .pos-cart-fab{
+    display:none; position:fixed; right:16px; bottom:84px; z-index:56;
+    background:linear-gradient(135deg,#26886F,var(--green)); color:#fff; border:none;
+    border-radius:30px; padding:12px 18px; align-items:center; gap:8px;
+    box-shadow:0 6px 20px rgba(0,0,0,0.3); font-size:13px; font-weight:700;
+  }
+  .pos-cart-fab .badge{background:rgba(255,255,255,0.22); border-radius:20px; padding:3px 10px; font-family:'IBM Plex Mono',monospace; font-weight:600;}
+  #posCartFabOverlay{display:none; position:fixed; inset:0; z-index:54; background:rgba(43,38,32,0.5);}
+  @media (max-width:819.98px){
+    .pos-cart-fab{display:flex;}
+    .pos-cart-card{
+      position:fixed; left:10px; right:10px; bottom:0; z-index:55; margin:0;
+      max-height:78vh; overflow-y:auto; border-radius:16px 16px 0 0;
+      box-shadow:0 -8px 30px rgba(0,0,0,0.28);
+      transform:translateY(120%); transition:transform .22s ease;
+      padding-bottom:calc(18px + env(safe-area-inset-bottom));
+    }
+    .pos-cart-card.open{transform:translateY(0);}
+    .pos-cart-close{display:block; background:none; border:none; font-size:16px; color:var(--muted); padding:4px 6px;}
+  }
+  @media (min-width:820px){
+    .pos-order-layout{display:flex; align-items:flex-start; gap:18px;}
+    .pos-order-menu-col{flex:1;}
+    .pos-cart-card{width:340px; flex:0 0 340px; position:sticky; top:88px;}
+  }
   .pos-manage-panel{background:var(--bg); border-radius:10px; padding:10px; margin-top:10px;}
   .pos-manage-panel .prow{display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border); font-size:13px;}
   .pos-manage-panel .prow:last-child{border-bottom:none;}
@@ -442,6 +483,7 @@
 </div>
 
 <div id="payPopupOverlay" onclick="closePurchasePayPopup()"></div>
+<div id="posVariantOverlay" onclick="closePosVariantPicker()"></div>
 
 <!-- 点餐结账后打印用的收据，平常隐藏，只在按"打印"时透过 @media print 单独显示这块出来 -->
 <div id="receiptPrintArea"></div>
@@ -3706,6 +3748,8 @@ let costSearchQuery = '';
 let costCategoryFilter = '';
 let draftProductCompany = '';
 let tempSharedIngredients = [{id:uid(), name:''}];
+let tempVariants = [{id:uid(), label:'', price:''}];
+let tempMergeVariantRows = [{id:uid(), sourceName:'', label:''}];
 let prodSubView = 'product'; // 'product' = 名称/售价/分类等基本资料的新增编辑，'cost' = 食材成本/毛利细项，'recipe' = 半成品配方，'link' = 食材关联
 let ingredientLinkSearchQuery = '';
 /* 食材关联页要把"半成品配方本身用到的食材"排除掉——那些原料/用料的成本已经透过配方自动流进
@@ -3920,6 +3964,15 @@ function renderCost(){
             </div>
           </div>
           ${tagsLine}
+          ${(p.variants&&p.variants.length)? `
+          <label style="font-size:11.5px; color:var(--muted); margin-top:4px;">规格（按规格分开统计卖出数量）</label>
+          <table style="margin-top:2px; margin-bottom:6px;">
+            ${p.variants.map(v=>{
+              const vQty = state.sales.filter(s=>s.productId===p.id && s.variantId===v.id).reduce((a,s)=>a+Number(s.qty||0),0);
+              return `<tr><td>${v.label}</td><td class="num">${fmt(v.price)}</td><td class="num muted">卖出 ${vQty}</td></tr>`;
+            }).join('')}
+          </table>
+          ` : ''}
           <label style="font-size:11.5px; color:var(--muted); margin-top:6px;">食材成本项（固定，用量精确的）</label>
           <table style="margin-top:2px">
             ${(p.costItems||[]).map(ci=>`<tr><td class="muted">${ci.name}</td><td class="num">${fmtPlain(ci.cost)}</td>
@@ -3990,6 +4043,11 @@ function renderCost(){
         <button type="button" class="btn-toggle ${draftProductCompany===''?'active':''}" data-val="" onclick="setProdCompany('')">不指定</button>
         ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${draftProductCompany===c?'active':''}" data-val="${c}" onclick="setProdCompany('${c}')">${c}</button>`).join('')}
       </div>
+      <div id="variantsSection">
+        <label style="margin-top:14px">规格（选填：同一样东西有不同包装/份量，比如1包/3包/6包，价钱各自不一样，可以在这里加。点餐的时候会先跳出规格让你选；不需要规格的产品留空就好，维持上面填的单一价钱）</label>
+        <div id="variantsWrap"></div>
+        <button class="btn-line" onclick="addVariantRow()">+ 添加一个规格</button>
+      </div>
       <div class="muted" style="font-size:11.5px; margin-top:10px; line-height:1.5; background:var(--bg); padding:8px 10px; border-radius:8px;">这个产品的成本可以同时来自两边、加总算：<b>用量固定</b>的食材（比如半粒鸡蛋、固定几ml酱油）填「食材成本项」；<b>用量抓不准、按采购实际总额分摊</b>的食材（比如后腿肉）填「共同食材名称」。两边都可以填，也可以只填一边。</div>
       <div id="costItemsSection">
         <label style="margin-top:14px">食材成本项（用量固定的写这里：填数量+单位+单价，算出一个固定的每份成本；如果这个产品在"采购"页还没有关联到任何采购记录，也会先用这里的估算）</label>
@@ -4031,14 +4089,28 @@ function renderCost(){
       <input id="mergeToTarget" placeholder="例：STRAWBERRY JAM ONE BOTTLE" autocomplete="off">
       <button class="btn-line" onclick="mergeProductsByName()">🔀 合并</button>
     </div>
+
+    <div class="card">
+      <h3>合并成同一产品的不同规格</h3>
+      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">这个不一样：上面那个是"同一样东西、名字打法不同"；这个是"同一样东西，但有好几个规格/包装（1包、3包、6包...），本来各自开了独立产品"。合并之后会变成一个产品、底下挂好几个规格，价钱各自保留，历史销售记录会自动改连到对应的规格上（卖出数量还是能按规格分开看），旧的独立产品会被删掉。</div>
+      <label>统一成这个产品名字（原本哪个旧产品都可以直接拿来当这个名字）</label>
+      <input id="mvTarget" placeholder="例：小段玉米 Sliced Corn" autocomplete="off">
+      <div id="mvRowsWrap" style="margin-top:10px;"></div>
+      <button class="btn-line" onclick="addMergeVariantRow()">+ 再加一个旧产品</button>
+      <button class="btn-main" style="margin-top:10px;" onclick="mergeProductsIntoVariants()">🔀 合并成规格</button>
+    </div>
   `;
   renderCostItemRows();
   renderSharedIngredientRows();
+  renderVariantRows();
+  renderMergeVariantRows();
   wireSuggest('prodTitle', state.products.map(p=>p.name));
   wireSuggest('prodCategory', categoryOptions);
   const mergeNames = state.products.map(p=>p.name);
   wireSuggest('mergeFromList', mergeNames);
   wireSuggest('mergeToTarget', mergeNames);
+  wireSuggest('mvTarget', mergeNames);
+  tempMergeVariantRows.forEach(row=>wireSuggest('mv_source_'+row.id, mergeNames));
   wireSuggest('prodCode', getProductCodes());
 }
 function renderCostItemRows(){
@@ -4103,6 +4175,38 @@ function removeSharedIngredientRow(id){
 function updateSharedIngredient(id, val){
   const row = tempSharedIngredients.find(r=>r.id===id);
   if(row) row.name = val;
+}
+/* ---- 产品「规格」(variables)：同一样东西不同包装/份量、价钱各自不一样（比如1包/3包/6包）。
+   有填规格的产品，点餐画面会先跳出规格选单选一个才加进购物车；没填规格的维持原本单一价钱，直接点了就加。
+   这些规格资料直接存在 state.products 里那个产品自己身上，点餐、销售统计等所有地方读的都是同一份，
+   产品页改了规格，别的地方自动就是新的，不用另外写同步逻辑。 */
+function renderVariantRows(){
+  const wrap = document.getElementById('variantsWrap');
+  if(!wrap) return;
+  wrap.innerHTML = tempVariants.map(row=>`
+    <div class="pi-card">
+      <div class="pi-top">
+        <input autocomplete="off" id="vr_label_${row.id}" placeholder="规格名称，如：3包 / 大份 / 加辣" value="${row.label}" oninput="updateVariantRow('${row.id}','label',this.value)">
+        ${tempVariants.length>1?`<button class="rm" onclick="removeVariantRow('${row.id}')">×</button>`:'<span style="width:20px"></span>'}
+      </div>
+      <div class="pi-bottom" style="grid-template-columns:1fr;">
+        <input id="vr_price_${row.id}" placeholder="这个规格的售价" type="number" step="0.01" value="${row.price}" oninput="updateVariantRow('${row.id}','price',this.value)">
+      </div>
+    </div>
+  `).join('');
+}
+function addVariantRow(){
+  tempVariants.push({id:uid(), label:'', price:''});
+  renderVariantRows();
+}
+function removeVariantRow(id){
+  tempVariants = tempVariants.filter(r=>r.id!==id);
+  if(tempVariants.length===0) tempVariants = [{id:uid(), label:'', price:''}];
+  renderVariantRows();
+}
+function updateVariantRow(id, field, val){
+  const row = tempVariants.find(r=>r.id===id);
+  if(row) row[field] = val;
 }
 function autoLinkCostItemIngredient(id){
   const row = tempCostItems.find(r=>r.id===id);
@@ -4169,25 +4273,27 @@ function submitProduct(){
   if(!name){ alert('请输入产品名称'); return; }
   const costItems = tempCostItems.filter(r=>r.name && r.cost!=='').map(r=>({id:uid(), name:r.name, qty:Number(r.qty||0), unit:r.unit, unitPrice:Number(r.unitPrice||0), cost:Number(r.cost||0)}));
   const sharedIngredients = tempSharedIngredients.map(r=>r.name.trim()).filter(Boolean);
+  const variants = tempVariants.filter(r=>r.label.trim()!=='').map(r=>({id:r.id, label:r.label.trim(), price:Number(r.price||0), legacyNames:r.legacyNames||[]}));
   const prodTitleEl = document.getElementById('prodTitle'); if(prodTitleEl) prodTitleEl.value='';
   const prodPriceEl = document.getElementById('prodPrice'); if(prodPriceEl) prodPriceEl.value='';
   if(editingProductId){
     const targetId = editingProductId;
     mutate(()=>{
       const p = state.products.find(x=>x.id===targetId);
-      if(p){ p.name = name; p.price = price; p.costItems = costItems; p.sharedIngredients = sharedIngredients; p.category = category; p.code = code; p.company = company; }
+      if(p){ p.name = name; p.price = price; p.costItems = costItems; p.sharedIngredients = sharedIngredients; p.category = category; p.code = code; p.company = company; p.variants = variants; }
       costItems.forEach(ci=>learnIngredientLink(ci.name, [targetId], {unit: ci.unit, unitPrice: ci.unitPrice}));
     });
     editingProductId = null;
   } else {
     const newId = uid();
     mutate(()=>{
-      state.products.push({id:newId, name, price, costItems, sharedIngredients, category, code, company});
+      state.products.push({id:newId, name, price, costItems, sharedIngredients, category, code, company, variants});
       costItems.forEach(ci=>learnIngredientLink(ci.name, [newId], {unit: ci.unit, unitPrice: ci.unitPrice}));
     });
   }
   tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
   tempSharedIngredients = [{id:uid(), name:''}];
+  tempVariants = [{id:uid(), label:'', price:''}];
   draftProductCompany = '';
   renderCost();
 }
@@ -4203,6 +4309,9 @@ function startEditProduct(id){
   tempSharedIngredients = (p.sharedIngredients&&p.sharedIngredients.length)
     ? p.sharedIngredients.map(n=>({id:uid(), name:n}))
     : [{id:uid(), name:''}];
+  tempVariants = (p.variants&&p.variants.length)
+    ? p.variants.map(v=>({id:v.id, label:v.label||'', price:v.price!=null?String(v.price):'', legacyNames:v.legacyNames||[]}))
+    : [{id:uid(), label:'', price:''}];
   renderCost();
   const nameInput = document.getElementById('prodTitle');
   if(nameInput) nameInput.scrollIntoView({behavior:'smooth', block:'center'});
@@ -4212,6 +4321,7 @@ function cancelEditProduct(){
   draftProductCompany = '';
   tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
   tempSharedIngredients = [{id:uid(), name:''}];
+  tempVariants = [{id:uid(), label:'', price:''}];
   renderCost();
 }
 function filterCostProducts(q){
@@ -4343,6 +4453,103 @@ function mergeProductsByName(){
     }
   });
   alert(`合并完成：\n・${summary.salesRenamed} 笔销售记录改成了「${toName}」\n・${summary.removedProducts} 个重复的旧产品项目已合并删除${summary.mergedCostItems? `（食材成本项搬了 ${summary.mergedCostItems} 项过去）`:''}`);
+}
+/* ---- 合并成同一产品的不同规格 ----
+   跟上面 mergeProductsByName 不一样：那个是把"名字打法不同、其实是同一样东西"的产品合成一个、
+   完全当同一笔来统计；这个是把"本来因为规格/包装不同而各自独立开的产品"，合并成一个产品底下的
+   好几个规格，规格各自的价钱、历史销售数量都还留着、还能分开看，只是不用再在点餐菜单/产品列表里
+   看到一长串重复的名字。 */
+function renderMergeVariantRows(){
+  const wrap = document.getElementById('mvRowsWrap');
+  if(!wrap) return;
+  wrap.innerHTML = tempMergeVariantRows.map(row=>`
+    <div class="pi-card">
+      <div class="pi-top">
+        <input autocomplete="off" id="mv_source_${row.id}" placeholder="旧产品名称（从建议里选）" value="${row.sourceName}" oninput="updateMergeVariantRow('${row.id}','sourceName',this.value)">
+        ${tempMergeVariantRows.length>1?`<button class="rm" onclick="removeMergeVariantRow('${row.id}')">×</button>`:'<span style="width:20px"></span>'}
+      </div>
+      <div class="pi-bottom" style="grid-template-columns:1fr;">
+        <input id="mv_label_${row.id}" placeholder="合并后叫这个规格名，例：3包" autocomplete="off" value="${row.label}" oninput="updateMergeVariantRow('${row.id}','label',this.value)">
+      </div>
+    </div>
+  `).join('');
+  const mergeNames = state.products.map(p=>p.name);
+  tempMergeVariantRows.forEach(row=>wireSuggest('mv_source_'+row.id, mergeNames));
+}
+function addMergeVariantRow(){
+  tempMergeVariantRows.push({id:uid(), sourceName:'', label:''});
+  renderMergeVariantRows();
+}
+function removeMergeVariantRow(id){
+  tempMergeVariantRows = tempMergeVariantRows.filter(r=>r.id!==id);
+  if(tempMergeVariantRows.length===0) tempMergeVariantRows = [{id:uid(), sourceName:'', label:''}];
+  renderMergeVariantRows();
+}
+function updateMergeVariantRow(id, field, val){
+  const row = tempMergeVariantRows.find(r=>r.id===id);
+  if(row) row[field] = val;
+}
+function mergeProductsIntoVariants(){
+  const targetName = document.getElementById('mvTarget').value.trim();
+  if(!targetName){ alert('请填合并后统一叫什么名字'); return; }
+  const rows = tempMergeVariantRows.filter(r=>r.sourceName.trim() && r.label.trim());
+  if(rows.length<1){ alert('至少要填一个旧产品名称和它的规格名'); return; }
+  const norm = s=>(s||'').trim().toLowerCase();
+  const targetNorm = norm(targetName);
+  const seen = new Set();
+  for(const r of rows){
+    const key = norm(r.sourceName);
+    if(seen.has(key)){ alert(`「${r.sourceName}」被填了不止一次，请检查一下`); return; }
+    seen.add(key);
+    if(!state.products.some(p=>norm(p.name)===key)){ alert(`找不到叫「${r.sourceName}」的产品，请从建议清单里选`); return; }
+  }
+  if(!confirm(`确定把这 ${rows.length} 个旧产品合并成「${targetName}」底下的 ${rows.length} 个规格吗？\n\n旧产品会被删除，历史销售记录会改连到对应规格（卖出数量还能分开看）。此操作无法撤销。`)) return;
+  const summary = {salesMoved:0, removedProducts:0};
+  mutate(()=>{
+    let target = state.products.find(p=>norm(p.name)===targetNorm);
+    const usedAsTarget = target ? norm(target.name) : null;
+    if(!target){
+      // 目标名字目前还没有产品：直接拿第一个旧产品改名字延用（保留它原本的id，简单干净）
+      const firstKey = norm(rows[0].sourceName);
+      target = state.products.find(p=>norm(p.name)===firstKey);
+      target.name = targetName;
+    }
+    if(!target.variants) target.variants = [];
+    rows.forEach(r=>{
+      const key = norm(r.sourceName);
+      const source = state.products.find(p=>norm(p.name)===key);
+      if(!source) return;
+      const variantId = uid();
+      const label = r.label.trim();
+      target.variants.push({id:variantId, label, price:Number(source.price||0), legacyNames:[source.name]});
+      if(source.id!==target.id){
+        state.sales.forEach(s=>{
+          if(s.productId===source.id){
+            s.productId = target.id;
+            s.variantId = variantId;
+            s.productName = `${target.name} - ${label}`;
+            summary.salesMoved++;
+          }
+        });
+        state.products = state.products.filter(p=>p.id!==source.id);
+        summary.removedProducts++;
+      } else {
+        // 旧产品本身就是被拿来当目标延用的那一个：它自己也变成一个规格，把它原本(改名前)身上的
+        // 销售记录一并连到这个新规格上，productName 也同步换成"目标名 - 规格名"
+        state.sales.forEach(s=>{
+          if(s.productId===target.id && !s.variantId){
+            s.variantId = variantId;
+            s.productName = `${target.name} - ${label}`;
+            summary.salesMoved++;
+          }
+        });
+      }
+    });
+  });
+  tempMergeVariantRows = [{id:uid(), sourceName:'', label:''}];
+  document.getElementById('mvTarget').value = '';
+  renderCost();
+  alert(`合并完成：「${targetName}」底下现在有 ${rows.length} 个规格，${summary.salesMoved} 笔历史销售记录已经改连到对应规格，${summary.removedProducts} 个旧产品项目已删除。`);
 }
 
 /* ================= 销售 Tab ================= */
@@ -4495,7 +4702,7 @@ function renderSales(){
   `;
   wireSalePreview();
   updateSalePreview();
-  wireSuggest('saleProduct', state.products.map(p=>p.name));
+  wireSuggest('saleProduct', productSaleNameOptions());
 }
 function setSaleCompany(val){
   saleCompany = val;
@@ -4507,8 +4714,8 @@ function setSaleHistoryFilterCompany(val){
 }
 function onSaleProductChange(){
   const typedName = document.getElementById('saleProduct').value.trim();
-  const p = state.products.find(x=>x.name.toLowerCase()===typedName.toLowerCase());
-  if(p) document.getElementById('salePrice').value = p.price;
+  const hit = resolveProductSaleTarget(typedName);
+  if(hit) document.getElementById('salePrice').value = hit.variant ? hit.variant.price : hit.product.price;
   updateSalePreview();
 }
 function wireSalePreview(){
@@ -4525,6 +4732,35 @@ function updateSalePreview(){
    现在每个产品都可能有食材成本项(不再分单位法/总额法)，只要有填数量就会扣；没填的（比如份量抓不准、
    只填了"共同食材名称"的那些）本来就没有固定数量可以扣，自然会跳过。
    tagFields 用来在扣减记录上打标记，方便之后删销售记录/删批量导入时能对应找回并撤销这些扣减。 */
+/* ---- 产品名字符串 → 产品(+可能的规格) ----
+   1) 先看是不是直接对上某个产品本身的名字（没规格的产品，或规格产品的主名字）
+   2) 再看是不是对上某个产品底下某个规格：可能是"产品名 - 规格名"这种现在用的格式，
+      也可能是合并规格时留下的旧产品原始名字(legacyNames)——这样以前汇出、名字还是旧写法的
+      CSV报表拿来重新导入，也还是能对上正确的规格，不会变成"找不到产品"。找不到就回传 null。 */
+function resolveProductSaleTarget(rawName){
+  const norm = s=>(s||'').trim().toLowerCase();
+  const n = norm(rawName);
+  if(!n) return null;
+  const exact = state.products.find(p=>norm(p.name)===n);
+  if(exact) return {product:exact, variant:null};
+  for(const p of state.products){
+    for(const v of (p.variants||[])){
+      if(norm(`${p.name} - ${v.label}`)===n) return {product:p, variant:v};
+      if((v.legacyNames||[]).some(ln=>norm(ln)===n)) return {product:p, variant:v};
+    }
+  }
+  return null;
+}
+/* 给"记一笔销售"的产品输入框建议清单用：没有规格的产品显示自己的名字；有规格的产品，
+   每个规格各自变成一条"产品名 - 规格名"的建议，这样才选得到具体是哪个规格。 */
+function productSaleNameOptions(){
+  const out = [];
+  state.products.forEach(p=>{
+    if(p.variants && p.variants.length) p.variants.forEach(v=>out.push(`${p.name} - ${v.label}`));
+    else out.push(p.name);
+  });
+  return out;
+}
 function pushSaleStockDeductions(product, saleQty, date, company, tagFields){
   if(!product) return;
   (product.costItems||[]).forEach(ci=>{
@@ -4540,8 +4776,10 @@ function pushSaleStockDeductions(product, saleQty, date, company, tagFields){
 }
 function submitSale(){
   const typedName = document.getElementById('saleProduct').value.trim();
-  const p = state.products.find(x=>x.name.toLowerCase()===typedName.toLowerCase());
-  if(!p){ alert('找不到这个产品，请从建议列表里选一个，或先去"成本"页新增这个产品'); return; }
+  const hit = resolveProductSaleTarget(typedName);
+  if(!hit){ alert('找不到这个产品，请从建议列表里选一个，或先去"成本"页新增这个产品'); return; }
+  const p = hit.product;
+  const variant = hit.variant;
   const qty = Number(document.getElementById('saleQty').value)||0;
   const price = Number(document.getElementById('salePrice').value)||0;
   const date = document.getElementById('saleDate').value || todayStr();
@@ -4555,7 +4793,8 @@ function submitSale(){
   const saleDateEl = document.getElementById('saleDate'); if(saleDateEl) saleDateEl.value = todayStr();
   mutate(()=>{
     const sid = uid();
-    state.sales.push({id:sid, date, productId:p.id, productName:p.name, qty, price, amount, cost: unitCost*qty, payMethod, company});
+    const productName = variant ? `${p.name} - ${variant.label}` : p.name;
+    state.sales.push({id:sid, date, productId:p.id, variantId: variant?variant.id:null, productName, qty, price, amount, cost: unitCost*qty, payMethod, company});
     // 销售记录不再自动生成收支流水——收支由用户自己手动记录，这里只做产品利润统计用
     if(!state.stockAdjustments) state.stockAdjustments = [];
     pushSaleStockDeductions(p, qty, date, company, {_saleId:sid});
@@ -4685,11 +4924,15 @@ function importSalesReport(fileInput){
         const companyRaw = (r[5]||'').trim();
         if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ errors.push(`${loc}：日期"${r[0]||''}"看不懂，请用 2026-08-01 这种格式`); return; }
         if(!productName){ errors.push(`${loc}：缺少产品名称`); return; }
-        let product = state.products.find(p=>p.name.toLowerCase()===productName.toLowerCase());
-        if(!product){
+        let hit = resolveProductSaleTarget(productName);
+        let product, variant;
+        if(hit){
+          product = hit.product; variant = hit.variant;
+        } else {
           // 找不到就自动建一个新产品（无成本项，售价用这笔的单价，之后要自己去"成本"页补充食材成本）
           const key = productName.toLowerCase();
           product = newProductByKey[key];
+          variant = null;
           if(!product){
             product = {id:uid(), name:productName, price:0, costItems:[], _isNew:true};
             newProductByKey[key] = product;
@@ -4697,7 +4940,7 @@ function importSalesReport(fileInput){
           }
         }
         if(!qty || qty<=0 || isNaN(qty)){ errors.push(`${loc}：数量不对`); return; }
-        const price = priceRaw!=='' ? Number(priceRaw) : Number(product.price||0);
+        const price = priceRaw!=='' ? Number(priceRaw) : Number((variant?variant.price:product.price)||0);
         if(isNaN(price)){ errors.push(`${loc}：单价不对`); return; }
         if(product._isNew && !product._priceSet && price>0){ product.price = price; product._priceSet = true; }
         const payMethod = payMethodRaw || '其他';
@@ -4706,7 +4949,7 @@ function importSalesReport(fileInput){
           if(COMPANIES.includes(companyRaw)) company = companyRaw;
           else errors.push(`${loc}：公司"${companyRaw}"不认得（可选：${COMPANIES.join('、')}），这行会先不分公司导入`);
         }
-        toAdd.push({date, product, qty, price, payMethod, company});
+        toAdd.push({date, product, variant, qty, price, payMethod, company});
       });
       if(toAdd.length===0){ alert('没有成功解析到任何一笔销售记录：\n\n' + errors.join('\n')); fileInput.value=''; return; }
       let msg = multi ? `准备从 ${fileTexts.length} 个文件里导入 ${toAdd.length} 笔销售记录` : `准备导入 ${toAdd.length} 笔销售记录`;
@@ -4725,10 +4968,12 @@ function importSalesReport(fileInput){
         const dates = [];
         toAdd.forEach(item=>{
           const p = item.product;
+          const variant = item.variant;
           const amount = item.qty * item.price;
           const unitCost = productUnitCost(p);
           const sid = uid();
-          state.sales.push({id:sid, date:item.date, productId:p.id, productName:p.name, qty:item.qty, price:item.price, amount, cost: unitCost*item.qty, payMethod:item.payMethod, company:item.company, importBatch:batchId});
+          const productName = variant ? `${p.name} - ${variant.label}` : p.name;
+          state.sales.push({id:sid, date:item.date, productId:p.id, variantId: variant?variant.id:null, productName, qty:item.qty, price:item.price, amount, cost: unitCost*item.qty, payMethod:item.payMethod, company:item.company, importBatch:batchId});
           // 销售记录不再自动生成收支流水——收支由用户自己手动记录，这里只做产品利润统计用
           if(!state.stockAdjustments) state.stockAdjustments = [];
           pushSaleStockDeductions(p, item.qty, item.date, item.company, {importBatch:batchId});
@@ -5680,6 +5925,7 @@ let posCompany = COMPANIES[0]; // 点餐画面目前选的是哪间公司
 let posViewOrderId = null;     // 目前在看哪一单的点餐详情画面；null = 显示桌号格子/外带单列表
 let posCatFilter = '';         // 点餐详情画面的菜单分类筛选，''=全部
 let posManagingTables = false; // 是否在"管理桌号"模式（点桌号格子变成删除，而不是开单）
+let posCartOpen = false;       // 手机版：购物车是不是被拉开显示（桌面/iPad版购物车固定在右边，不受这个影响）
 
 function setPosMode(m){ posMode = m; posManagingTables = false; renderPOS(); }
 function setPosCompany(c){ posCompany = c; posManagingTables = false; renderPOS(); }
@@ -5764,6 +6010,7 @@ function startDineInOrder(tableId){
   const order = {id:uid(), mode:'dine-in', tableId:t.id, tableName:t.name, company:posCompany, items:[], createdAt:Date.now()};
   mutate(()=>{ if(!state.posOrders) state.posOrders=[]; state.posOrders.push(order); });
   posViewOrderId = order.id;
+  posCartOpen = false;
   renderPOS();
 }
 function startTakeawayOrder(){
@@ -5771,10 +6018,11 @@ function startTakeawayOrder(){
   const order = {id:uid(), mode:'takeaway', tableId:null, tableName:'外带#'+state.posTakeawayCounter, company:posCompany, items:[], createdAt:Date.now()};
   mutate(()=>{ if(!state.posOrders) state.posOrders=[]; state.posOrders.push(order); });
   posViewOrderId = order.id;
+  posCartOpen = false;
   renderPOS();
 }
-function openPosOrder(orderId){ posViewOrderId = orderId; posCatFilter=''; renderPOS(); }
-function backToPosList(){ posViewOrderId = null; posCatFilter=''; renderPOS(); }
+function openPosOrder(orderId){ posViewOrderId = orderId; posCatFilter=''; posCartOpen=false; renderPOS(); }
+function backToPosList(){ posViewOrderId = null; posCatFilter=''; posCartOpen=false; renderPOS(); }
 function cancelPosOrder(orderId){
   if(!confirm('确定取消这一单？已经点的东西会清空，不会产生任何销售记录。')) return;
   mutate(()=>{ state.posOrders = (state.posOrders||[]).filter(o=>o.id!==orderId); });
@@ -5796,22 +6044,39 @@ function posOrderScreenHtml(order){
       <div class="ttl">${order.tableName}</div>
       <button type="button" class="btn-danger-text" onclick="cancelPosOrder('${order.id}')">取消这一单</button>
     </div>
+    <div class="pos-order-layout">
+    <div class="pos-order-menu-col">
     <div class="card">
       <div class="pos-cat-tabs">
         <button type="button" class="btn-toggle ${!posCatFilter?'active':''}" onclick="setPosCatFilter('')">全部</button>
         ${cats.map(c=>`<button type="button" class="btn-toggle ${posCatFilter===c?'active':''}" onclick="setPosCatFilter('${c.replace(/'/g,"\\'")}')">${c}</button>`).join('')}
       </div>
       <div class="pos-menu-grid">
-        ${sortedShown.map(p=>`
-          <div class="pos-menu-item" onclick="addItemToPosOrder('${order.id}','${p.id}')">
-            <div class="pname">${p.name}</div>
-            <div class="pprice">RM ${fmtPlain(p.price)}</div>
-          </div>`).join('')}
+        ${sortedShown.map(p=>{
+          const hasVariants = p.variants && p.variants.length;
+          let priceLabel;
+          if(hasVariants){
+            const prices = p.variants.map(v=>Number(v.price)||0);
+            const lo = Math.min(...prices), hi = Math.max(...prices);
+            priceLabel = lo===hi ? `RM ${fmtPlain(lo)}` : `RM ${fmtPlain(lo)} 起`;
+          } else {
+            priceLabel = `RM ${fmtPlain(p.price)}`;
+          }
+          return `
+          <div class="pos-menu-item" onclick="posMenuTap('${order.id}','${p.id}')">
+            <div class="pname">${p.name}${hasVariants? ` <span class="muted" style="font-size:10.5px;">（${p.variants.length}个规格）</span>`:''}</div>
+            <div class="pprice">${priceLabel}</div>
+          </div>`;
+        }).join('')}
       </div>
       ${!sortedShown.length? `<div class="empty">这个分类下没有产品，先去"产品"页新增</div>` : ''}
     </div>
-    <div class="card">
-      <h3>已点 <span class="n">${posOrderItemCount(order)} 件</span></h3>
+    </div>
+    <div class="card pos-cart-card${posCartOpen?' open':''}" id="posCartCard">
+      <div class="pos-cart-head">
+        <h3 style="margin:0;">已点 <span class="n">${posOrderItemCount(order)} 件</span></h3>
+        <button type="button" class="pos-cart-close" onclick="togglePosCart(false)">✕</button>
+      </div>
       ${(order.items||[]).length? order.items.map(i=>`
         <div class="pos-cart-line">
           <div class="cname">${i.name}<span class="csub">RM ${fmtPlain(i.price)} / 份</span></div>
@@ -5828,18 +6093,70 @@ function posOrderScreenHtml(order){
         ${INCOME_CATEGORIES.map(m=>`<button type="button" onclick="confirmPosCheckout('${order.id}','${m}')">${m} 结账</button>`).join('')}
       </div>` : ''}
     </div>
+    </div>
+    <button type="button" class="pos-cart-fab" onclick="togglePosCart(true)" style="${posCartOpen?'display:none;':''}">
+      <span>🛒</span><span class="badge">${posOrderItemCount(order)} · RM ${fmtPlain(total)}</span>
+    </button>
+    <div id="posCartFabOverlay" onclick="togglePosCart(false)" style="${posCartOpen?'display:block;':'display:none;'}"></div>
   `;
 }
 function setPosCatFilter(c){ posCatFilter = c; renderPOS(); }
-function addItemToPosOrder(orderId, productId){
+/* 手机版购物车：预设收起来，点右下角浮动按钮拉开成一个从下往上滑出的面板；
+   桌面/iPad版（>=820px）购物车固定在右边，这个开关不影响那边的显示（CSS里桌面版直接忽略.open）。 */
+function togglePosCart(open){
+  posCartOpen = (open!=null) ? !!open : !posCartOpen;
+  renderPOS();
+}
+/* 点了菜单格子：有规格的产品先跳规格选单，没规格的直接加进购物车（维持原本行为）。 */
+function posMenuTap(orderId, productId){
   const p = state.products.find(x=>x.id===productId);
   if(!p) return;
+  if(p.variants && p.variants.length) openPosVariantPicker(orderId, productId);
+  else addItemToPosOrder(orderId, productId, null);
+}
+let posVariantPickerState = null; // {orderId, productId}
+function openPosVariantPicker(orderId, productId){
+  posVariantPickerState = {orderId, productId};
+  renderPosVariantPicker();
+}
+function closePosVariantPicker(){
+  posVariantPickerState = null;
+  renderPosVariantPicker();
+}
+function renderPosVariantPicker(){
+  const el = document.getElementById('posVariantOverlay');
+  if(!el) return;
+  if(!posVariantPickerState){ el.style.display='none'; el.innerHTML=''; return; }
+  const p = state.products.find(x=>x.id===posVariantPickerState.productId);
+  if(!p || !p.variants || !p.variants.length){ el.style.display='none'; el.innerHTML=''; posVariantPickerState=null; return; }
+  el.style.display = 'flex';
+  el.innerHTML = `
+    <div class="pay-sheet" onclick="event.stopPropagation()">
+      <button type="button" class="pay-sheet-close" onclick="closePosVariantPicker()">✕</button>
+      <div class="t">${p.name}</div>
+      <div class="amt-line">选一个规格加进购物车</div>
+      <div class="pos-variant-list">
+        ${p.variants.map(v=>`
+          <button type="button" class="pos-variant-opt" onclick="addItemToPosOrder('${posVariantPickerState.orderId}','${p.id}','${v.id}'); closePosVariantPicker();">
+            <span>${v.label}</span><span class="mono">RM ${fmtPlain(v.price)}</span>
+          </button>`).join('')}
+      </div>
+    </div>
+  `;
+}
+function addItemToPosOrder(orderId, productId, variantId){
+  const p = state.products.find(x=>x.id===productId);
+  if(!p) return;
+  const variant = variantId ? (p.variants||[]).find(v=>v.id===variantId) : null;
+  if(variantId && !variant) return;
+  const price = variant ? Number(variant.price)||0 : Number(p.price)||0;
+  const name = variant ? `${p.name} - ${variant.label}` : p.name;
   mutate(()=>{
     const order = state.posOrders.find(o=>o.id===orderId);
     if(!order) return;
-    const line = order.items.find(i=>i.productId===productId);
+    const line = order.items.find(i=>i.productId===productId && (i.variantId||null)===(variantId||null));
     if(line) line.qty = Number(line.qty||0)+1;
-    else order.items.push({id:uid(), productId:p.id, name:p.name, price:p.price, qty:1});
+    else order.items.push({id:uid(), productId:p.id, variantId: variantId||null, name, price, qty:1});
   });
   renderPOS();
 }
@@ -5869,13 +6186,14 @@ function confirmPosCheckout(orderId, payMethod){
       const p = state.products.find(x=>x.id===i.productId);
       const unitCost = p ? productUnitCost(p) : 0;
       const sid = uid();
-      state.sales.push({id:sid, date, productId:i.productId, productName:i.name, qty:i.qty, price:i.price, amount:i.price*i.qty, cost:unitCost*i.qty, payMethod, company, posOrderId:orderId, posTableName:tableName});
+      state.sales.push({id:sid, date, productId:i.productId, variantId:i.variantId||null, productName:i.name, qty:i.qty, price:i.price, amount:i.price*i.qty, cost:unitCost*i.qty, payMethod, company, posOrderId:orderId, posTableName:tableName});
       if(p) pushSaleStockDeductions(p, i.qty, date, company, {_saleId:sid});
     });
     state.posOrders = state.posOrders.filter(o=>o.id!==orderId);
   });
   printPosReceipt({tableName, company, items, payMethod, date});
   posViewOrderId = null;
+  posCartOpen = false;
   renderPOS();
 }
 function printPosReceipt(order){
