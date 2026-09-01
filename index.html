@@ -894,9 +894,31 @@ const SUBCOLLECTIONS = ['suppliers','purchases','payments','products','sales','c
 let lastSynced = {};
 SUBCOLLECTIONS.forEach(k=>{ lastSynced[k] = new Map(); });
 
+/* ---------------- 账号权限 ----------------
+   固定写死的超级管理员：一定是「全部权限」，而且只有这个邮箱能在"设置"页看到/管理权限名单。
+   其他账号的权限存在 Firestore 的 permissions 集合里（文件ID = 小写邮箱，欄位 role: 'full' | 'pos'）。
+   第一次登录、名单里还没有这个邮箱的账号，会自动被设成 'pos'（只能看点餐），
+   由管理员在"设置"页把信任的账号升级成 'full'。 */
+const ADMIN_EMAILS = ['behweimin96@gmail.com'];
+let currentUserRole = 'full'; // 本机存储模式（未登录）下预设全部权限，不受影响
+let currentUserEmail = '';
+function isAdmin(){ return ADMIN_EMAILS.includes((currentUserEmail||'').toLowerCase()); }
+
 function setSyncStatus(text){
   const el = document.getElementById('syncStatus');
   if(el) el.textContent = text;
+}
+
+/* 依照 currentUserRole 隐藏/开放分页：只是App里的显示层级限制（方便管理，
+   不是Firestore规则那种真正的资料隔离），符合目前"只在App里隐藏就够了"的需求。
+   role !== 'full' 的账号：底部导航只留"点餐"，账号选单里的"导出数据"也藏起来。 */
+function applyRolePermissions(){
+  const full = currentUserRole==='full';
+  document.querySelectorAll('nav.bottom button[data-tab]').forEach(b=>{
+    b.style.display = (full || b.dataset.tab==='pos') ? '' : 'none';
+  });
+  const exportBtn = document.querySelector('#accountMenu button[onclick*="\'export\'"]');
+  if(exportBtn) exportBtn.style.display = full ? '' : 'none';
 }
 
 function loadState(){
@@ -907,15 +929,44 @@ function loadState(){
       firebase.initializeApp(firebaseConfig);
       firebase.auth().onAuthStateChanged((user)=>{
         if(user){
-          document.getElementById('loginScreen').style.display = 'none';
-          document.getElementById('appBody').style.display = 'block';
-          const badge = document.getElementById('accountBadge');
-          badge.textContent = '👤';
-          badge.title = `${user.email} · 点一下登出`;
-          badge.style.display = 'flex';
-          loadLocalThenApp();
-          initCloudSync(user);
+          const emailLower = (user.email||'').trim().toLowerCase();
+          currentUserEmail = emailLower;
+          const finishLogin = (role)=>{
+            currentUserRole = role;
+            document.getElementById('loginScreen').style.display = 'none';
+            document.getElementById('appBody').style.display = 'block';
+            const badge = document.getElementById('accountBadge');
+            badge.textContent = '👤';
+            badge.title = `${user.email} · 点一下登出`;
+            badge.style.display = 'flex';
+            applyRolePermissions();
+            loadLocalThenApp();
+            initCloudSync(user);
+            if(role!=='full') switchToTab('pos');
+          };
+          if(ADMIN_EMAILS.includes(emailLower)){
+            finishLogin('full');
+          }else{
+            // 权限表放在 ledger/shared/permissions 底下（跟其他子集合走同一条既有的 Firestore
+            // 规则 /ledger/{docId}/{collection}/{itemId}），不用另外去后台改规则。
+            const permRef = firebase.firestore().collection('ledger').doc('shared').collection('permissions').doc(emailLower);
+            permRef.get().then(snap=>{
+              if(snap.exists){
+                finishLogin(snap.data().role==='full' ? 'full' : 'pos');
+              }else{
+                // 第一次登录，名单里还没有这个账号：先用最保守的"只能看点餐"，
+                // 顺手把这个账号记进名单，方便管理员之后在"设置"页看到并升级权限。
+                permRef.set({email:emailLower, role:'pos', createdAt:new Date().toISOString()}).catch(()=>{});
+                finishLogin('pos');
+              }
+            }).catch(err=>{
+              console.error('读取权限失败，先用最保守的权限', err);
+              finishLogin('pos');
+            });
+          }
         }else{
+          currentUserRole = 'full';
+          currentUserEmail = '';
           document.getElementById('loginScreen').style.display = 'block';
           document.getElementById('appBody').style.display = 'none';
           document.getElementById('accountBadge').style.display = 'none';
@@ -5365,6 +5416,7 @@ function renderSettings(){
       <h3>设置</h3>
       <label>目前登录的账号</label>
       <div style="padding:9px 10px; border:1px solid var(--border); border-radius:8px; background:#FFFDF9; color:var(--muted); font-size:14.5px;">${user? user.email : (cloudConfigured? '未登录' : '仅本机存储，未使用登录')}</div>
+      ${user ? `<div class="muted" style="font-size:11.5px; margin-top:6px;">${isAdmin()?'🔑 超级管理员 · 全部权限':(currentUserRole==='full'?'✅ 全部权限':'🧾 权限：只能看点餐')}</div>` : ''}
     </div>
     ${user ? `
     <div class="card">
@@ -5375,10 +5427,75 @@ function renderSettings(){
       <div id="settingsPwMsg" class="muted" style="font-size:12.5px; margin-top:8px;"></div>
       <button class="btn-main" onclick="submitChangePassword()">更新密码</button>
     </div>` : ''}
+    ${isAdmin() ? `
+    <div class="card">
+      <h3>权限管理</h3>
+      <div id="permAdminBox" class="muted" style="font-size:12.5px;">载入中…</div>
+    </div>` : ''}
     <div class="card">
       <button class="btn-ghost" style="width:100%; color:var(--rust); border-color:var(--rust);" onclick="doLogout()">🚪 登出</button>
     </div>
   `;
+  if(isAdmin()) renderPermissionsAdmin();
+}
+/* 权限管理（只有 ADMIN_EMAILS 里的超级管理员账号看得到）：
+   列出 Firestore permissions 集合里所有登录过的账号，一键切换"全部权限"／"只能看点餐"，
+   也可以预先帮还没登录过的邮箱设定好权限，等那个账号第一次登录就直接生效。 */
+function renderPermissionsAdmin(){
+  const box = document.getElementById('permAdminBox');
+  if(!box) return;
+  if(!firestoreDb){ box.innerHTML = '<div class="empty">云同步还没连上，稍等一下再打开这页</div>'; return; }
+  collRef('permissions').get().then(snap=>{
+    const rows = [];
+    snap.forEach(doc=>{
+      const d = doc.data()||{};
+      if(ADMIN_EMAILS.includes((d.email||doc.id).toLowerCase())) return; // 超级管理员不列在名单里，不用也不能改
+      rows.push({id:doc.id, email:d.email||doc.id, role:d.role==='full'?'full':'pos'});
+    });
+    rows.sort((a,b)=> a.email.localeCompare(b.email));
+    box.innerHTML = `
+      <div class="muted" style="font-size:11.5px; margin-bottom:10px;">${ADMIN_EMAILS[0]} 固定是超级管理员，不出现在下面名单里。其他账号第一次登录会自动出现在这里，预设「只能看点餐」。</div>
+      ${rows.length? `<table>
+        <tr><th>邮箱</th><th>权限</th><th></th></tr>
+        ${rows.map(r=>`
+          <tr>
+            <td style="word-break:break-all; font-size:13px;">${r.email}</td>
+            <td>${r.role==='full'?'全部权限':'只能看点餐'}</td>
+            <td><button class="btn-ghost btn-small" onclick="togglePermissionRole('${r.email.replace(/'/g,"\\'")}','${r.role==='full'?'pos':'full'}')">${r.role==='full'?'降为只看点餐':'升为全部权限'}</button></td>
+          </tr>`).join('')}
+      </table>` : `<div class="empty">还没有其他账号登录过</div>`}
+      <div style="margin-top:14px; padding-top:12px; border-top:1px dashed var(--border);">
+        <label>预先设定权限（账号还没登录过也可以先设，等他登录就直接生效）</label>
+        <div class="grid2">
+          <input id="permNewEmail" placeholder="邮箱" autocomplete="off">
+          <select id="permNewRole">
+            <option value="pos">只能看点餐</option>
+            <option value="full">全部权限</option>
+          </select>
+        </div>
+        <button class="btn-main" style="margin-top:8px;" onclick="addPermission()">+ 设定</button>
+      </div>
+    `;
+  }).catch(err=>{
+    box.innerHTML = `<div class="empty">读取权限名单失败：${err.message}</div>`;
+  });
+}
+function togglePermissionRole(email, newRole){
+  if(!firestoreDb) return;
+  collRef('permissions').doc(email.toLowerCase()).set({email:email.toLowerCase(), role:newRole, updatedAt:new Date().toISOString()}, {merge:true})
+    .then(renderPermissionsAdmin)
+    .catch(err=> alert('更新失败：'+err.message));
+}
+function addPermission(){
+  const emailEl = document.getElementById('permNewEmail');
+  const roleEl = document.getElementById('permNewRole');
+  const email = (emailEl.value||'').trim().toLowerCase();
+  if(!email || !email.includes('@')){ alert('请输入正确的邮箱'); return; }
+  if(ADMIN_EMAILS.includes(email)){ alert('这个邮箱本来就是超级管理员，不用另外设定'); return; }
+  if(!firestoreDb) return;
+  collRef('permissions').doc(email).set({email, role:roleEl.value, updatedAt:new Date().toISOString()}, {merge:true})
+    .then(()=>{ emailEl.value=''; renderPermissionsAdmin(); })
+    .catch(err=> alert('设定失败：'+err.message));
 }
 function submitChangePassword(){
   const msgEl = document.getElementById('settingsPwMsg');
@@ -5795,6 +5912,11 @@ let activeTab = 'home';
 /* 统一的切分页逻辑：底部导航按钮、首页"快捷操作"按钮、右上角账号选单（导出/设置）都共用这个，
    不管那个分页在不在底部导航栏上（导出、设置故意不放在底部导航，只能从账号选单进去）都能切换。 */
 function switchToTab(tabName){
+  // 权限不是"全部"的账号，就算是靠首页快捷按钮或其他代码路径想切走，也一律拉回"点餐"
+  // （"设置"页留着，方便改自己的密码；其他一律不放行）。
+  if(currentUserRole!=='full' && tabName!=='pos' && tabName!=='settings'){
+    tabName = 'pos';
+  }
   document.querySelectorAll('nav.bottom button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tabName));
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
   const panel = document.getElementById('tab-'+tabName);
