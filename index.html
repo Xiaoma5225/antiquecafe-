@@ -3086,7 +3086,7 @@ function optionGroupChoiceRowsHtml(){
       <div class="pi-bottom" style="grid-template-columns:repeat(4,1fr);">
         <input placeholder="加价RM(不加填0)" type="number" step="0.01" value="${c.priceAdd}" oninput="updateOptionGroupChoice('${c.id}','priceAdd',this.value)">
         <input autocomplete="off" id="ogIng_${c.id}" placeholder="扣哪个食材(选填)" value="${c.ingredientName}" oninput="updateOptionGroupChoice('${c.id}','ingredientName',this.value)" onchange="autoLinkOptionChoiceIngredientUnit('${c.id}')">
-        <input placeholder="扣多少" type="number" step="0.0001" value="${c.ingredientQty}" oninput="updateOptionGroupChoice('${c.id}','ingredientQty',this.value)">
+        <input placeholder="扣多少" type="text" inputmode="decimal" value="${c.ingredientQty}" oninput="updateOptionGroupChoice('${c.id}','ingredientQty',this.value)">
         <input autocomplete="off" id="ogUnit_${c.id}" placeholder="单位" value="${c.ingredientUnit}" oninput="updateOptionGroupChoice('${c.id}','ingredientUnit',this.value)">
       </div>
     </div>
