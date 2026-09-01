@@ -483,7 +483,7 @@
 </div>
 
 <div id="payPopupOverlay" onclick="closePurchasePayPopup()"></div>
-<div id="posVariantOverlay" onclick="closePosVariantPicker()"></div>
+<div id="posVariantOverlay" onclick="closePosPicker()"></div>
 
 <!-- 点餐结账后打印用的收据，平常隐藏，只在按"打印"时透过 @media print 单独显示这块出来 -->
 <div id="receiptPrintArea"></div>
@@ -784,7 +784,8 @@ let state = {
   posTables: [], // 点餐用的桌号，每个 {id, name, company}——两间公司各自的桌号分开管理
   posTablesSeeded: false, // 是否已自动补过一次默认桌号（补过一次之后不会再自动补，避免使用者删掉后又被加回来）
   posOrders: [], // 点餐目前"进行中"（还没结账）的单，每个 {id, mode:'dine-in'|'takeaway', tableId, tableName, company, items:[{id,productId,name,price,qty}], createdAt}——结账后会转成销售记录并从这里删除
-  posTakeawayCounter: 0 // 外带单编号流水号，只增不减，用来生成"外带#3"这种票号
+  posTakeawayCounter: 0, // 外带单编号流水号，只增不减，用来生成"外带#3"这种票号
+  optionGroups: [] // 共用的"选项组"（比如"面包夹料"14选1），可以同时挂在好几个产品上；每个 {id, name, choices:[{id,name,priceAdd,ingredientName,ingredientQty,ingredientUnit}]}
 };
 let loaded = false;
 let recentActivityFilterDate = '';
@@ -932,7 +933,7 @@ let cloudReady = false;
    下面这些变量用来记住"上一次已经跟云端对齐的样子"，saveState() 存档时会拿现在的
    state 跟这个做比对，只把真的有差异的记录写回云端。 */
 let firestoreDb = null;
-const SUBCOLLECTIONS = ['suppliers','purchases','payments','products','sales','cashflow','ingredients','importBatches','stockAdjustments','recipes','recipeBatchLogs','addonMappings','unitConversions','posTables','posOrders'];
+const SUBCOLLECTIONS = ['suppliers','purchases','payments','products','sales','cashflow','ingredients','importBatches','stockAdjustments','recipes','recipeBatchLogs','addonMappings','unitConversions','posTables','posOrders','optionGroups'];
 let lastSynced = {};
 SUBCOLLECTIONS.forEach(k=>{ lastSynced[k] = new Map(); });
 
@@ -1337,7 +1338,7 @@ function importData(fileInput){
     try{
       const parsed = JSON.parse(e.target.result);
       if(!confirm('导入会覆盖当前这台设备上的所有数据，确定继续吗？')) return;
-      state = Object.assign({initialCash:0, suppliers:[], purchases:[], payments:[], products:[], sales:[], cashflow:[], customExpenseCategories:[], ingredients:[], importBatches:[], stockAdjustments:[], recipes:[], recipeBatchLogs:[], addonMappings:[], addonMappingsSeeded:false, unitConversions:[]}, parsed);
+      state = Object.assign({initialCash:0, suppliers:[], purchases:[], payments:[], products:[], sales:[], cashflow:[], customExpenseCategories:[], ingredients:[], importBatches:[], stockAdjustments:[], recipes:[], recipeBatchLogs:[], addonMappings:[], addonMappingsSeeded:false, unitConversions:[], optionGroups:[]}, parsed);
       saveState();
       renderAll();
       alert('导入成功');
@@ -2998,6 +2999,142 @@ function renderRecipeSectionHtml(){
   return html;
 }
 
+/* ---- 选项组：好几个产品共用同一组"现场选"的选项（比如面包类都要选 Kaya/Butter/Kaya Butter…）。
+   设一次、挂在好几个产品上，以后加/改选项只用改一次。每个选项可以选填：加价多少（不加就是0）、
+   选了要扣哪个食材、扣多少（不填就只是记录选了什么，不影响库存）。点餐的时候，产品挂了哪组
+   选项就跳出那组选项给顾客选；结账时价钱会算上选项的加价，库存也会照选项设定自动扣。 ---- */
+let tempOptionGroup = null; // 目前正在新增/编辑的选项组草稿，null 表示没在编辑
+function startNewOptionGroup(){
+  tempOptionGroup = {id:null, name:'', choices:[{id:uid(), name:'', priceAdd:'', ingredientName:'', ingredientQty:'', ingredientUnit:''}]};
+  renderCost();
+}
+function startEditOptionGroup(id){
+  const g = state.optionGroups.find(x=>x.id===id);
+  if(!g) return;
+  tempOptionGroup = {
+    id:g.id, name:g.name,
+    choices:(g.choices&&g.choices.length)? g.choices.map(c=>({id:c.id, name:c.name||'', priceAdd:c.priceAdd?String(c.priceAdd):'', ingredientName:c.ingredientName||'', ingredientQty:c.ingredientQty?String(c.ingredientQty):'', ingredientUnit:c.ingredientUnit||''})) : [{id:uid(), name:'', priceAdd:'', ingredientName:'', ingredientQty:'', ingredientUnit:''}]
+  };
+  renderCost();
+}
+function cancelEditOptionGroup(){ tempOptionGroup = null; renderCost(); }
+function updateOptionGroupField(field, val){ if(!tempOptionGroup) return; tempOptionGroup[field] = val; }
+function addOptionGroupChoiceRow(){
+  if(!tempOptionGroup) return;
+  tempOptionGroup.choices.push({id:uid(), name:'', priceAdd:'', ingredientName:'', ingredientQty:'', ingredientUnit:''});
+  renderCost();
+}
+function removeOptionGroupChoice(id){
+  if(!tempOptionGroup) return;
+  tempOptionGroup.choices = tempOptionGroup.choices.filter(c=>c.id!==id);
+  if(tempOptionGroup.choices.length===0) tempOptionGroup.choices.push({id:uid(), name:'', priceAdd:'', ingredientName:'', ingredientQty:'', ingredientUnit:''});
+  renderCost();
+}
+function updateOptionGroupChoice(id, field, val){
+  if(!tempOptionGroup) return;
+  const c = tempOptionGroup.choices.find(x=>x.id===id);
+  if(c) c[field] = val;
+}
+function autoLinkOptionChoiceIngredientUnit(id){
+  if(!tempOptionGroup) return;
+  const c = tempOptionGroup.choices.find(x=>x.id===id);
+  if(!c) return;
+  const ing = findIngredient(c.ingredientName);
+  if(ing && ing.unit && !c.ingredientUnit){ c.ingredientUnit = ing.unit; renderCost(); }
+}
+function submitOptionGroup(){
+  if(!tempOptionGroup) return;
+  const name = (tempOptionGroup.name||'').trim();
+  if(!name){ alert('请填选项组名称，比如：面包夹料'); return; }
+  const choices = tempOptionGroup.choices.filter(c=>c.name.trim()).map(c=>({
+    id:c.id, name:c.name.trim(), priceAdd:Number(c.priceAdd)||0,
+    ingredientName:(c.ingredientName||'').trim(), ingredientQty:Number(c.ingredientQty)||0, ingredientUnit:(c.ingredientUnit||'').trim()
+  }));
+  if(!choices.length){ alert('至少填一个选项'); return; }
+  const idBeingEdited = tempOptionGroup.id;
+  mutate(()=>{
+    if(idBeingEdited){
+      const g = state.optionGroups.find(x=>x.id===idBeingEdited);
+      if(g){ g.name = name; g.choices = choices; }
+    } else {
+      state.optionGroups.push({id:uid(), name, choices});
+    }
+  });
+  tempOptionGroup = null;
+  renderCost();
+}
+function deleteOptionGroup(id){
+  const usedBy = state.products.filter(p=>p.optionGroupId===id);
+  const msg = usedBy.length
+    ? `有 ${usedBy.length} 个产品在用这组选项（${usedBy.map(p=>p.name).join('、')}），删除后这些产品会变回没有选项可选。确定删除吗？`
+    : '确定删除这个选项组吗？';
+  if(!confirm(msg)) return;
+  mutate(()=>{
+    state.optionGroups = state.optionGroups.filter(g=>g.id!==id);
+    state.products.forEach(p=>{ if(p.optionGroupId===id) p.optionGroupId = null; });
+  });
+  renderCost();
+}
+function optionGroupChoiceRowsHtml(){
+  if(!tempOptionGroup) return '';
+  return tempOptionGroup.choices.map(c=>`
+    <div class="pi-card">
+      <div class="pi-top">
+        <input autocomplete="off" placeholder="选项名称，比如：Kaya Butter" value="${c.name}" oninput="updateOptionGroupChoice('${c.id}','name',this.value)">
+        ${tempOptionGroup.choices.length>1? `<button class="rm" onclick="removeOptionGroupChoice('${c.id}')">×</button>` : '<span style="width:20px"></span>'}
+      </div>
+      <div class="pi-bottom" style="grid-template-columns:repeat(4,1fr);">
+        <input placeholder="加价RM(不加填0)" type="number" step="0.01" value="${c.priceAdd}" oninput="updateOptionGroupChoice('${c.id}','priceAdd',this.value)">
+        <input autocomplete="off" id="ogIng_${c.id}" placeholder="扣哪个食材(选填)" value="${c.ingredientName}" oninput="updateOptionGroupChoice('${c.id}','ingredientName',this.value)" onchange="autoLinkOptionChoiceIngredientUnit('${c.id}')">
+        <input placeholder="扣多少" type="number" step="0.0001" value="${c.ingredientQty}" oninput="updateOptionGroupChoice('${c.id}','ingredientQty',this.value)">
+        <input autocomplete="off" id="ogUnit_${c.id}" placeholder="单位" value="${c.ingredientUnit}" oninput="updateOptionGroupChoice('${c.id}','ingredientUnit',this.value)">
+      </div>
+    </div>
+  `).join('');
+}
+function optionGroupFormHtml(){
+  if(!tempOptionGroup) return '';
+  return `
+    <div class="card">
+      <h3>${tempOptionGroup.id? '✏️ 编辑选项组' : '新增选项组'}</h3>
+      <label>选项组名称（比如：面包夹料）</label>
+      <input id="ogName" autocomplete="off" value="${tempOptionGroup.name}" oninput="updateOptionGroupField('name', this.value)">
+      <label style="margin-top:14px">选项（顾客点餐时会看到的选择，比如 Kaya、Butter、Kaya Butter…）</label>
+      <div id="ogChoicesWrap">${optionGroupChoiceRowsHtml()}</div>
+      <button class="btn-line" onclick="addOptionGroupChoiceRow()">+ 添加一个选项</button>
+      <div class="muted" style="font-size:11.5px; margin-top:8px; line-height:1.5;">"扣哪个食材/扣多少"是选填的——填了，点餐结账时选到这个选项会自动扣那个食材的库存；不填的话，这个选项就只是记录顾客选了什么，不影响库存。</div>
+      <button class="btn-main" onclick="submitOptionGroup()">${tempOptionGroup.id?'保存修改':'保存选项组'}</button>
+      <button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditOptionGroup()">取消</button>
+    </div>
+  `;
+}
+function renderOptionGroupSectionHtml(){
+  let html = '';
+  if(tempOptionGroup) html += optionGroupFormHtml();
+  html += `
+    <div class="card">
+      <h3>选项组 <span class="n">${state.optionGroups.length} 组</span></h3>
+      <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">有些产品要让顾客现场选口味/夹料（比如面包要选 Kaya、Butter、Kaya Butter…），而且好几个产品常常共用同一组选择。在这里设好一组选项，之后去"产品"页把某个产品挂上这组选项，点餐的时候就会跳出来给顾客选；同一组可以同时挂在好几个产品上，改一次全部一起改，不用每个产品分开设。</div>
+      ${!tempOptionGroup? `<button class="btn-main" onclick="startNewOptionGroup()">+ 新增选项组</button>` : ''}
+      <hr class="receipt-divider">
+      ${state.optionGroups.length? state.optionGroups.map(g=>{
+        const usedBy = state.products.filter(p=>p.optionGroupId===g.id);
+        return `
+        <div class="supplier-card">
+          <b>${g.name}</b> <span class="muted" style="font-size:11.5px;">（${g.choices.length}个选项）</span>
+          <div class="muted" style="font-size:11.5px; margin-top:2px;">${g.choices.map(c=>c.name+(c.priceAdd?`（${c.priceAdd>0?'+':''}RM${fmtPlain(c.priceAdd)}）`:'')).join('、')}</div>
+          <div class="muted" style="font-size:11.5px;">挂在：${usedBy.length? usedBy.map(p=>p.name).join('、') : '（还没有产品用这组）'}</div>
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <button class="btn-ghost btn-small" style="flex:1;" onclick="startEditOptionGroup('${g.id}')">编辑</button>
+            <button class="btn-danger-text" onclick="deleteOptionGroup('${g.id}')">删除</button>
+          </div>
+        </div>`;
+      }).join('') : `<div class="empty">还没有选项组，点上面新增一个</div>`}
+    </div>
+  `;
+  return html;
+}
+
 function setPurHistoryFilter(val){
   purHistoryFilterDate = val;
   renderPurchase();
@@ -3713,6 +3850,7 @@ let costCategoryFilter = '';
 let draftProductCompany = '';
 let tempSharedIngredients = [{id:uid(), name:''}];
 let tempVariants = [{id:uid(), label:'', price:''}];
+let draftProductOptionGroupId = '';
 let tempMergeVariantRows = [{id:uid(), sourceName:'', label:''}];
 let prodSubView = 'product'; // 'product' = 名称/售价/分类等基本资料的新增编辑，'cost' = 食材成本/毛利细项，'recipe' = 半成品配方，'link' = 食材关联
 let ingredientLinkSearchQuery = '';
@@ -3856,6 +3994,7 @@ function goToIngredientLinkTab(name){
 function setProdSubView(val){
   prodSubView = val;
   tempRecipe = null;
+  tempOptionGroup = null;
   renderCost();
 }
 function renderCost(){
@@ -3865,8 +4004,21 @@ function renderCost(){
       <button type="button" class="btn-toggle ${prodSubView==='product'?'active':''}" onclick="setProdSubView('product')">🏷️ 产品</button>
       <button type="button" class="btn-toggle ${prodSubView==='cost'?'active':''}" onclick="setProdSubView('cost')">🧮 成本</button>
       <button type="button" class="btn-toggle ${prodSubView==='recipe'?'active':''}" onclick="setProdSubView('recipe')">🧑‍🍳 半成品成本</button>
+      <button type="button" class="btn-toggle ${prodSubView==='options'?'active':''}" onclick="setProdSubView('options')">🎛️ 选项组</button>
       <button type="button" class="btn-toggle ${prodSubView==='link'?'active':''}" onclick="setProdSubView('link')">🔗 食材关联</button>
     </div>`;
+  if(prodSubView==='options'){
+    el.innerHTML = prodSubTabHtml + renderOptionGroupSectionHtml();
+    if(tempOptionGroup){
+      const ingredientNames = getIngredientNames();
+      const unitSuggestions = getUnitSuggestions();
+      tempOptionGroup.choices.forEach(c=>{
+        wireSuggest('ogIng_'+c.id, ingredientNames);
+        wireSuggest('ogUnit_'+c.id, unitSuggestions);
+      });
+    }
+    return;
+  }
   if(prodSubView==='link'){
     el.innerHTML = prodSubTabHtml + renderIngredientLinkSectionHtml();
     if(ingredientLinkSearchQuery) filterIngredientLinkList(ingredientLinkSearchQuery);
@@ -3938,6 +4090,15 @@ function renderCost(){
             }).join('')}
           </table>
           ` : ''}
+          ${(()=>{ const og = p.optionGroupId? state.optionGroups.find(g=>g.id===p.optionGroupId) : null; return og ? `
+          <label style="font-size:11.5px; color:var(--muted); margin-top:4px;">选项组「${og.name}」（按选项分开统计卖出数量）</label>
+          <table style="margin-top:2px; margin-bottom:6px;">
+            ${og.choices.map(c=>{
+              const cQty = state.sales.filter(s=>s.productId===p.id && s.optionChoiceId===c.id).reduce((a,s)=>a+Number(s.qty||0),0);
+              return `<tr><td>${c.name}</td><td class="num">${c.priceAdd?(c.priceAdd>0?'+':'')+fmt(c.priceAdd):'—'}</td><td class="num muted">卖出 ${cQty}</td></tr>`;
+            }).join('')}
+          </table>
+          ` : ''; })()}
           <label style="font-size:11.5px; color:var(--muted); margin-top:6px;">食材成本项（固定，用量精确的）</label>
           <table style="margin-top:2px">
             ${(p.costItems||[]).map(ci=>`<tr><td class="muted">${ci.name}</td><td class="num">${fmtPlain(ci.cost)}</td>
@@ -4013,6 +4174,11 @@ function renderCost(){
         <div id="variantsWrap"></div>
         <button class="btn-line" onclick="addVariantRow()">+ 添加一个规格</button>
       </div>
+      <label style="margin-top:14px">选项组（选填：顾客现场要选的口味/夹料，比如"面包夹料"14选1，好几个产品可以共用同一组——在"选项组"子页签设好之后，这里选要挂哪一组）</label>
+      <select id="prodOptionGroup" onchange="setProdOptionGroup(this.value)">
+        <option value="">不用（这个产品不用选口味/选项）</option>
+        ${state.optionGroups.map(g=>`<option value="${g.id}" ${draftProductOptionGroupId===g.id?'selected':''}>${g.name}（${g.choices.length}个选项）</option>`).join('')}
+      </select>
       <div class="muted" style="font-size:11.5px; margin-top:10px; line-height:1.5; background:var(--bg); padding:8px 10px; border-radius:8px;">这个产品的成本可以同时来自两边、加总算：<b>用量固定</b>的食材（比如半粒鸡蛋、固定几ml酱油）填「食材成本项」；<b>用量抓不准、按采购实际总额分摊</b>的食材（比如后腿肉）填「共同食材名称」。两边都可以填，也可以只填一边。</div>
       <div id="costItemsSection">
         <label style="margin-top:14px">食材成本项（用量固定的写这里：填数量+单位+单价，算出一个固定的每份成本；如果这个产品在"采购"页还没有关联到任何采购记录，也会先用这里的估算）</label>
@@ -4239,20 +4405,21 @@ function submitProduct(){
   const costItems = tempCostItems.filter(r=>r.name && r.cost!=='').map(r=>({id:uid(), name:r.name, qty:Number(r.qty||0), unit:r.unit, unitPrice:Number(r.unitPrice||0), cost:Number(r.cost||0)}));
   const sharedIngredients = tempSharedIngredients.map(r=>r.name.trim()).filter(Boolean);
   const variants = tempVariants.filter(r=>r.label.trim()!=='').map(r=>({id:r.id, label:r.label.trim(), price:Number(r.price||0), legacyNames:r.legacyNames||[]}));
+  const optionGroupId = draftProductOptionGroupId || null;
   const prodTitleEl = document.getElementById('prodTitle'); if(prodTitleEl) prodTitleEl.value='';
   const prodPriceEl = document.getElementById('prodPrice'); if(prodPriceEl) prodPriceEl.value='';
   if(editingProductId){
     const targetId = editingProductId;
     mutate(()=>{
       const p = state.products.find(x=>x.id===targetId);
-      if(p){ p.name = name; p.price = price; p.costItems = costItems; p.sharedIngredients = sharedIngredients; p.category = category; p.code = code; p.company = company; p.variants = variants; }
+      if(p){ p.name = name; p.price = price; p.costItems = costItems; p.sharedIngredients = sharedIngredients; p.category = category; p.code = code; p.company = company; p.variants = variants; p.optionGroupId = optionGroupId; }
       costItems.forEach(ci=>learnIngredientLink(ci.name, [targetId], {unit: ci.unit, unitPrice: ci.unitPrice}));
     });
     editingProductId = null;
   } else {
     const newId = uid();
     mutate(()=>{
-      state.products.push({id:newId, name, price, costItems, sharedIngredients, category, code, company, variants});
+      state.products.push({id:newId, name, price, costItems, sharedIngredients, category, code, company, variants, optionGroupId});
       costItems.forEach(ci=>learnIngredientLink(ci.name, [newId], {unit: ci.unit, unitPrice: ci.unitPrice}));
     });
   }
@@ -4260,14 +4427,17 @@ function submitProduct(){
   tempSharedIngredients = [{id:uid(), name:''}];
   tempVariants = [{id:uid(), label:'', price:''}];
   draftProductCompany = '';
+  draftProductOptionGroupId = '';
   renderCost();
 }
+function setProdOptionGroup(val){ draftProductOptionGroupId = val; }
 function startEditProduct(id){
   const p = state.products.find(x=>x.id===id);
   if(!p) return;
   editingProductId = id;
   prodSubView = 'product';
   draftProductCompany = p.company || '';
+  draftProductOptionGroupId = p.optionGroupId || '';
   tempCostItems = (p.costItems&&p.costItems.length)
     ? p.costItems.map(ci=>({id:uid(), name:ci.name||'', qty:ci.qty?String(ci.qty):'', unit:ci.unit||'', unitPrice:ci.unitPrice?String(ci.unitPrice):'', cost:ci.cost!=null?String(ci.cost):''}))
     : [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
@@ -4284,6 +4454,7 @@ function startEditProduct(id){
 function cancelEditProduct(){
   editingProductId = null;
   draftProductCompany = '';
+  draftProductOptionGroupId = '';
   tempCostItems = [{id:uid(), name:'', qty:'', unit:'', unitPrice:'', cost:''}];
   tempSharedIngredients = [{id:uid(), name:''}];
   tempVariants = [{id:uid(), label:'', price:''}];
@@ -6019,6 +6190,7 @@ function posOrderScreenHtml(order){
       <div class="pos-menu-grid">
         ${sortedShown.map(p=>{
           const hasVariants = p.variants && p.variants.length;
+          const optGroup = p.optionGroupId ? state.optionGroups.find(g=>g.id===p.optionGroupId) : null;
           let priceLabel;
           if(hasVariants){
             const prices = p.variants.map(v=>Number(v.price)||0);
@@ -6027,9 +6199,10 @@ function posOrderScreenHtml(order){
           } else {
             priceLabel = `RM ${fmtPlain(p.price)}`;
           }
+          const tagLabel = hasVariants? ` <span class="muted" style="font-size:10.5px;">（${p.variants.length}个规格）</span>` : (optGroup? ` <span class="muted" style="font-size:10.5px;">（选${optGroup.name}）</span>` : '');
           return `
           <div class="pos-menu-item" onclick="posMenuTap('${order.id}','${p.id}')">
-            <div class="pname">${p.name}${hasVariants? ` <span class="muted" style="font-size:10.5px;">（${p.variants.length}个规格）</span>`:''}</div>
+            <div class="pname">${p.name}${tagLabel}</div>
             <div class="pprice">${priceLabel}</div>
           </div>`;
         }).join('')}
@@ -6072,56 +6245,88 @@ function togglePosCart(open){
   posCartOpen = (open!=null) ? !!open : !posCartOpen;
   renderPOS();
 }
-/* 点了菜单格子：有规格的产品先跳规格选单，没规格的直接加进购物车（维持原本行为）。 */
+/* 点了菜单格子：有规格的产品先跳规格选单；有挂"选项组"(比如面包夹料)的产品跳选项选单；
+   都没有的话直接加进购物车（维持原本行为）。 */
 function posMenuTap(orderId, productId){
   const p = state.products.find(x=>x.id===productId);
   if(!p) return;
-  if(p.variants && p.variants.length) openPosVariantPicker(orderId, productId);
-  else addItemToPosOrder(orderId, productId, null);
+  if(p.variants && p.variants.length) openPosPicker(orderId, productId, 'variant');
+  else if(p.optionGroupId && state.optionGroups.find(g=>g.id===p.optionGroupId)) openPosPicker(orderId, productId, 'option');
+  else addItemToPosOrder(orderId, productId, null, null);
 }
-let posVariantPickerState = null; // {orderId, productId}
-function openPosVariantPicker(orderId, productId){
-  posVariantPickerState = {orderId, productId};
-  renderPosVariantPicker();
+let posPickerState = null; // {orderId, productId, mode:'variant'|'option'}
+function openPosPicker(orderId, productId, mode){
+  posPickerState = {orderId, productId, mode};
+  renderPosPicker();
 }
-function closePosVariantPicker(){
-  posVariantPickerState = null;
-  renderPosVariantPicker();
+function closePosPicker(){
+  posPickerState = null;
+  renderPosPicker();
 }
-function renderPosVariantPicker(){
+function renderPosPicker(){
   const el = document.getElementById('posVariantOverlay');
   if(!el) return;
-  if(!posVariantPickerState){ el.style.display='none'; el.innerHTML=''; return; }
-  const p = state.products.find(x=>x.id===posVariantPickerState.productId);
-  if(!p || !p.variants || !p.variants.length){ el.style.display='none'; el.innerHTML=''; posVariantPickerState=null; return; }
+  if(!posPickerState){ el.style.display='none'; el.innerHTML=''; return; }
+  const p = state.products.find(x=>x.id===posPickerState.productId);
+  if(!p){ el.style.display='none'; el.innerHTML=''; posPickerState=null; return; }
+  if(posPickerState.mode==='variant'){
+    if(!p.variants || !p.variants.length){ el.style.display='none'; el.innerHTML=''; posPickerState=null; return; }
+    el.style.display = 'flex';
+    el.innerHTML = `
+      <div class="pay-sheet" onclick="event.stopPropagation()">
+        <button type="button" class="pay-sheet-close" onclick="closePosPicker()">✕</button>
+        <div class="t">${p.name}</div>
+        <div class="amt-line">选一个规格加进购物车</div>
+        <div class="pos-variant-list">
+          ${p.variants.map(v=>`
+            <button type="button" class="pos-variant-opt" onclick="addItemToPosOrder('${posPickerState.orderId}','${p.id}','${v.id}',null); closePosPicker();">
+              <span>${v.label}</span><span class="mono">RM ${fmtPlain(v.price)}</span>
+            </button>`).join('')}
+        </div>
+      </div>
+    `;
+    return;
+  }
+  // mode==='option'
+  const g = state.optionGroups.find(x=>x.id===p.optionGroupId);
+  if(!g || !g.choices.length){ el.style.display='none'; el.innerHTML=''; posPickerState=null; return; }
   el.style.display = 'flex';
   el.innerHTML = `
     <div class="pay-sheet" onclick="event.stopPropagation()">
-      <button type="button" class="pay-sheet-close" onclick="closePosVariantPicker()">✕</button>
+      <button type="button" class="pay-sheet-close" onclick="closePosPicker()">✕</button>
       <div class="t">${p.name}</div>
-      <div class="amt-line">选一个规格加进购物车</div>
+      <div class="amt-line">选一个${g.name}</div>
       <div class="pos-variant-list">
-        ${p.variants.map(v=>`
-          <button type="button" class="pos-variant-opt" onclick="addItemToPosOrder('${posVariantPickerState.orderId}','${p.id}','${v.id}'); closePosVariantPicker();">
-            <span>${v.label}</span><span class="mono">RM ${fmtPlain(v.price)}</span>
+        ${g.choices.map(c=>`
+          <button type="button" class="pos-variant-opt" onclick="addItemToPosOrder('${posPickerState.orderId}','${p.id}',null,'${c.id}'); closePosPicker();">
+            <span>${c.name}</span><span class="mono">${c.priceAdd? (c.priceAdd>0?'+':'')+'RM '+fmtPlain(c.priceAdd) : ''}</span>
           </button>`).join('')}
       </div>
     </div>
   `;
 }
-function addItemToPosOrder(orderId, productId, variantId){
+function addItemToPosOrder(orderId, productId, variantId, optionChoiceId){
   const p = state.products.find(x=>x.id===productId);
   if(!p) return;
   const variant = variantId ? (p.variants||[]).find(v=>v.id===variantId) : null;
   if(variantId && !variant) return;
-  const price = variant ? Number(variant.price)||0 : Number(p.price)||0;
-  const name = variant ? `${p.name} - ${variant.label}` : p.name;
+  let optionChoice = null;
+  if(optionChoiceId){
+    const g = state.optionGroups.find(x=>x.id===p.optionGroupId);
+    optionChoice = g ? g.choices.find(c=>c.id===optionChoiceId) : null;
+    if(!optionChoice) return;
+  }
+  const basePrice = variant ? Number(variant.price)||0 : Number(p.price)||0;
+  const price = basePrice + (optionChoice ? Number(optionChoice.priceAdd)||0 : 0);
+  let name = p.name;
+  if(variant) name = `${p.name} - ${variant.label}`;
+  else if(optionChoice) name = `${p.name} - ${optionChoice.name}`;
   mutate(()=>{
     const order = state.posOrders.find(o=>o.id===orderId);
     if(!order) return;
-    const line = order.items.find(i=>i.productId===productId && (i.variantId||null)===(variantId||null));
+    const line = order.items.find(i=>i.productId===productId && (i.variantId||null)===(variantId||null) && (i.optionChoiceId||null)===(optionChoiceId||null));
     if(line) line.qty = Number(line.qty||0)+1;
-    else order.items.push({id:uid(), productId:p.id, variantId: variantId||null, name, price, qty:1});
+    else order.items.push({id:uid(), productId:p.id, variantId: variantId||null, optionGroupId: optionChoice? p.optionGroupId : null, optionChoiceId: optionChoiceId||null, name, price, qty:1});
   });
   renderPOS();
 }
@@ -6151,8 +6356,18 @@ function confirmPosCheckout(orderId, payMethod){
       const p = state.products.find(x=>x.id===i.productId);
       const unitCost = p ? productUnitCost(p) : 0;
       const sid = uid();
-      state.sales.push({id:sid, date, productId:i.productId, variantId:i.variantId||null, productName:i.name, qty:i.qty, price:i.price, amount:i.price*i.qty, cost:unitCost*i.qty, payMethod, company, posOrderId:orderId, posTableName:tableName});
+      state.sales.push({id:sid, date, productId:i.productId, variantId:i.variantId||null, optionGroupId:i.optionGroupId||null, optionChoiceId:i.optionChoiceId||null, productName:i.name, qty:i.qty, price:i.price, amount:i.price*i.qty, cost:unitCost*i.qty, payMethod, company, posOrderId:orderId, posTableName:tableName});
       if(p) pushSaleStockDeductions(p, i.qty, date, company, {_saleId:sid});
+      // 选了选项组里的哪个选项（比如面包夹料选了Kaya），如果那个选项有设"扣哪个食材"，
+      // 结账时就照这次的份数把食材扣掉，跟产品本身的食材成本项分开算、互不影响
+      if(i.optionChoiceId){
+        const g = state.optionGroups.find(x=>x.id===i.optionGroupId);
+        const choice = g ? g.choices.find(c=>c.id===i.optionChoiceId) : null;
+        if(choice && choice.ingredientName && Number(choice.ingredientQty)>0){
+          if(!state.stockAdjustments) state.stockAdjustments = [];
+          state.stockAdjustments.push({id:uid(), date, itemName:choice.ingredientName, qty:-Math.abs(Number(choice.ingredientQty)*i.qty), note:`${i.name} ×${i.qty}`, company, _saleId:sid});
+        }
+      }
     });
     state.posOrders = state.posOrders.filter(o=>o.id!==orderId);
   });
