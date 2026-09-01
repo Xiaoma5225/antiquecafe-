@@ -2423,16 +2423,18 @@ function setPurSubView(val){
   renderPurchase();
 }
 function startNewRecipe(){
-  tempRecipe = {id:null, triggerName:'', triggerUnit:'', outputName:'', outputUnit:'包', components:[{id:uid(), name:'', ratioQty:'', unit:'', unitPrice:''}]};
+  tempRecipe = {id:null, recipeId:null, outputName:'', outputUnit:'包', packQty:'', company:'', components:[{id:uid(), name:'', qty:'', unit:'', unitPrice:''}]};
   renderCost();
 }
-function startEditRecipe(id){
-  const r = state.recipes.find(x=>x.id===id);
+/* 「记一批」：延续一个已经存在的半成品（沿用它的名字/单位，也把上一批用料列出来当草稿方便改），
+   这样填起来比每次从头打字快，但每一批实际用了多少还是要自己确认/改，不是自动重复上一批。 */
+function startNewRecipeBatchFor(recipeId){
+  const r = state.recipes.find(x=>x.id===recipeId);
   if(!r) return;
+  const lastLog = (state.recipeBatchLogs||[]).filter(l=>l.recipeId===recipeId && l.components && l.components.length).sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
   tempRecipe = {
-    id:r.id, triggerName:r.triggerName||'', triggerUnit:r.triggerUnit||'',
-    outputName:r.outputName||'', outputUnit:r.outputUnit||'包',
-    components:(r.components&&r.components.length)? r.components.map(c=>({id:uid(), name:c.name, ratioQty:c.ratioQty!=null?String(c.ratioQty):'', unit:c.unit||'', unitPrice:c.unitPrice!=null?String(c.unitPrice):''})) : [{id:uid(), name:'', ratioQty:'', unit:'', unitPrice:''}]
+    id:null, recipeId:r.id, outputName:r.outputName, outputUnit:r.outputUnit||'包', packQty:'', company:'',
+    components: lastLog ? lastLog.components.map(c=>({id:uid(), name:c.name, qty:'', unit:c.unit||'', unitPrice:c.unitPrice!=null?String(c.unitPrice):''})) : [{id:uid(), name:'', qty:'', unit:'', unitPrice:''}]
   };
   renderCost();
 }
@@ -2443,16 +2445,25 @@ function cancelEditRecipe(){
 function updateRecipeField(field, val){
   if(!tempRecipe) return;
   tempRecipe[field] = val;
+  if(field==='outputName'){
+    const match = state.recipes.find(r=>r.outputName.trim().toLowerCase()===val.trim().toLowerCase());
+    tempRecipe.recipeId = match ? match.id : null;
+    if(match && match.outputUnit){
+      tempRecipe.outputUnit = match.outputUnit;
+      const unitEl = document.getElementById('recipeOutputUnit');
+      if(unitEl) unitEl.value = match.outputUnit;
+    }
+  }
 }
 function addRecipeComponentRow(){
   if(!tempRecipe) return;
-  tempRecipe.components.push({id:uid(), name:'', ratioQty:'', unit:'', unitPrice:''});
+  tempRecipe.components.push({id:uid(), name:'', qty:'', unit:'', unitPrice:''});
   renderCost();
 }
 function removeRecipeComponent(id){
   if(!tempRecipe) return;
   tempRecipe.components = tempRecipe.components.filter(c=>c.id!==id);
-  if(tempRecipe.components.length===0) tempRecipe.components.push({id:uid(), name:'', ratioQty:'', unit:'', unitPrice:''});
+  if(tempRecipe.components.length===0) tempRecipe.components.push({id:uid(), name:'', qty:'', unit:'', unitPrice:''});
   renderCost();
 }
 function updateRecipeComponent(id, field, val){
@@ -2462,8 +2473,11 @@ function updateRecipeComponent(id, field, val){
   c[field] = val;
   const totalEl = document.getElementById('recipeTotalPreview');
   if(totalEl){
-    const perUnit = tempRecipe.components.reduce((a,c2)=>a+(Number(c2.ratioQty)||0)*(Number(c2.unitPrice)||0),0);
-    totalEl.textContent = `每 1${tempRecipe.triggerUnit||''} ${tempRecipe.triggerName||'原料'} ≈ RM${fmtPlain(perUnit)} 用料成本`;
+    const total = tempRecipe.components.reduce((a,c2)=>a+(Number(c2.qty)||0)*(Number(c2.unitPrice)||0),0);
+    const packQty = Number(tempRecipe.packQty)||0;
+    totalEl.textContent = packQty>0
+      ? `这批用料成本 ≈ RM${fmtPlain(total)}　÷${packQty}${tempRecipe.outputUnit||'包'} ≈ 每${tempRecipe.outputUnit||'包'} RM${fmtPlain(total/packQty)}`
+      : `这批用料成本 ≈ RM${fmtPlain(total)}（填了"分成幾${tempRecipe.outputUnit||'包'}"之后会算出每${tempRecipe.outputUnit||'包'}成本）`;
   }
 }
 function autoLinkRecipeComponentPrice(id){
@@ -2488,31 +2502,89 @@ function autoLinkRecipeComponentUnit(id){
   c.unitPrice = String(Math.round(price*10000)/10000);
   renderCost();
 }
-function submitRecipe(){
+/* 提交这一批：算出这批实际用料成本、每份成本，记一笔批次记录；
+   然后把这个半成品所有批次记录加总起来，算出加权平均每份成本（总成本合计 ÷ 总份数合计，
+   份数越多的批次占比越重，比单纯把每批的"每份成本"平均起来更准），存进食材字典。 */
+function submitRecipeBatch(){
   if(!tempRecipe) return;
-  const triggerName = (tempRecipe.triggerName||'').trim();
-  if(!triggerName){ alert('请填原料名称（比如：肉碎）——以后采购单里品名跟这个一样，就能在"这批做好了？"里对上，帮你算出这批的成本'); return; }
-  const comps = tempRecipe.components.filter(c=>c.name && c.ratioQty!=='' && c.unitPrice!=='').map(c=>({id:uid(), name:c.name.trim(), ratioQty:Number(c.ratioQty), unit:c.unit||'', unitPrice:Number(c.unitPrice)}));
-  if(!comps.length){ alert('请至少填一样用料（品名、每单位用量、单价都要有）'); return; }
-  const idBeingEdited = tempRecipe.id;
-  const triggerUnitVal = tempRecipe.triggerUnit||'';
-  const outputNameVal = (tempRecipe.outputName||'').trim();
-  const outputUnitVal = (tempRecipe.outputUnit||'').trim() || '包';
-  const dupe = state.recipes.find(r=>r.id!==idBeingEdited && r.triggerName.trim().toLowerCase()===triggerName.toLowerCase());
-  if(dupe){ alert(`已经有一个配方的原料也叫"${triggerName}"了，同一个原料只能设一个配方（可以直接编辑那一个）`); return; }
-  mutate(()=>{
-    if(idBeingEdited){
-      const r = state.recipes.find(x=>x.id===idBeingEdited);
-      if(r){ r.triggerName = triggerName; r.triggerUnit = triggerUnitVal; r.components = comps; r.outputName = outputNameVal; r.outputUnit = outputUnitVal; }
-    } else {
-      state.recipes.push({id:uid(), triggerName, triggerUnit:triggerUnitVal, components:comps, outputName:outputNameVal, outputUnit:outputUnitVal});
-    }
+  const outputName = (tempRecipe.outputName||'').trim();
+  if(!outputName){ alert('请填半成品名称（比如：肉碎腌料 或 招牌酱料）'); return; }
+  const outputUnit = (tempRecipe.outputUnit||'').trim() || '包';
+  const packQty = Number(tempRecipe.packQty);
+  if(!packQty || packQty<=0 || isNaN(packQty)){ alert('请填这批分成了幾'+outputUnit); return; }
+  const comps = tempRecipe.components.filter(c=>c.name && c.qty!=='' && c.unitPrice!=='').map(c=>{
+    const qty = Number(c.qty), unitPrice = Number(c.unitPrice);
+    return {name:c.name.trim(), qty, unit:c.unit||'', unitPrice, cost:Math.round(qty*unitPrice*100)/100};
   });
+  if(!comps.length){ alert('请至少填一样食材（品名、这次用了多少、单价都要有）'); return; }
+  const componentsCostTotal = Math.round(comps.reduce((a,c)=>a+c.cost,0)*100)/100;
+  const costPerPack = Math.round((componentsCostTotal/packQty)*10000)/10000;
+  const company = tempRecipe.company || '';
+  const date = todayStr();
+  const newAdjIds = [];
+  let recipeId = tempRecipe.recipeId;
+  mutate(()=>{
+    if(!recipeId){
+      const existing = state.recipes.find(r=>r.outputName.trim().toLowerCase()===outputName.toLowerCase());
+      if(existing) recipeId = existing.id;
+      else { recipeId = uid(); state.recipes.push({id:recipeId, outputName, outputUnit}); }
+    } else {
+      const r = state.recipes.find(x=>x.id===recipeId);
+      if(r){ r.outputName = outputName; r.outputUnit = outputUnit; }
+    }
+    if(!state.stockAdjustments) state.stockAdjustments = [];
+    comps.forEach(c=>{
+      const adjId = uid();
+      state.stockAdjustments.push({id:adjId, date, itemName:c.name, qty:-Math.abs(c.qty), note:`做成 ${packQty}${outputUnit} ${outputName}`, company});
+      newAdjIds.push(adjId);
+    });
+    const outAdjId = uid();
+    state.stockAdjustments.push({id:outAdjId, date, itemName:outputName, qty:Math.abs(packQty), note:`这批用料成本RM${componentsCostTotal}，每${outputUnit}约RM${costPerPack}`, company});
+    newAdjIds.push(outAdjId);
+    if(!state.recipeBatchLogs) state.recipeBatchLogs = [];
+    state.recipeBatchLogs.push({id:uid(), recipeId, date, company, components:comps, packQty, outputName, outputUnit, componentsCostTotal, costPerPack, stockAdjIds:newAdjIds});
+    recalcRecipeAverage(recipeId);
+  });
+  const avg = averageCostForRecipe(recipeId);
+  alert(`已记录：这批 ${packQty}${outputUnit} ${outputName}，用料成本 RM${componentsCostTotal}，这批每${outputUnit} RM${costPerPack}。\n跟之前的批次加权平均下来，「${outputName}」现在每${outputUnit}成本约 RM${avg}，已经存进食材字典——之后任何产品的"食材成本项"打这个名字就会带出这个单价。\n库存已经自动把用到的食材出库、${outputName} 入库，可以去"库存"页确认。`);
   tempRecipe = null;
   renderCost();
 }
+/* 加权平均：把这个半成品所有批次记录的成本合计 ÷ 份数合计，份数多的批次自然影响比较大。
+   兼容旧格式的批次记录（原料+用料分开算的，那时候用 totalBatchCost 存总成本）。 */
+function averageCostForRecipe(recipeId){
+  const logs = (state.recipeBatchLogs||[]).filter(l=>l.recipeId===recipeId);
+  const totalCost = logs.reduce((a,l)=>a+Number((l.totalBatchCost!=null?l.totalBatchCost:l.componentsCostTotal)||0),0);
+  const totalPack = logs.reduce((a,l)=>a+Number(l.packQty||0),0);
+  return totalPack>0 ? Math.round((totalCost/totalPack)*10000)/10000 : 0;
+}
+function recalcRecipeAverage(recipeId){
+  const recipe = state.recipes.find(r=>r.id===recipeId);
+  if(!recipe) return;
+  const logs = (state.recipeBatchLogs||[]).filter(l=>l.recipeId===recipeId);
+  if(!logs.length) return; // 一批都没有了，先不动食材字典，避免把单价清成0
+  learnIngredientLink(recipe.outputName, [], {unit: recipe.outputUnit, unitPrice: averageCostForRecipe(recipeId)});
+}
+function startRenameRecipe(id){
+  const r = state.recipes.find(x=>x.id===id);
+  if(!r) return;
+  const newName = prompt('半成品名称：', r.outputName);
+  if(newName==null) return;
+  const trimmed = newName.trim();
+  if(!trimmed) return;
+  const newUnit = prompt('单位（比如：包）：', r.outputUnit||'包');
+  if(newUnit==null) return;
+  mutate(()=>{
+    r.outputName = trimmed;
+    r.outputUnit = newUnit.trim()||'包';
+    // 改名字之后，历史批次记录、库存记录上的旧名字不会跟着改（保留当时的历史原样），
+    // 只有食材字典会更新成新名字底下、用最新平均算出来的单价
+    recalcRecipeAverage(id);
+  });
+  renderCost();
+}
 function deleteRecipe(id){
-  if(!confirm('确定删除这个配方吗？（已经完成过的批次记录不会被删除，只是以后再买这个原料，"这批做好了？"里不会再列出来）')) return;
+  if(!confirm('确定删除这个半成品吗？（已经记过的批次历史不会被删除，只是以后再打这个名字会变成重新开始一个新的半成品，不会接续算平均）')) return;
   mutate(()=>{ state.recipes = state.recipes.filter(r=>r.id!==id); });
   renderCost();
 }
@@ -2803,113 +2875,28 @@ function renderUnitConversionSectionHtml(){
   `;
   return html;
 }
-/* ---- "这批腌好了，分成幾包"：把一批已经买回来的原料（比如20kg肉碎）标记成
-   "腌好了、包装成幾小包成品"——完成时才做三件事：
-   1) 算这批的完整成本：原料本身实际买的钱 + 配方里各样用料按比例算出来的钱，两个加总，
-      除以你填的包数，得出"每包成本"；
-   2) 把这个"每包成本"存进食材字典（当这个半成品叫什么名字、单价多少），这样以后任何产品的
-      "食材成本项"要用这个半成品，直接打名字就会自动带出单价，不用再心算；
-   3) 库存自动帮你把原料、跟配方里的用料都出库（腌下去就用光了），把包出来的成品入库。
-   每条完成记录都存进 state.recipeBatchLogs，方便之后想撤销（比如包数记错了）。 */
-function effectiveOutputName(recipe){ return (recipe && recipe.outputName) || (recipe? recipe.triggerName+'(半成品)' : '半成品'); }
+/* ---- 半成品「记一批」：每次实际做的时候，直接填这次用了什么食材、各自多少量、
+   分成了幾份——不是套固定比例，因为每批实际用量本来就会不一样。
+   记录完之后：1) 算这批的成本、每份成本；2) 把这个半成品所有批次记录加总，算出加权平均
+   每份成本，存进食材字典（这样以后任何产品的"食材成本项"打这个名字就会自动带出单价）；
+   3) 库存自动把用到的食材出库、做出来的成品入库。每条批次记录都存进 state.recipeBatchLogs，
+   方便之后想撤销（比如份数记错了）。 */
+function effectiveOutputName(recipe){ return (recipe && recipe.outputName) || (recipe && recipe.triggerName ? recipe.triggerName+'(半成品)' : '半成品'); }
 function effectiveOutputUnit(recipe){ return (recipe && recipe.outputUnit) || '包'; }
-/* 纯计算：给定配方跟触发数量，直接从配方比例算出这批要用掉多少各样用料、花多少钱——
-   不依赖任何采购记录，随时都能算，完成批次、或者只是想先预览一下这批大概多少钱都能用。 */
-function recipeBatchComponentsFor(recipe, triggerQty){
-  return (recipe.components||[]).map(c=>{
-    const qty = Math.round(triggerQty * (Number(c.ratioQty)||0) * 10000)/10000;
-    const cost = Math.round(qty * (Number(c.unitPrice)||0) * 100)/100;
-    return {name:c.name, qty, unit:c.unit||'', unitPrice:Number(c.unitPrice)||0, cost};
-  }).filter(c=>c.qty>0);
-}
-/* 找出"已经买了原料、但还没按'这批腌好了'记录完成"的采购品项，给半成品配方页列出来处理用。
-   只看真正手动/导入记的采购（p.triggeredBy 为空），不看系统自动生成的那笔腌料采购本身。 */
-/* 同一张采购单里，肉碎这种原料常常会因为"每样商品分开选公司"而拆成好几行（比如15kg算Antique、
-   5kg算Shan Xian），但物理上腌东西不会真的分两锅腌——所以待处理批次是按"这张采购单+这个配方"
-   算一笔，把里面所有对得上原料名字的品项数量加总起来，而不是一行一行分开处理，
-   不然分开完成的话腌料出库量会重复扣（两次都扣整批的腌料，而不是各自那一份）。 */
-function pendingRecipeBatches(){
-  if(!state.recipes || !state.recipes.length) return [];
-  const doneKeys = new Set((state.recipeBatchLogs||[]).map(l=>l.purchaseId+'|'+l.recipeId));
-  const rows = [];
-  state.purchases.forEach(p=>{
-    if(p.triggeredBy) return; // 系统自动生成的腌料采购本身，不算"待处理批次"
-    state.recipes.forEach(recipe=>{
-      const key = (recipe.triggerName||'').trim().toLowerCase();
-      if(!key || !recipe.components || !recipe.components.length) return;
-      if(doneKeys.has(p.id+'|'+recipe.id)) return;
-      const matched = (p.items||[]).filter(item=>(item.name||'').trim().toLowerCase()===key && Number(item.qty)>0);
-      if(!matched.length) return;
-      const triggerQty = Math.round(matched.reduce((a,i)=>a+Number(i.qty||0),0)*10000)/10000;
-      const triggerUnit = matched[0].unit || recipe.triggerUnit || '';
-      const companies = new Set(matched.map(i=>effCompany(i,p)).filter(Boolean));
-      const company = companies.size===1 ? Array.from(companies)[0] : '';
-      rows.push({purchaseId:p.id, recipeId:recipe.id, date:p.date, supplierName:supplierName(p.supplierId), triggerName:recipe.triggerName, triggerQty, triggerUnit, company});
-    });
-  });
-  rows.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-  return rows;
-}
-function completeRecipeBatch(purchaseId, recipeId){
-  const pu = state.purchases.find(p=>p.id===purchaseId);
-  const recipe = state.recipes.find(r=>r.id===recipeId);
-  if(!pu || !recipe){ alert('找不到对应的采购单或配方，可能已经被删除或改过了'); renderCost(); return; }
-  const key = (recipe.triggerName||'').trim().toLowerCase();
-  const matched = (pu.items||[]).filter(i=>(i.name||'').trim().toLowerCase()===key && Number(i.qty)>0);
-  if(!matched.length){ alert('这张采购单里找不到对得上的原料品项了，可能已经被改掉了'); renderCost(); return; }
-  const packInput = document.getElementById('batchPackQty_'+purchaseId+'_'+recipeId);
-  const packQty = packInput ? Number(packInput.value) : NaN;
-  if(!packQty || packQty<=0 || isNaN(packQty)){ alert('请先填这批分成了幾' + effectiveOutputUnit(recipe)); return; }
-  const outputName = effectiveOutputName(recipe);
-  const outputUnit = effectiveOutputUnit(recipe);
-  const triggerQty = Math.round(matched.reduce((a,i)=>a+Number(i.qty||0),0)*10000)/10000;
-  const triggerUnit = matched[0].unit || recipe.triggerUnit || '';
-  const companies = new Set(matched.map(i=>effCompany(i,pu)).filter(Boolean));
-  const company = companies.size===1 ? Array.from(companies)[0] : '';
-  const components = recipeBatchComponentsFor(recipe, triggerQty);
-  const triggerCostTotal = Math.round(matched.reduce((a,i)=>a+Number(i.totalCost||0),0)*100)/100;
-  const componentsCostTotal = Math.round(components.reduce((a,c)=>a+c.cost,0)*100)/100;
-  const totalBatchCost = Math.round((triggerCostTotal+componentsCostTotal)*100)/100;
-  const costPerPack = packQty>0 ? Math.round((totalBatchCost/packQty)*10000)/10000 : 0;
-  const newAdjIds = [];
-  mutate(()=>{
-    if(!state.stockAdjustments) state.stockAdjustments = [];
-    // 原料本身出库（腌下去就用光了，不再是散装原料）——这张单里所有对得上的品项数量都合起来算一次
-    const triggerAdjId = uid();
-    state.stockAdjustments.push({id:triggerAdjId, date:pu.date, itemName:recipe.triggerName, qty:-Math.abs(triggerQty), note:`腌成 ${packQty}${outputUnit} ${outputName}`, company});
-    newAdjIds.push(triggerAdjId);
-    // 每样用料也出库
-    components.forEach(c=>{
-      const adjId = uid();
-      state.stockAdjustments.push({id:adjId, date:pu.date, itemName:c.name, qty:-Math.abs(c.qty), note:`腌成 ${packQty}${outputUnit} ${outputName}`, company});
-      newAdjIds.push(adjId);
-    });
-    // 包出来的成品入库
-    const outAdjId = uid();
-    state.stockAdjustments.push({id:outAdjId, date:pu.date, itemName:outputName, qty:Math.abs(packQty), note:`由 ${triggerQty}${triggerUnit} ${recipe.triggerName} 腌制分装而成，每${outputUnit}成本约RM${costPerPack}`, company});
-    newAdjIds.push(outAdjId);
-    // 把算出来的"每包成本"存进食材字典——这样这个半成品就变成一个能在任何产品"食材成本项"里
-    // 直接选用、自动带出单价的食材，不用另外多记一笔采购单
-    learnIngredientLink(outputName, [], {unit: outputUnit, unitPrice: costPerPack});
-    if(!state.recipeBatchLogs) state.recipeBatchLogs = [];
-    state.recipeBatchLogs.push({id:uid(), recipeId, purchaseId, itemIds:matched.map(i=>i.id), date:pu.date, triggerName:recipe.triggerName, triggerQty, triggerUnit, packQty:Number(packQty), outputName, outputUnit, company, stockAdjIds:newAdjIds, triggerCostTotal, componentsCostTotal, totalBatchCost, costPerPack});
-  });
-  alert(`已记录：${recipe.triggerName} ${triggerQty}${triggerUnit} 腌成 ${packQty}${outputUnit} ${outputName}\n这批总成本 RM${totalBatchCost}（原料RM${triggerCostTotal} + 用料RM${componentsCostTotal}），每${outputUnit}成本 RM${costPerPack}，已经存进食材字典。\n库存已经自动帮你把原料出库、成品入库，可以去"库存"页确认。`);
-  renderCost();
-}
 function undoRecipeBatch(logId){
   const log = (state.recipeBatchLogs||[]).find(l=>l.id===logId);
   if(!log) return;
-  if(!confirm(`确定撤销这笔批次记录吗？会把当时自动生成的出入库调整（原料出库 + ${log.outputName}入库 ${log.packQty}${log.outputUnit}）一起删掉。`)) return;
+  if(!confirm(`确定撤销这笔批次记录吗？会把当时自动生成的出入库调整（食材出库 + ${log.outputName}入库 ${log.packQty}${log.outputUnit}）一起删掉，「${log.outputName}」的平均成本也会重新算。`)) return;
   mutate(()=>{
     const idSet = new Set(log.stockAdjIds||[]);
     state.stockAdjustments = (state.stockAdjustments||[]).filter(a=>!idSet.has(a.id));
     state.recipeBatchLogs = (state.recipeBatchLogs||[]).filter(l=>l.id!==logId);
+    recalcRecipeAverage(log.recipeId);
   });
   renderCost();
 }
-/* 删除触发用的原始采购单时，一并撤销已经记过的批次完成记录（出入库调整也一起清掉），
-   避免留下对不上任何采购单的孤儿库存记录。 */
+/* 删除触发用的原始采购单时，一并撤销已经记过的批次完成记录（出入库调整也一起清掉）——
+   这个只影响旧格式、当初还跟采购单绑在一起的批次记录；新记的批次不跟任何采购单绑定，不受影响。 */
 function removeRecipeBatchLogsForPurchase(purchaseId){
   const logs = (state.recipeBatchLogs||[]).filter(l=>l.purchaseId===purchaseId);
   if(!logs.length) return;
@@ -2923,11 +2910,11 @@ function recipeComponentRowsHtml(){
   return tempRecipe.components.map(c=>`
     <div class="pi-card">
       <div class="pi-top">
-        <input autocomplete="off" id="recipeCompName_${c.id}" placeholder="用料品名" value="${c.name}" oninput="updateRecipeComponent('${c.id}','name',this.value)" onchange="autoLinkRecipeComponentPrice('${c.id}')">
+        <input autocomplete="off" id="recipeCompName_${c.id}" placeholder="食材品名" value="${c.name}" oninput="updateRecipeComponent('${c.id}','name',this.value)" onchange="autoLinkRecipeComponentPrice('${c.id}')">
         ${tempRecipe.components.length>1? `<button class="rm" onclick="removeRecipeComponent('${c.id}')">×</button>` : '<span style="width:20px"></span>'}
       </div>
       <div class="pi-bottom" style="grid-template-columns:repeat(3,1fr);">
-        <input placeholder="每单位用量" type="number" step="0.0001" value="${c.ratioQty}" oninput="updateRecipeComponent('${c.id}','ratioQty',this.value)">
+        <input placeholder="这次用了多少" type="number" step="0.0001" value="${c.qty}" oninput="updateRecipeComponent('${c.id}','qty',this.value)">
         <input autocomplete="off" id="recipeCompUnit_${c.id}" placeholder="单位" value="${c.unit}" oninput="updateRecipeComponent('${c.id}','unit',this.value)" onchange="autoLinkRecipeComponentUnit('${c.id}')">
         <input placeholder="单价RM" type="number" step="0.01" value="${c.unitPrice}" oninput="updateRecipeComponent('${c.id}','unitPrice',this.value)">
       </div>
@@ -2936,25 +2923,26 @@ function recipeComponentRowsHtml(){
 }
 function recipeFormHtml(){
   if(!tempRecipe) return '';
-  const perUnit = tempRecipe.components.reduce((a,c)=>a+(Number(c.ratioQty)||0)*(Number(c.unitPrice)||0),0);
+  const total = tempRecipe.components.reduce((a,c)=>a+(Number(c.qty)||0)*(Number(c.unitPrice)||0),0);
+  const packQty = Number(tempRecipe.packQty)||0;
+  const previewText = packQty>0
+    ? `这批用料成本 ≈ RM${fmtPlain(total)}　÷${packQty}${tempRecipe.outputUnit||'包'} ≈ 每${tempRecipe.outputUnit||'包'} RM${fmtPlain(total/packQty)}`
+    : `这批用料成本 ≈ RM${fmtPlain(total)}（填了"分成幾${tempRecipe.outputUnit||'包'}"之后会算出每${tempRecipe.outputUnit||'包'}成本）`;
   return `
     <div class="card">
-      <h3>${tempRecipe.id? '✏️ 编辑配方' : '新增半成品配方'}</h3>
-      <label>原料名称（采购单品名跟这个一样，就能在"这批做好了？"里对上，帮你算这批的成本；比如：肉碎）</label>
-      <input id="recipeTrigText" placeholder="原料名称" autocomplete="off" value="${tempRecipe.triggerName}" oninput="updateRecipeField('triggerName', this.value)">
-      <label style="margin-top:10px">原料单位（比如：kg）</label>
-      <input autocomplete="off" id="recipeTriggerUnit" placeholder="例：kg" value="${tempRecipe.triggerUnit}" oninput="updateRecipeField('triggerUnit', this.value)">
-      <label style="margin-top:14px">每 1 单位原料要配的用料（比如每1kg肉碎配多少蒜蓉、生抽…）</label>
+      <h3>${tempRecipe.recipeId? `📝 记一批「${tempRecipe.outputName}」` : '新增半成品 · 记第一批'}</h3>
+      <label>半成品名称（做出来的东西叫什么，比如：肉碎腌料 / 招牌辣椒酱）</label>
+      <input id="recipeOutputName" placeholder="半成品名称" autocomplete="off" value="${tempRecipe.outputName||''}" oninput="updateRecipeField('outputName', this.value)">
+      <label style="margin-top:10px">分成了幾份（这批实际分装出来的数量）</label>
+      <div style="display:flex; gap:8px;">
+        <input id="recipePackQty" type="number" step="0.01" placeholder="例：25" style="flex:1;" value="${tempRecipe.packQty}" oninput="updateRecipeField('packQty', this.value)">
+        <input autocomplete="off" id="recipeOutputUnit" placeholder="单位，例：包" style="flex:1;" value="${tempRecipe.outputUnit||''}" oninput="updateRecipeField('outputUnit', this.value)">
+      </div>
+      <label style="margin-top:14px">这次用了什么食材、各自多少量（品名、这次用了多少、单价）</label>
       <div id="recipeComponentsWrap">${recipeComponentRowsHtml()}</div>
-      <button class="btn-line" onclick="addRecipeComponentRow()">+ 添加一样用料</button>
-      <div style="margin-top:8px; font-size:13px; color:var(--muted)" id="recipeTotalPreview">每 1${tempRecipe.triggerUnit||''} ${tempRecipe.triggerName||'原料'} ≈ RM${fmtPlain(perUnit)} 用料成本</div>
-      <hr class="receipt-divider">
-      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:6px;">加工完之后你会重新包装成小包——下面填包出来的成品叫什么、单位是什么，之后在"这批做好了"那边记录完成时，系统会自动帮你把原料出库、成品入库（不填的话有默认值）。</div>
-      <label>变成的成品名称（选填，比如：肉碎(半成品) 或 招牌酱料）</label>
-      <input id="recipeOutputName" placeholder="例：${tempRecipe.triggerName||'肉碎'}(半成品)" autocomplete="off" value="${tempRecipe.outputName||''}" oninput="updateRecipeField('outputName', this.value)">
-      <label style="margin-top:10px">成品单位（比如：包）</label>
-      <input autocomplete="off" id="recipeOutputUnit" placeholder="例：包" value="${tempRecipe.outputUnit||''}" oninput="updateRecipeField('outputUnit', this.value)">
-      <button class="btn-main" onclick="submitRecipe()">${tempRecipe.id?'保存修改':'保存配方'}</button>
+      <button class="btn-line" onclick="addRecipeComponentRow()">+ 添加一样食材</button>
+      <div style="margin-top:8px; font-size:13px; color:var(--muted)" id="recipeTotalPreview">${previewText}</div>
+      <button class="btn-main" onclick="submitRecipeBatch()">✅ 保存这批</button>
       <button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditRecipe()">取消</button>
     </div>
   `;
@@ -2964,57 +2952,32 @@ function renderRecipeSectionHtml(){
   if(tempRecipe) html += recipeFormHtml();
   html += `
     <div class="card">
-      <h3>半成品配方 <span class="n">${state.recipes.length} 个</span></h3>
+      <h3>半成品 <span class="n">${state.recipes.length} 个</span></h3>
       <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">
-        有些原料买回来不能直接用在菜品上，要先加工/配料才变成半成品——比如"腌肉碎"要先配腌料，或者某个酱料要先调配。在这里设好原料（比如"肉碎"）跟每单位要配的用料清单，还有包出来的成品叫什么。买原料的时候完全正常记，不会自动发生任何事；等这批实际腌好、分装了，去下面「这批做好了？」手动记一下分成了几包，系统才会算出这批的完整成本、算出"每包成本"，直接存进食材字典——之后任何产品的"食材成本项"要用这个半成品，直接打名字就会自动带出单价，不用心算。
+        有些东西要先加工/配料才能用在菜品上，比如"腌肉碎"要先配腌料、某个酱料要先调配。在这里记录：半成品叫什么名字、每次实际做的时候用了什么食材、各自多少量、分成了幾份——系统会算出这批的成本，再跟以前记过的批次一起加权平均，算出「现在」每份大概多少钱，直接存进食材字典，之后任何产品的"食材成本项"打这个半成品的名字就会自动带出单价，不用心算。因为每批实际用量本来就会不一样，所以是每次实际记、不是套固定公式。
       </div>
-      ${!tempRecipe? `<button class="btn-main" onclick="startNewRecipe()">+ 新增半成品配方</button>` : ''}
+      ${!tempRecipe? `<button class="btn-main" onclick="startNewRecipe()">+ 新增半成品（记第一批）</button>` : ''}
       <hr class="receipt-divider">
       ${state.recipes.length? state.recipes.map(r=>{
-        const perUnit = (r.components||[]).reduce((a,c)=>a+Number(c.ratioQty||0)*Number(c.unitPrice||0),0);
+        const logs = (state.recipeBatchLogs||[]).filter(l=>l.recipeId===r.id);
+        const avg = averageCostForRecipe(r.id);
         return `
         <div class="supplier-card">
-          <b>原料：${r.triggerName}${r.triggerUnit?' ('+r.triggerUnit+')':''}</b>
-          <div class="muted" style="font-size:11.5px; margin-top:2px;">每1${r.triggerUnit||''}配：${(r.components||[]).map(c=>c.name+' '+c.ratioQty+(c.unit||'')).join('、')||'（还没设用料）'}</div>
-          <div class="muted" style="font-size:11.5px;">每1${r.triggerUnit||''}用料成本约 RM${fmtPlain(perUnit)}（不含${r.triggerName}本身的钱，那部分完成批次时会另外按实际采购价算）</div>
+          <b>${r.outputName}${r.outputUnit?' ('+r.outputUnit+')':''}</b>
+          <div class="muted" style="font-size:11.5px; margin-top:2px;">${logs.length? `已经记录 ${logs.length} 批，加权平均每${r.outputUnit||'包'}成本约 RM${fmtPlain(avg)}` : '还没记录过任何一批'}</div>
           <div style="display:flex; gap:8px; margin-top:8px;">
-            <button class="btn-ghost btn-small" style="flex:1;" onclick="startEditRecipe('${r.id}')">编辑</button>
+            <button class="btn-main" style="flex:1; margin:0; padding:9px 4px;" onclick="startNewRecipeBatchFor('${r.id}')">📝 记一批</button>
+            <button class="btn-ghost btn-small" onclick="startRenameRecipe('${r.id}')">改名</button>
             <button class="btn-danger-text" onclick="deleteRecipe('${r.id}')">删除</button>
           </div>
         </div>`;
-      }).join('') : `<div class="empty">还没有半成品配方，点上面新增一个</div>`}
+      }).join('') : `<div class="empty">还没有半成品，点上面新增一个</div>`}
     </div>
-
-    ${(()=>{
-      const pending = pendingRecipeBatches();
-      if(!pending.length) return '';
-      return `
-    <div class="card">
-      <h3>这批做好了？ <span class="n">${pending.length} 笔待处理</span></h3>
-      <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">下面是买了原料、但还没记录"做好分成幾包"的采购。填上这批实际包出来的数量，系统会自动算出每包成本、存进食材字典，同时把原料跟用料都出库、包好的成品入库，库存才会准。</div>
-      ${pending.map(p=>{
-        const recipe = state.recipes.find(r=>r.id===p.recipeId);
-        const outputUnit = effectiveOutputUnit(recipe);
-        const outputName = effectiveOutputName(recipe);
-        return `
-      <div class="supplier-card">
-        <div class="row">
-          <div><b>${p.triggerName}</b> ×${p.triggerQty}${p.triggerUnit} <span class="muted" style="font-size:11.5px;">· ${p.date} · ${p.supplierName}</span></div>
-        </div>
-        <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
-          <input id="batchPackQty_${p.purchaseId}_${p.recipeId}" type="number" step="0.01" placeholder="分成幾${outputUnit}" style="flex:1;">
-          <button class="btn-main" style="margin:0; width:auto; padding:9px 16px;" onclick="completeRecipeBatch('${p.purchaseId}','${p.recipeId}')">✅ 记录完成</button>
-        </div>
-        <div class="muted" style="font-size:11px; margin-top:4px;">完成后会：算出这批总成本(${p.triggerName}本身+用料)，除以你填的包数存成"${outputName}"的单价；${p.triggerName} 出库 ${p.triggerQty}${p.triggerUnit}，用料按比例一起出库，${outputName} 入库你填的数量</div>
-      </div>`;
-      }).join('')}
-    </div>`;
-    })()}
 
     ${(state.recipeBatchLogs&&state.recipeBatchLogs.length)? `
     <details class="pur-hist-row" style="border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:14px;">
       <summary style="font-size:14px; font-weight:600;">
-        <span>已完成的批次记录</span>
+        <span>批次记录历史</span>
         <span class="chev">▾</span>
       </summary>
       <div style="margin-top:10px;">
@@ -3024,8 +2987,9 @@ function renderRecipeSectionHtml(){
             <span class="muted">${l.date}</span>
             <button class="btn-danger-text" onclick="undoRecipeBatch('${l.id}')">撤销</button>
           </div>
-          <div style="font-size:13px; margin-top:2px;">${l.triggerName} ${l.triggerQty}${l.triggerUnit} → ${l.packQty}${l.outputUnit} ${l.outputName}</div>
-          ${l.costPerPack!=null?`<div class="muted" style="font-size:11.5px;">总成本 RM${l.totalBatchCost}（原料RM${l.triggerCostTotal}+用料RM${l.componentsCostTotal}）÷ ${l.packQty}${l.outputUnit} = 每${l.outputUnit} RM${l.costPerPack}</div>`:''}
+          <div style="font-size:13px; margin-top:2px;">${l.packQty}${l.outputUnit} ${l.outputName}</div>
+          ${(l.components&&l.components.length)? `<div class="muted" style="font-size:11.5px;">用料：${l.components.map(c=>`${c.name} ${c.qty}${c.unit}`).join('、')}</div>` : (l.triggerName? `<div class="muted" style="font-size:11.5px;">（旧格式记录）${l.triggerName} ${l.triggerQty||''}${l.triggerUnit||''}</div>` : '')}
+          ${l.costPerPack!=null?`<div class="muted" style="font-size:11.5px;">这批用料成本 RM${l.componentsCostTotal!=null?l.componentsCostTotal:l.totalBatchCost} ÷ ${l.packQty}${l.outputUnit} = 每${l.outputUnit} RM${l.costPerPack}</div>`:''}
         </div>
         <hr class="receipt-divider">`).join('')}
       </div>
@@ -3759,8 +3723,11 @@ let ingredientLinkSearchQuery = '';
 function recipeOccupiedIngredientNames(){
   const set = new Set();
   (state.recipes||[]).forEach(r=>{
-    if(r.triggerName) set.add(r.triggerName.trim().toLowerCase());
-    (r.components||[]).forEach(c=>{ if(c.name) set.add(c.name.trim().toLowerCase()); });
+    if(r.triggerName) set.add(r.triggerName.trim().toLowerCase()); // 兼容旧格式配方
+    (r.components||[]).forEach(c=>{ if(c.name) set.add(c.name.trim().toLowerCase()); }); // 兼容旧格式配方
+  });
+  (state.recipeBatchLogs||[]).forEach(l=>{
+    (l.components||[]).forEach(c=>{ if(c.name) set.add(c.name.trim().toLowerCase()); });
   });
   return set;
 }
@@ -3911,9 +3878,7 @@ function renderCost(){
     const ingredientNames = getIngredientNames();
     const unitSuggestions = getUnitSuggestions();
     if(tempRecipe){
-      wireSuggest('recipeTrigText', ingredientNames);
-      wireSuggest('recipeTriggerUnit', unitSuggestions);
-      wireSuggest('recipeOutputName', ingredientNames);
+      wireSuggest('recipeOutputName', state.recipes.map(r=>r.outputName));
       wireSuggest('recipeOutputUnit', unitSuggestions);
       tempRecipe.components.forEach(c=>{
         wireSuggest('recipeCompName_'+c.id, ingredientNames);
