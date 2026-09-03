@@ -1323,12 +1323,12 @@ function exportCashflowCSV(){
 }
 function exportSupplierDebtCSV(){
   const header = ['供应商','已购','已付','欠款'];
-  const rows = state.suppliers.map(s=>{ const t = supplierTotals(s.id); return [s.name, t.bought.toFixed(2), t.paid.toFixed(2), t.owe.toFixed(2)]; });
+  const rows = state.suppliers.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')).map(s=>{ const t = supplierTotals(s.id); return [s.name, t.bought.toFixed(2), t.paid.toFixed(2), t.owe.toFixed(2)]; });
   downloadCSV(`供应商欠款汇总_${todayStr()}.csv`, header, rows);
 }
 function exportProductCostCSV(){
   const header = ['产品','售价','单位成本','毛利','毛利率(%)'];
-  const rows = state.products.map(p=>{
+  const rows = state.products.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')).map(p=>{
     const cost = productUnitCost(p);
     const profit = Number(p.price||0) - cost;
     const pct = p.price>0 ? (profit/p.price*100).toFixed(1) : '0.0';
@@ -1464,6 +1464,17 @@ function removeProductPurchaseLink(ingredientName, productId){
   mutate(()=>{
     const ing = findIngredient(ingredientName);
     if(ing) ing.productIds = (ing.productIds||[]).filter(id=>id!==productId);
+    // 采购单品项自己身上如果还留着旧的 productIds 字段（早期"新食材直接勾选"那个流程存的），
+    // mutate() 里的 reconcileIngredients() 每次都会拿它重新教一次给食材字典——不清掉的话，
+    // 上面刚取消的关联马上又会被这个旧字段加回来，"取消关联"点了等于没点。这里一并清掉。
+    const key = (ingredientName||'').trim().toLowerCase();
+    state.purchases.forEach(pu=>{
+      (pu.items||[]).forEach(item=>{
+        if(item.productIds && (item.name||'').trim().toLowerCase()===key){
+          item.productIds = item.productIds.filter(id=>id!==productId);
+        }
+      });
+    });
   });
   renderCost();
 }
@@ -1699,7 +1710,7 @@ const COMMON_UNITS = ['kg','g','ml','L','包','份','个','打','箱','瓶','罐
 function getUnitSuggestions(){
   const set = new Set(COMMON_UNITS);
   (state.ingredients||[]).forEach(i=>{ if(i.unit) set.add(i.unit); });
-  return Array.from(set);
+  return Array.from(set).sort((a,b)=>a.localeCompare(b,'zh'));
 }
 function getNoteSuggestions(arr){
   const set = new Set();
@@ -1884,7 +1895,7 @@ function renderCashStrip(){
   document.getElementById('cashStrip').innerHTML = `
     <div class="cash-chip"><div class="lbl">现金结余</div><div class="val ${bal>=0?'pos':'neg'}">${fmtPlain(bal)}</div></div>
     <div class="cash-chip"><div class="lbl">今日销售</div><div class="val pos">${fmtPlain(todaySales)}</div></div>
-    <div class="cash-chip"><div class="lbl">供应商欠款</div><div class="val ${totalOwe>0?'neg':'pos'}">${fmtPlain(totalOwe)}</div></div>
+    <div class="cash-chip" style="cursor:pointer;" onclick="goToSupplierDebtView()"><div class="lbl">供应商欠款 ›</div><div class="val ${totalOwe>0?'neg':'pos'}">${fmtPlain(totalOwe)}</div></div>
   `;
 }
 
@@ -2169,20 +2180,70 @@ let payPayMethod = PAY_METHODS[0];
 let payPurchaseIds = [];
 let payHistoryFilterDate = '';
 
+/* ---- 供应商欠款明细页：从首页"供应商欠款"卡片点进来，按字母顺序列出每一家供应商，
+   点开可以看是哪几张发票还没付清。 ---- */
+let expandedDebtSupplierIds = new Set();
+function goToSupplierDebtView(){
+  purSubView = 'debt';
+  switchToTab('purchase');
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function toggleDebtSupplierExpand(id){
+  if(expandedDebtSupplierIds.has(id)) expandedDebtSupplierIds.delete(id); else expandedDebtSupplierIds.add(id);
+  renderPurchase();
+}
+function renderSupplierDebtSectionHtml(){
+  const list = state.suppliers.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh'));
+  const totalOwe = list.reduce((a,s)=>a+supplierTotals(s.id).owe,0);
+  return `
+    <div class="card">
+      <h3>供应商欠款 <span class="n">共 ${list.length} 家 · 按字母排序</span></h3>
+      <div class="muted" style="font-size:12px; margin-bottom:8px;">合计欠款 <b style="color:var(--rust)">RM ${fmtPlain(totalOwe)}</b>。点供应商名字可以展开看是哪几张发票还没付。</div>
+      ${list.length? list.map(s=>{
+        const t = supplierTotals(s.id);
+        const expanded = expandedDebtSupplierIds.has(s.id);
+        const unpaid = expanded && t.owe>0.001 ? supplierUnpaidInvoices(s.id) : [];
+        return `
+        <div class="supplier-card">
+          <div class="row" style="cursor:pointer;" onclick="toggleDebtSupplierExpand('${s.id}')">
+            <b>${s.name}</b>
+            ${t.owe>0.001? `<span class="pill owe">欠 ${fmtPlain(t.owe)}</span>` : `<span class="pill clear">已结清</span>`}
+          </div>
+          <div class="muted" style="font-size:11.5px; margin-top:2px;">已购 ${fmtPlain(t.bought)} · 已付 ${fmtPlain(t.paid)}</div>
+          ${expanded ? (unpaid.length? `
+          <div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border);">
+            ${unpaid.map(x=>`
+              <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; font-size:12.5px;">
+                <span>${x.p.invoiceNumber? 'Invoice #'+x.p.invoiceNumber : x.p.date} <span class="muted">· ${x.p.date}</span></span>
+                <span class="num" style="color:var(--rust)">${fmtPlain(x.outstanding)}</span>
+              </div>`).join('')}
+            <button class="btn-pay-small" style="margin-top:6px;" onclick="event.stopPropagation(); openPurchasePayPopup('${unpaid[0].p.id}', false)">💰 去付款</button>
+          </div>` : `<div class="muted" style="font-size:11.5px; margin-top:6px;">这家目前没有欠款</div>`) : ''}
+        </div>`;
+      }).join('') : `<div class="empty">还没有供应商</div>`}
+    </div>
+  `;
+}
+
 function renderPurchase(){
   const el = document.getElementById('tab-purchase');
   const purSubTabHtml = `
     <div class="btn-group" style="margin-bottom:14px;">
       <button type="button" class="btn-toggle ${purSubView==='main'?'active':''}" onclick="setPurSubView('main')">🛒 采购单</button>
       <button type="button" class="btn-toggle ${purSubView==='payment'?'active':''}" onclick="setPurSubView('payment')">💳 付款</button>
+      <button type="button" class="btn-toggle ${purSubView==='debt'?'active':''}" onclick="setPurSubView('debt')">📋 欠款</button>
       <button type="button" class="btn-toggle ${purSubView==='addon'?'active':''}" onclick="setPurSubView('addon')">🧾 Addon消耗</button>
       <button type="button" class="btn-toggle ${purSubView==='conv'?'active':''}" onclick="setPurSubView('conv')">🔄 单位换算</button>
     </div>`;
+  if(purSubView==='debt'){
+    el.innerHTML = purSubTabHtml + renderSupplierDebtSectionHtml();
+    return;
+  }
   if(purSubView==='payment'){
     el.innerHTML = purSubTabHtml + renderPaymentSectionHtml();
-    wireSuggest('paySupplier', state.suppliers.map(s=>s.name));
+    wireSuggest('paySupplier', state.suppliers.map(s=>s.name).sort((a,b)=>a.localeCompare(b,'zh')));
     wireSuggest('payNote', getNoteSuggestions(state.payments));
-    wireSuggest('supTitle', state.suppliers.map(s=>s.name));
+    wireSuggest('supTitle', state.suppliers.map(s=>s.name).sort((a,b)=>a.localeCompare(b,'zh')));
     const paySupplierEl = document.getElementById('paySupplier');
     if(paySupplierEl && paySupplierEl.value.trim()) onPaySupplierInput();
     return;
@@ -2411,7 +2472,7 @@ function renderPurchase(){
     </div>
   `;
   renderPurchaseItemRows();
-  wireSuggest('purSupplier', state.suppliers.map(s=>s.name));
+  wireSuggest('purSupplier', state.suppliers.map(s=>s.name).sort((a,b)=>a.localeCompare(b,'zh')));
   const invoiceNumbers = Array.from(new Set(state.purchases.map(p=>p.invoiceNumber).filter(Boolean)));
   wireSuggest('purInvoiceNumber', invoiceNumbers);
   const purHistSearchEl = document.getElementById('purHistSearchInput');
@@ -2769,7 +2830,7 @@ function renderAddonMappingSectionHtml(){
       </div>
       ${!tempAddonMapping? `<button class="btn-main" onclick="startNewAddonMapping()">+ 新增Addon消耗对照</button>` : ''}
       <hr class="receipt-divider">
-      ${state.addonMappings.length? state.addonMappings.map(m=>`
+      ${state.addonMappings.slice().sort((a,b)=>a.addonName.localeCompare(b.addonName,'zh')).length? state.addonMappings.slice().sort((a,b)=>a.addonName.localeCompare(b.addonName,'zh')).map(m=>`
         <div class="supplier-card">
           <b>${m.addonName}</b>
           <div class="muted" style="font-size:11.5px; margin-top:2px;">每次耗用：${(m.components||[]).map(c=>c.name+' '+c.qtyPerUse+(c.unit||'')).join('、')||'（还没设食材）'}</div>
@@ -2869,7 +2930,7 @@ function renderUnitConversionSectionHtml(){
       </div>
       ${!tempUnitConversion? `<button class="btn-main" onclick="startNewUnitConversion()">+ 新增单位换算</button>` : ''}
       <hr class="receipt-divider">
-      ${state.unitConversions.length? state.unitConversions.map(c=>`
+      ${state.unitConversions.slice().sort((a,b)=>a.ingredientName.localeCompare(b.ingredientName,'zh')).length? state.unitConversions.slice().sort((a,b)=>a.ingredientName.localeCompare(b.ingredientName,'zh')).map(c=>`
         <div class="supplier-card">
           <b>${c.ingredientName}</b>
           <div class="muted" style="font-size:11.5px; margin-top:2px;">1${c.purchaseUnit} = ${c.ratio}${c.usageUnit}</div>
@@ -2965,7 +3026,7 @@ function renderRecipeSectionHtml(){
       </div>
       ${!tempRecipe? `<button class="btn-main" onclick="startNewRecipe()">+ 新增半成品（记第一批）</button>` : ''}
       <hr class="receipt-divider">
-      ${state.recipes.length? state.recipes.map(r=>{
+      ${state.recipes.slice().sort((a,b)=>a.outputName.localeCompare(b.outputName,'zh')).length? state.recipes.slice().sort((a,b)=>a.outputName.localeCompare(b.outputName,'zh')).map(r=>{
         const logs = (state.recipeBatchLogs||[]).filter(l=>l.recipeId===r.id);
         const avg = averageCostForRecipe(r.id);
         return `
@@ -3123,7 +3184,7 @@ function renderOptionGroupSectionHtml(){
       <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">有些产品要让顾客现场选口味/夹料（比如面包要选 Kaya、Butter、Kaya Butter…），而且好几个产品常常共用同一组选择。在这里设好一组选项，之后去"产品"页把某个产品挂上这组选项，点餐的时候就会跳出来给顾客选；同一组可以同时挂在好几个产品上，改一次全部一起改，不用每个产品分开设。</div>
       ${!tempOptionGroup? `<button class="btn-main" onclick="startNewOptionGroup()">+ 新增选项组</button>` : ''}
       <hr class="receipt-divider">
-      ${state.optionGroups.length? state.optionGroups.map(g=>{
+      ${state.optionGroups.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')).length? state.optionGroups.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')).map(g=>{
         const usedBy = state.products.filter(p=>p.optionGroupId===g.id);
         return `
         <div class="supplier-card">
@@ -3233,7 +3294,7 @@ function renderPaymentSectionHtml(){
       ${state.suppliers.length? `
         ${vizLegend([{color:'var(--green)',label:'已付'},{color:'var(--rust)',label:'欠款'}])}
         ${(()=>{
-          const ranked = state.suppliers.map(s=>({s, t:supplierTotals(s.id)})).sort((a,b)=>b.t.bought-a.t.bought);
+          const ranked = state.suppliers.map(s=>({s, t:supplierTotals(s.id)})).sort((a,b)=>a.s.name.localeCompare(b.s.name,'zh'));
           const top = ranked.slice(0,3);
           const rest = ranked.slice(3);
           return `
@@ -3293,7 +3354,7 @@ function supplierPurchaseHistory(supplierId){
       map[key] = {name:i.name, category:i.category||'食材', unit:i.unit||'', unitPrice:Number(i.unitPrice||0), lastDate:p.date, productIds:purchaseItemProductIds(i)};
     });
   });
-  return Object.values(map).sort((a,b)=>b.lastDate.localeCompare(a.lastDate));
+  return Object.values(map).sort((a,b)=>a.name.localeCompare(b.name,'zh'));
 }
 function supplierHistoryBoxHtml(){
   if(!currentSupplierHistory.length) return '';
@@ -3375,7 +3436,7 @@ function renderPurchaseItemRows(){
           <div class="muted" style="font-size:11px; margin-bottom:4px; color:var(--rust);">⚠️ ${newFlag}还没关联产品，勾选这个算给哪个产品的成本（保存这张单会一起生效）：</div>
           ${state.products.length>8? `<input placeholder="🔍 搜索产品名称..." style="margin-bottom:6px; font-size:12px; padding:6px 8px;" oninput="filterProductPickList('purProdPicks_${row.id}', this.value)">` : ''}
           <div id="purProdPicks_${row.id}" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px;">
-            ${state.products.length? state.products.map(p=>`
+            ${state.products.length? state.products.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')).map(p=>`
               <label data-pname="${p.name.toLowerCase().replace(/"/g,'&quot;')}" style="display:flex; align-items:center; gap:4px; font-size:12px; border:1px solid var(--border); border-radius:14px; padding:3px 10px 3px 6px; cursor:pointer; ${picked.includes(p.id)?'background:var(--green-dim); border-color:var(--green);':''}">
                 <input type="checkbox" style="margin:0;" ${picked.includes(p.id)?'checked':''} onchange="togglePurItemProductPick('${row.id}','${p.id}', this.checked, this)">${p.name}
               </label>
@@ -3909,7 +3970,7 @@ function ingredientLinkRowHtml(ing){
     <div class="supplier-card">${header}
       ${state.products.length>8? `<input id="ingProdFilter_${ing.id}" placeholder="🔍 搜索产品名称..." style="margin-top:8px; font-size:12.5px; padding:6px 8px;" oninput="filterProductPickList('ingProdPicks_${ing.id}', this.value)">` : ''}
       <div id="ingProdPicks_${ing.id}" style="margin-top:8px; display:flex; flex-wrap:wrap; gap:6px;">
-        ${state.products.length? state.products.map(p=>`
+        ${state.products.length? state.products.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')).map(p=>`
           <label data-pname="${p.name.toLowerCase().replace(/"/g,'&quot;')}" style="display:flex; align-items:center; gap:4px; font-size:12.5px; border:1px solid var(--border); border-radius:14px; padding:3px 10px 3px 6px; cursor:pointer; ${linkedIds.includes(p.id)?'background:var(--green-dim); border-color:var(--green);':''}">
             <input type="checkbox" style="margin:0;" ${linkedIds.includes(p.id)?'checked':''} onchange="toggleIngredientLinkProduct('${ing.id}','${p.id}', this.checked, this)">${p.name}
           </label>
@@ -4038,7 +4099,7 @@ function renderCost(){
     const ingredientNames = getIngredientNames();
     const unitSuggestions = getUnitSuggestions();
     if(tempRecipe){
-      wireSuggest('recipeOutputName', state.recipes.map(r=>r.outputName));
+      wireSuggest('recipeOutputName', state.recipes.map(r=>r.outputName).sort((a,b)=>a.localeCompare(b,'zh')));
       wireSuggest('recipeOutputUnit', unitSuggestions);
       tempRecipe.components.forEach(c=>{
         wireSuggest('recipeCompName_'+c.id, ingredientNames);
@@ -4050,9 +4111,8 @@ function renderCost(){
   const editingProduct = editingProductId ? state.products.find(x=>x.id===editingProductId) : null;
   const draft = editingProduct ? {} : captureFormValues(['prodTitle','prodPrice','prodCategory','prodCode']);
   if(editingProduct){ draftProductCompany = editingProduct.company || ''; }
-  const categoryOptions = Array.from(new Set([...MENU_CATEGORIES, ...state.products.map(p=>p.category).filter(Boolean)]));
-  const catOrder = c => { const i = MENU_CATEGORIES.indexOf(c||''); return i===-1 ? 999 : i; };
-  let displayProducts = state.products.slice().sort((a,b)=> catOrder(a.category) - catOrder(b.category) || a.name.localeCompare(b.name));
+  const categoryOptions = Array.from(new Set([...MENU_CATEGORIES, ...state.products.map(p=>p.category).filter(Boolean)])).sort((a,b)=>a.localeCompare(b,'zh'));
+  let displayProducts = state.products.slice().sort((a,b)=> a.name.localeCompare(b.name,'zh'));
   if(costCategoryFilter) displayProducts = displayProducts.filter(p=>(p.category||'')===costCategoryFilter);
   if(prodSubView==='cost'){
     el.innerHTML = prodSubTabHtml + `
@@ -4154,7 +4214,7 @@ function renderCost(){
     </div>
     `;
     if(costSearchQuery) filterCostProducts(costSearchQuery);
-    wireSuggest('costSearchInput', state.products.map(p=>p.name));
+    wireSuggest('costSearchInput', state.products.map(p=>p.name).sort((a,b)=>a.localeCompare(b,'zh')));
     const ingNames = getIngredientNames();
     displayProducts.forEach(p=>wireSuggest('addCi_'+p.id+'_name', ingNames));
     return;
@@ -4185,7 +4245,7 @@ function renderCost(){
       <label style="margin-top:14px">选项组（选填：顾客现场要选的口味/夹料，比如"面包夹料"14选1，好几个产品可以共用同一组——在"选项组"子页签设好之后，这里选要挂哪一组）</label>
       <select id="prodOptionGroup" onchange="setProdOptionGroup(this.value)">
         <option value="">不用（这个产品不用选口味/选项）</option>
-        ${state.optionGroups.map(g=>`<option value="${g.id}" ${draftProductOptionGroupId===g.id?'selected':''}>${g.name}（${g.choices.length}个选项）</option>`).join('')}
+        ${state.optionGroups.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')).map(g=>`<option value="${g.id}" ${draftProductOptionGroupId===g.id?'selected':''}>${g.name}（${g.choices.length}个选项）</option>`).join('')}
       </select>
       <div class="muted" style="font-size:11.5px; margin-top:10px; line-height:1.5; background:var(--bg); padding:8px 10px; border-radius:8px;">这个产品的成本可以同时来自两边、加总算：<b>用量固定</b>的食材（比如半粒鸡蛋、固定几ml酱油）填「食材成本项」；<b>用量抓不准、按采购实际总额分摊</b>的食材（比如后腿肉）填「共同食材名称」。两边都可以填，也可以只填一边。</div>
       <div id="costItemsSection">
@@ -4243,9 +4303,9 @@ function renderCost(){
   renderSharedIngredientRows();
   renderVariantRows();
   renderMergeVariantRows();
-  wireSuggest('prodTitle', state.products.map(p=>p.name));
+  wireSuggest('prodTitle', state.products.map(p=>p.name).sort((a,b)=>a.localeCompare(b,'zh')));
   wireSuggest('prodCategory', categoryOptions);
-  const mergeNames = state.products.map(p=>p.name);
+  const mergeNames = state.products.map(p=>p.name).sort((a,b)=>a.localeCompare(b,'zh'));
   wireSuggest('mergeFromList', mergeNames);
   wireSuggest('mergeToTarget', mergeNames);
   wireSuggest('mvTarget', mergeNames);
@@ -4617,7 +4677,7 @@ function renderMergeVariantRows(){
       </div>
     </div>
   `).join('');
-  const mergeNames = state.products.map(p=>p.name);
+  const mergeNames = state.products.map(p=>p.name).sort((a,b)=>a.localeCompare(b,'zh'));
   tempMergeVariantRows.forEach(row=>wireSuggest('mv_source_'+row.id, mergeNames));
 }
 function addMergeVariantRow(){
@@ -4903,7 +4963,7 @@ function productSaleNameOptions(){
     if(p.variants && p.variants.length) p.variants.forEach(v=>out.push(`${p.name} - ${v.label}`));
     else out.push(p.name);
   });
-  return out;
+  return out.sort((a,b)=>a.localeCompare(b,'zh'));
 }
 function pushSaleStockDeductions(product, saleQty, date, company, tagFields){
   if(!product) return;
@@ -6177,10 +6237,9 @@ function cancelPosOrder(orderId){
 /* ---------- 点餐详情画面：菜单格子 + 购物车 ---------- */
 function posOrderScreenHtml(order){
   const products = state.products.filter(p=>p.company===order.company);
-  const catOrderFn = c => { const i = MENU_CATEGORIES.indexOf(c||''); return i===-1?999:i; };
-  const cats = Array.from(new Set(products.map(p=>p.category).filter(Boolean))).sort((a,b)=>catOrderFn(a)-catOrderFn(b));
+  const cats = Array.from(new Set(products.map(p=>p.category).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'zh'));
   const shown = posCatFilter ? products.filter(p=>p.category===posCatFilter) : products;
-  const sortedShown = shown.slice().sort((a,b)=> catOrderFn(a.category)-catOrderFn(b.category) || a.name.localeCompare(b.name));
+  const sortedShown = shown.slice().sort((a,b)=> a.name.localeCompare(b.name,'zh'));
   const total = posOrderTotal(order);
   return `
     <div class="pos-order-header">
