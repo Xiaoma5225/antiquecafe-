@@ -3422,8 +3422,9 @@ function renderPurchaseItemRows(){
            跳过去搜索才能设。现在改成：只要这个食材还没关联任何产品（不管是全新食材，还是已经在
            字典里但还没设关联的），就直接在这里勾选——勾好的选择存在这一行草稿的 productIds 里，
            等这张采购单真的保存/提交时会一起生效教进食材字典，不用先保存再跳页找。
-           已经关联好的食材，还是照旧只显示结果+"改关联"连结（改关联本来就该去那个统一管理的页面）。 */
-        if(!row.name) return '';
+           已经关联好的食材，还是照旧只显示结果+"改关联"连结（改关联本来就该去那个统一管理的页面）。
+           只有「食材」类别才需要关联产品算成本——清洁用品、水电费这些其他类别不需要，不用显示这块。 */
+        if(!row.name || row.category!=='食材') return '';
         const ing = findIngredient(row.name);
         const linkedIds = ing && ing.productIds ? ing.productIds.filter(Boolean) : [];
         if(linkedIds.length){
@@ -3440,14 +3441,7 @@ function renderPurchaseItemRows(){
         }
         return `
           <div class="muted" style="font-size:11px; margin-bottom:4px; color:var(--rust);">⚠️ ${newFlag}还没关联产品，勾选这个算给哪个产品的成本（保存这张单会一起生效）：</div>
-          ${state.products.length>8? `<input placeholder="🔍 搜索产品名称..." style="margin-bottom:6px; font-size:12px; padding:6px 8px;" oninput="filterProductPickList('purProdPicks_${row.id}', this.value)">` : ''}
-          <div id="purProdPicks_${row.id}" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px;">
-            ${state.products.length? state.products.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')).map(p=>`
-              <label data-pname="${p.name.toLowerCase().replace(/"/g,'&quot;')}" style="display:flex; align-items:center; gap:4px; font-size:12px; border:1px solid var(--border); border-radius:14px; padding:3px 10px 3px 6px; cursor:pointer; ${picked.includes(p.id)?'background:var(--green-dim); border-color:var(--green);':''}">
-                <input type="checkbox" style="margin:0;" ${picked.includes(p.id)?'checked':''} onchange="togglePurItemProductPick('${row.id}','${p.id}', this.checked, this)">${p.name}
-              </label>
-            `).join('') : `<span class="muted" style="font-size:12px;">还没有产品，先去"产品"子页签新增</span>`}
-          </div>
+          ${state.products.length? `<div id="purProdPicks_${row.id}" style="margin-bottom:6px;"></div>` : `<div class="muted" style="font-size:12px; margin-bottom:6px;">还没有产品，先去"产品"子页签新增</div>`}
           ${picked.length? `<button type="button" class="btn-ghost btn-small" style="margin-bottom:6px;" onclick="setPurItemPickerOpen('${row.id}',false)">✓ 挑好了，收起来</button>` : ''}
         `;
       })()}
@@ -3467,6 +3461,9 @@ function renderPurchaseItemRows(){
   tempPurchaseItems.forEach(row=>{
     wireSuggest('purItemTitle_'+row.id, ingredientNames);
     wireSuggest('pi_unit_'+row.id, unitSuggestions);
+    if(document.getElementById('purProdPicks_'+row.id)){
+      mpInit('purProdPicks_'+row.id, ()=>state.products.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')), ()=> row.productIds||[], (id,checked)=>togglePurItemProductPick(row.id, id, checked));
+    }
   });
 }
 function updatePurItem(id, field, val){
@@ -3500,18 +3497,12 @@ function setPurItemPickerOpen(rowId, open){
   row.pickerOpen = open;
   renderPurchaseItemRows();
 }
-function togglePurItemProductPick(rowId, productId, checked, checkboxEl){
+function togglePurItemProductPick(rowId, productId, checked){
   const row = tempPurchaseItems.find(r=>r.id===rowId);
   if(!row) return;
   if(!row.productIds) row.productIds = [];
   if(checked){ if(!row.productIds.includes(productId)) row.productIds.push(productId); }
   else { row.productIds = row.productIds.filter(id=>id!==productId); }
-  // 这里只是草稿（还没保存），不整页重画——不然勾一个产品就整块重画一次，搜索框打的字
-  // 会被清掉，勾第二个产品之前还要重新搜索一次。只手动更新被点的那个格子颜色就好。
-  if(checkboxEl){
-    const lbl = checkboxEl.closest('label');
-    if(lbl){ lbl.style.background = checked?'var(--green-dim)':''; lbl.style.borderColor = checked?'var(--green)':''; }
-  }
 }
 function autoLinkPurItemIngredient(rowId){
   const row = tempPurchaseItems.find(r=>r.id===rowId);
@@ -3955,6 +3946,12 @@ function refreshIngredientLinkRow(ingredientId){
   const wrap = document.getElementById('ingRow_'+ingredientId);
   if(!ing || !wrap) return;
   wrap.innerHTML = ingredientLinkRowHtml(ing);
+  wireIngredientLinkPicker(ing);
+}
+function wireIngredientLinkPicker(ing){
+  const wrapId = 'ingProdPicks_'+ing.id;
+  if(!document.getElementById(wrapId)) return;
+  mpInit(wrapId, ()=>state.products.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')), ()=> ing.productIds||[], (id,checked)=>{ toggleIngredientLinkProduct(ing.id, id, checked); });
 }
 function ingredientLinkRowHtml(ing){
   const linkedIds = ing.productIds||[];
@@ -3975,27 +3972,74 @@ function ingredientLinkRowHtml(ing){
   }
   return `
     <div class="supplier-card">${header}
-      ${state.products.length>8? `<input id="ingProdFilter_${ing.id}" placeholder="🔍 搜索产品名称..." style="margin-top:8px; font-size:12.5px; padding:6px 8px;" oninput="filterProductPickList('ingProdPicks_${ing.id}', this.value)">` : ''}
-      <div id="ingProdPicks_${ing.id}" style="margin-top:8px; display:flex; flex-wrap:wrap; gap:6px;">
-        ${state.products.length? state.products.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')).map(p=>`
-          <label data-pname="${p.name.toLowerCase().replace(/"/g,'&quot;')}" style="display:flex; align-items:center; gap:4px; font-size:12.5px; border:1px solid var(--border); border-radius:14px; padding:3px 10px 3px 6px; cursor:pointer; ${linkedIds.includes(p.id)?'background:var(--green-dim); border-color:var(--green);':''}">
-            <input type="checkbox" style="margin:0;" ${linkedIds.includes(p.id)?'checked':''} onchange="toggleIngredientLinkProduct('${ing.id}','${p.id}', this.checked, this)">${p.name}
-          </label>
-        `).join('') : `<span class="muted" style="font-size:12px;">还没有产品，先去"产品"子页签新增</span>`}
-      </div>
+      ${state.products.length? `<div id="ingProdPicks_${ing.id}" style="margin-top:8px;"></div>` : `<div class="muted" style="font-size:12px; margin-top:8px;">还没有产品，先去"产品"子页签新增</div>`}
       ${linkedIds.length? `<button type="button" class="btn-ghost btn-small" style="margin-top:8px;" onclick="toggleIngredientLinkRowExpand('${ing.id}',false)">✓ 挑好了，收起来</button>` : ''}
     </div>`;
 }
-/* 通用的"打勾清单搜索框"：不重画整个清单（那样贵），只是把不符合关键字的 label 藏起来，
-   食材关联页、采购单的新食材内联勾选都共用这个。 */
-function filterProductPickList(wrapId, q){
-  const wrap = document.getElementById(wrapId);
-  if(!wrap) return;
-  const query = (q||'').trim().toLowerCase();
-  wrap.querySelectorAll('label[data-pname]').forEach(lbl=>{
-    lbl.style.display = (!query || lbl.dataset.pname.includes(query)) ? '' : 'none';
-  });
+/* 通用的"下拉搜索 + 打勾多选"组件，取代之前把全部产品摊平列成一排勾选格子的做法（产品一多看起来很乱）。
+   用法：先在HTML里放一个空容器 <div id="wrapId"></div>，render完之后呼叫
+   mpInit(wrapId, getProducts, getPicked, toggle) 接手管理这个容器——getProducts/getPicked 是
+   "每次都要重新取最新资料"的函数，toggle(productId, checked) 是真正处理勾选/取消这个产品的函数。
+   已选的产品会显示成上面一排小标签（点标签上的×可以移除），下面是搜索框+下拉勾选清单，
+   点搜索框外面会自动收起。 */
+let mpRegistry = {};
+let mpState = {};
+function mpInit(wrapId, getProducts, getPicked, toggle){
+  mpRegistry[wrapId] = {getProducts, getPicked, toggle};
+  if(!mpState[wrapId]) mpState[wrapId] = {query:'', open:false};
+  mpRender(wrapId);
 }
+function mpSetQuery(wrapId, val){
+  if(!mpState[wrapId]) mpState[wrapId] = {query:'', open:false};
+  mpState[wrapId].query = val;
+  mpState[wrapId].open = true;
+  mpRender(wrapId);
+}
+function mpSetOpen(wrapId, open){
+  if(!mpState[wrapId]) mpState[wrapId] = {query:'', open:false};
+  mpState[wrapId].open = open;
+  mpRender(wrapId);
+}
+function mpToggle(wrapId, productId, checked){
+  const reg = mpRegistry[wrapId];
+  if(!reg) return;
+  reg.toggle(productId, checked);
+  mpRender(wrapId);
+}
+function mpRender(wrapId){
+  const reg = mpRegistry[wrapId];
+  const st = mpState[wrapId];
+  const el = document.getElementById(wrapId);
+  if(!reg || !st || !el) return;
+  const products = reg.getProducts();
+  const pickedIds = reg.getPicked()||[];
+  const pickedSet = new Set(pickedIds);
+  const pickedProducts = products.filter(p=>pickedSet.has(p.id));
+  const q = st.query.trim().toLowerCase();
+  const matches = products.filter(p=>!q || p.name.toLowerCase().includes(q)).slice(0,30);
+  el.innerHTML = `
+    ${pickedProducts.length? `<div class="opt-choice-chips" style="margin-bottom:6px;">
+      ${pickedProducts.map(p=>`<span class="opt-choice-chip">${p.name} <b style="cursor:pointer; margin-left:2px;" onclick="mpToggle('${wrapId}','${p.id}',false)">×</b></span>`).join('')}
+    </div>` : ''}
+    <div class="suggest-wrap">
+      <input placeholder="🔍 搜索并勾选产品..." autocomplete="off" value="${st.query.replace(/"/g,'&quot;')}"
+        oninput="mpSetQuery('${wrapId}', this.value)" onfocus="mpSetOpen('${wrapId}', true)">
+      <div class="suggest-dropdown ${st.open?'show':''}" style="max-height:200px;">
+        ${matches.length? matches.map(p=>`
+          <div class="suggest-item" style="display:flex; align-items:center; gap:6px;" onmousedown="event.preventDefault(); mpToggle('${wrapId}','${p.id}',${pickedSet.has(p.id)?'false':'true'})">
+            <span style="width:14px; color:var(--green); font-weight:700;">${pickedSet.has(p.id)?'✓':''}</span>${p.name}
+          </div>`).join('') : `<div class="suggest-item muted">没有符合的产品</div>`}
+      </div>
+    </div>
+  `;
+}
+document.addEventListener('click', (e)=>{
+  Object.keys(mpState).forEach(wrapId=>{
+    if(!mpState[wrapId].open) return;
+    const el = document.getElementById(wrapId);
+    if(el && !el.contains(e.target)){ mpState[wrapId].open = false; mpRender(wrapId); }
+  });
+});
 /* 食材数量一多（比如几百个），每个食材列出全部产品的打勾格子，一次要生出好几万个DOM元素，
    会很卡。所以：①没输入搜索字时，食材数量超过40个就先不列出全部，请使用者先搜索；
    ②搜索框加个小小的防抖（stopped typing 200ms 后才重新画），不用每打一个字就整个重画一次列表。 */
@@ -4040,23 +4084,23 @@ function filterIngredientLinkList(q){
   ingredientLinkFilterTimer = setTimeout(()=>{
     const wrap = document.getElementById('ingredientLinkListWrap');
     if(wrap) wrap.innerHTML = ingredientLinkListHtml();
+    wireVisibleIngredientLinkPickers();
   }, 200);
+}
+function wireVisibleIngredientLinkPickers(){
+  (state.ingredients||[]).forEach(ing=> wireIngredientLinkPicker(ing));
 }
 /* 打勾的时候不整页重画（不叫 mutate()）——这个食材一旦有了第一个关联，"还没关联的食材"／
    "已关联的食材"两个清单的分类马上就会不一样，整页重画会让这一行立刻从原本的清单跳到另一个，
    使用者人还在勾第二、第三个产品，那一行却不见了。所以这里直接改 state 存档，画面只手动
    更新被点的那个勾选格子颜色，等使用者之后重新搜索/切换分页，才会真的照最新状态分类。 */
-function toggleIngredientLinkProduct(ingredientId, productId, checked, checkboxEl){
+function toggleIngredientLinkProduct(ingredientId, productId, checked){
   const ing = (state.ingredients||[]).find(i=>i.id===ingredientId);
   if(!ing) return;
   if(!ing.productIds) ing.productIds = [];
   if(checked){ if(!ing.productIds.includes(productId)) ing.productIds.push(productId); }
   else { ing.productIds = ing.productIds.filter(id=>id!==productId); }
   saveState();
-  if(checkboxEl){
-    const lbl = checkboxEl.closest('label');
-    if(lbl){ lbl.style.background = checked?'var(--green-dim)':''; lbl.style.borderColor = checked?'var(--green)':''; }
-  }
 }
 /* 从"采购"页那个"还没关联/去设定"小连结跳过来：切到"产品"页、开到"食材关联"子页签，
    顺便把搜索框帮你填好这个食材的名字，直接定位过去不用自己找。 */
@@ -4098,6 +4142,7 @@ function renderCost(){
   if(prodSubView==='link'){
     el.innerHTML = prodSubTabHtml + renderIngredientLinkSectionHtml();
     if(ingredientLinkSearchQuery) filterIngredientLinkList(ingredientLinkSearchQuery);
+    else wireVisibleIngredientLinkPickers();
     wireSuggest('ingredientLinkSearchInput', getIngredientNames());
     return;
   }
