@@ -3143,6 +3143,84 @@ function deleteOptionGroup(id){
   });
   renderCost();
 }
+/* ---------------- 批量导入选项组（CSV）----------------
+   一行 = 一个选项，"选项组名称"栏一样的行会自动归成同一组。同名选项组已经存在的话，
+   把这些选项直接加进那一组（不会清掉原本已有的选项，同名选项会跳过避免重复）；
+   不存在就新建一组。"追加倍数"那栏是给"追加选项组"用的，填了的话这个选项不扣自己的
+   固定食材，改成回头按第一层选中的选项食材乘这个倍数多扣。 */
+function downloadOptionGroupImportTemplate(){
+  const header = ['选项组名称','选项名称','加价RM(选填,默认0)','扣的食材(选填)','扣多少(选填)','单位(选填)','追加选项-额外倍数(选填,只用在追加选项组)'];
+  const examples = [
+    ['面类选择','手工面 HANDMADE MEE','1','手工面','1','份',''],
+    ['面类选择','客家面 HAKKA MEE (CANNOT MIX)','0','客家面','1','份',''],
+    ['面类选择','黄面 YELLOW MEE','0','黄面','1','份',''],
+    ['加面','加面 ADD NOODLES','1','','','','1']
+  ];
+  downloadCSV('选项组导入模板.csv', header, examples);
+}
+function importOptionGroupsReport(fileInput){
+  const files = fileInput.files;
+  if(!files || !files.length) return;
+  readFilesAsText(files).then(fileTexts=>{
+    try{
+      const allRows = [];
+      fileTexts.forEach(ft=>{
+        const rows = parseCSV(ft.text);
+        if(rows.length<2) return;
+        rows.slice(1).forEach((r,idx)=>allRows.push({r, tag:ft.name, lineNo:idx+2}));
+      });
+      if(!allRows.length){ alert('这些文件里都没有找到数据行，请确认是不是用模板格式填的'); fileInput.value=''; return; }
+      const multi = fileTexts.length>1;
+      const errors = [];
+      const groups = {};
+      const order = [];
+      allRows.forEach(({r, tag, lineNo})=>{
+        const loc = multi ? `${tag} 第${lineNo}行` : `第${lineNo}行`;
+        if(!r.some(v=>(v||'').trim()!=='')) return;
+        const groupName = (r[0]||'').trim();
+        const choiceName = (r[1]||'').trim();
+        if(!groupName){ errors.push(`${loc}：缺少选项组名称`); return; }
+        if(!choiceName){ errors.push(`${loc}：缺少选项名称`); return; }
+        const priceAdd = Number(r[2])||0;
+        const ingredientName = (r[3]||'').trim();
+        const ingredientQty = Number(r[4])||0;
+        const ingredientUnit = (r[5]||'').trim();
+        const linkPrimaryExtra = Number(r[6])||0;
+        if(!groups[groupName]){ groups[groupName] = {name:groupName, choices:[]}; order.push(groupName); }
+        groups[groupName].choices.push({id:uid(), name:choiceName, priceAdd, ingredientName, ingredientQty, ingredientUnit, linkPrimaryExtra});
+      });
+      const groupList = order.map(k=>groups[k]);
+      if(!groupList.length){ alert('没有成功解析到任何选项：\n\n' + errors.join('\n')); fileInput.value=''; return; }
+      const totalChoices = groupList.reduce((a,g)=>a+g.choices.length,0);
+      let msg = multi ? `准备从 ${fileTexts.length} 个文件里导入 ${groupList.length} 组选项（共 ${totalChoices} 个选项）：` : `准备导入 ${groupList.length} 组选项（共 ${totalChoices} 个选项）：`;
+      msg += '\n' + groupList.map(g=>`「${g.name}」${g.choices.length}个选项`).join('\n');
+      msg += '\n\n系统里已经有同名选项组的话，会把这些选项加进那一组（保留原本的，同名选项会跳过）；没有的话新建一组。';
+      if(errors.length) msg += `\n\n另外有 ${errors.length} 处问题：\n\n` + errors.join('\n');
+      msg += '\n\n确定继续导入吗？';
+      if(!confirm(msg)){ fileInput.value=''; return; }
+      mutate(()=>{
+        groupList.forEach(g=>{
+          const existing = state.optionGroups.find(x=>x.name.trim().toLowerCase()===g.name.trim().toLowerCase());
+          if(existing){
+            g.choices.forEach(c=>{
+              if(!existing.choices.some(ec=>ec.name.trim().toLowerCase()===c.name.trim().toLowerCase())) existing.choices.push(c);
+            });
+          } else {
+            state.optionGroups.push({id:uid(), name:g.name, choices:g.choices});
+          }
+        });
+      });
+      alert(`已成功导入 ${groupList.length} 组选项（共 ${totalChoices} 个）${errors.length? `，${errors.length} 处被跳过`:''}`);
+      renderCost();
+    }catch(err){
+      alert('文件解析失败，请确认是不是用系统模板格式的CSV文件。\n' + err.message);
+    }
+    fileInput.value = '';
+  }).catch(err=>{
+    alert('文件读取失败：' + err.message);
+    fileInput.value = '';
+  });
+}
 function optionGroupChoiceRowsHtml(){
   if(!tempOptionGroup) return '';
   return tempOptionGroup.choices.map(c=>`
@@ -3187,7 +3265,20 @@ function renderOptionGroupSectionHtml(){
       <h3>选项组 <span class="n">${state.optionGroups.length} 组</span></h3>
       <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">有些产品要让顾客现场选口味/夹料（比如面包要选 Kaya、Butter、Kaya Butter…），而且好几个产品常常共用同一组选择。在这里设好一组选项，之后去"产品"页把某个产品挂上这组选项，点餐的时候就会跳出来给顾客选；同一组可以同时挂在好几个产品上，改一次全部一起改，不用每个产品分开设。每个产品可以同时挂两层：「选项组」（第一层，比如选面类）+「追加选项组」（第二层，比如加面、加叉烧），两层是各自独立的选项组，去"产品"页那边分开挂。</div>
       ${!tempOptionGroup? `<button class="btn-main" onclick="startNewOptionGroup()">+ 新增选项组</button>` : ''}
-      <hr class="receipt-divider">
+    </div>
+    <div class="card">
+      <h3>批量导入选项组（CSV）</h3>
+      <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">一次要设好几个选项（比如面类选择一次设6个）不想一个个打的话，可以用这个：先下载模板，填好每一行（同一个"选项组名称"的行会自动归成一组），再上传回来。如果系统里已经有同名的选项组，会把这些选项直接加进那一组里（不会清掉原本已有的选项）；没有的话会新建一组。</div>
+      <div class="grid2">
+        <button class="btn-ghost" onclick="downloadOptionGroupImportTemplate()">⬇ 下载CSV模板</button>
+        <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
+          ⬆ 上传选项组（可多选）
+          <input type="file" accept=".csv" multiple style="display:none" onchange="importOptionGroupsReport(this)">
+        </label>
+      </div>
+    </div>
+    <div class="card">
+      <hr class="receipt-divider" style="margin-top:0;">
       ${state.optionGroups.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')).length? state.optionGroups.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')).map(g=>{
         const usedBy = state.products.filter(p=>p.optionGroupId===g.id);
         const usedAsAddonBy = state.products.filter(p=>p.addonGroupId===g.id);
