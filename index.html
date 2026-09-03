@@ -4314,7 +4314,7 @@ function renderCost(){
           <label style="font-size:11.5px; color:var(--muted); margin-top:4px;">追加选项组「${ag.name}」（按选项分开统计卖出数量）</label>
           <table style="margin-top:2px; margin-bottom:6px;">
             ${ag.choices.map(c=>{
-              const cQty = state.sales.filter(s=>s.productId===p.id && s.addonChoiceId===c.id).reduce((a,s)=>a+Number(s.qty||0),0);
+              const cQty = state.sales.filter(s=>s.productId===p.id && Array.isArray(s.addonChoiceIds) && s.addonChoiceIds.includes(c.id)).reduce((a,s)=>a+Number(s.qty||0),0);
               return `<tr><td>${c.name}${c.linkPrimaryExtra?' <span class="muted">(追加x'+c.linkPrimaryExtra+')</span>':''}</td><td class="num">${c.priceAdd?(c.priceAdd>0?'+':'')+fmt(c.priceAdd):'—'}</td><td class="num muted">卖出 ${cQty}</td></tr>`;
             }).join('')}
           </table>
@@ -6476,7 +6476,8 @@ function togglePosCart(open){
   renderPOS();
 }
 /* 点了菜单格子：按顺序跳出需要的选择步骤——有规格先选规格，有"选项组"（第一层）再选，
-   有"追加选项组"（第二层，比如加面）最后再选，都选完才真的加进购物车；都没有的话直接加。 */
+   有"追加选项组"（第二层，比如加叉烧/加蛋，可以同时勾好几样）最后再选，都选完才真的加进购物车；
+   都没有的话直接加。 */
 function posMenuTap(orderId, productId){
   const p = state.products.find(x=>x.id===productId);
   if(!p) return;
@@ -6484,13 +6485,13 @@ function posMenuTap(orderId, productId){
   if(p.variants && p.variants.length) steps.push('variant');
   if(p.optionGroupId && state.optionGroups.find(g=>g.id===p.optionGroupId)) steps.push('option');
   if(p.addonGroupId && state.optionGroups.find(g=>g.id===p.addonGroupId)) steps.push('addon');
-  if(!steps.length){ addItemToPosOrder(orderId, productId, null, null, null); return; }
-  posPickerState = {orderId, productId, steps, stepIndex:0, variantId:null, optionChoiceId:null, addonChoiceId:null};
+  if(!steps.length){ addItemToPosOrder(orderId, productId, null, null, []); return; }
+  posPickerState = {orderId, productId, steps, stepIndex:0, variantId:null, optionChoiceId:null, addonChoiceIds:[]};
   renderPosPicker();
 }
-let posPickerState = null; // {orderId, productId, steps:[...], stepIndex, variantId, optionChoiceId, addonChoiceId}
+let posPickerState = null; // {orderId, productId, steps:[...], stepIndex, variantId, optionChoiceId, addonChoiceIds:[...]}
 function openPosPicker(orderId, productId, mode){
-  posPickerState = {orderId, productId, steps:[mode], stepIndex:0, variantId:null, optionChoiceId:null, addonChoiceId:null};
+  posPickerState = {orderId, productId, steps:[mode], stepIndex:0, variantId:null, optionChoiceId:null, addonChoiceIds:[]};
   renderPosPicker();
 }
 function closePosPicker(){
@@ -6498,14 +6499,34 @@ function closePosPicker(){
   renderPosPicker();
 }
 /* 选完当前这一步之后：记下选的值，如果后面还有步骤就换下一步的选单，
-   都选完了就真的加进购物车、关掉弹窗。 */
+   都选完了就真的加进购物车、关掉弹窗。用在"规格"、"选项组"这种一次只能选一个的步骤。 */
 function posPickerChoose(field, value){
   if(!posPickerState) return;
   posPickerState[field] = value;
   posPickerState.stepIndex += 1;
   if(posPickerState.stepIndex >= posPickerState.steps.length){
     const s = posPickerState;
-    addItemToPosOrder(s.orderId, s.productId, s.variantId, s.optionChoiceId, s.addonChoiceId);
+    addItemToPosOrder(s.orderId, s.productId, s.variantId, s.optionChoiceId, s.addonChoiceIds);
+    closePosPicker();
+  } else {
+    renderPosPicker();
+  }
+}
+/* "追加选项组"可以同时勾好几样（比如加叉烧+加蛋）：点一下切换勾选状态，不马上跳下一步，
+   等按了"完成"才真的确认这一步、加进购物车。 */
+function posPickerToggleAddon(choiceId){
+  if(!posPickerState) return;
+  const idx = posPickerState.addonChoiceIds.indexOf(choiceId);
+  if(idx>=0) posPickerState.addonChoiceIds.splice(idx,1);
+  else posPickerState.addonChoiceIds.push(choiceId);
+  renderPosPicker();
+}
+function posPickerConfirmAddon(){
+  if(!posPickerState) return;
+  posPickerState.stepIndex += 1;
+  if(posPickerState.stepIndex >= posPickerState.steps.length){
+    const s = posPickerState;
+    addItemToPosOrder(s.orderId, s.productId, s.variantId, s.optionChoiceId, s.addonChoiceIds);
     closePosPicker();
   } else {
     renderPosPicker();
@@ -6555,30 +6576,30 @@ function renderPosPicker(){
     `;
     return;
   }
-  // mode==='addon' —— 第二层"追加选项组"，比如加面、加叉烧
+  // mode==='addon' —— 第二层"追加选项组"，比如加叉烧、加蛋，可以同时勾好几样
   const ag = state.optionGroups.find(x=>x.id===p.addonGroupId);
-  if(!ag || !ag.choices.length){ posPickerChoose('addonChoiceId', null); return; }
+  if(!ag || !ag.choices.length){ posPickerConfirmAddon(); return; }
+  const picked = posPickerState.addonChoiceIds;
   el.style.display = 'flex';
   el.innerHTML = `
     <div class="pay-sheet" onclick="event.stopPropagation()">
       <button type="button" class="pay-sheet-close" onclick="closePosPicker()">✕</button>
       <div class="t">${p.name}</div>
-      <div class="amt-line">选一个${ag.name}（追加）</div>
+      <div class="amt-line">${ag.name}（追加，可以勾好几样，不用的话直接按"完成"）</div>
       <div class="pos-variant-list">
-        <button type="button" class="pos-variant-opt" onclick="posPickerChoose('addonChoiceId', null)">
-          <span>不加</span><span class="mono"></span>
-        </button>
         ${ag.choices.map(c=>`
-          <button type="button" class="pos-variant-opt" onclick="posPickerChoose('addonChoiceId','${c.id}')">
-            <span>${c.name}</span><span class="mono">${c.priceAdd? (c.priceAdd>0?'+':'')+'RM '+fmtPlain(c.priceAdd) : ''}</span>
+          <button type="button" class="pos-variant-opt ${picked.includes(c.id)?'active':''}" onclick="posPickerToggleAddon('${c.id}')" style="${picked.includes(c.id)?'border-color:var(--green); background:var(--green-dim);':''}">
+            <span>${picked.includes(c.id)?'✓ ':''}${c.name}</span><span class="mono">${c.priceAdd? (c.priceAdd>0?'+':'')+'RM '+fmtPlain(c.priceAdd) : ''}</span>
           </button>`).join('')}
       </div>
+      <button type="button" class="btn-main" style="margin-top:14px;" onclick="posPickerConfirmAddon()">✓ 完成${picked.length?`（已选 ${picked.length} 样）`:''}</button>
     </div>
   `;
 }
-function addItemToPosOrder(orderId, productId, variantId, optionChoiceId, addonChoiceId){
+function addItemToPosOrder(orderId, productId, variantId, optionChoiceId, addonChoiceIds){
   const p = state.products.find(x=>x.id===productId);
   if(!p) return;
+  addonChoiceIds = addonChoiceIds || [];
   const variant = variantId ? (p.variants||[]).find(v=>v.id===variantId) : null;
   if(variantId && !variant) return;
   let optionChoice = null;
@@ -6587,24 +6608,21 @@ function addItemToPosOrder(orderId, productId, variantId, optionChoiceId, addonC
     optionChoice = g ? g.choices.find(c=>c.id===optionChoiceId) : null;
     if(!optionChoice) return;
   }
-  let addonChoice = null;
-  if(addonChoiceId){
-    const ag = state.optionGroups.find(x=>x.id===p.addonGroupId);
-    addonChoice = ag ? ag.choices.find(c=>c.id===addonChoiceId) : null;
-    if(!addonChoice) return;
-  }
+  const ag = p.addonGroupId ? state.optionGroups.find(x=>x.id===p.addonGroupId) : null;
+  const addonChoices = ag ? addonChoiceIds.map(id=>ag.choices.find(c=>c.id===id)).filter(Boolean) : [];
   const basePrice = variant ? Number(variant.price)||0 : Number(p.price)||0;
-  const price = basePrice + (optionChoice ? Number(optionChoice.priceAdd)||0 : 0) + (addonChoice ? Number(addonChoice.priceAdd)||0 : 0);
+  const price = basePrice + (optionChoice ? Number(optionChoice.priceAdd)||0 : 0) + addonChoices.reduce((a,c)=>a+(Number(c.priceAdd)||0),0);
   let name = p.name;
   if(variant) name = `${p.name} - ${variant.label}`;
   else if(optionChoice) name = `${p.name} - ${optionChoice.name}`;
-  if(addonChoice) name = `${name} + ${addonChoice.name}`;
+  if(addonChoices.length) name = `${name} + ${addonChoices.map(c=>c.name).join(' + ')}`;
+  const sortedAddonIds = addonChoices.map(c=>c.id).slice().sort();
   mutate(()=>{
     const order = state.posOrders.find(o=>o.id===orderId);
     if(!order) return;
-    const line = order.items.find(i=>i.productId===productId && (i.variantId||null)===(variantId||null) && (i.optionChoiceId||null)===(optionChoiceId||null) && (i.addonChoiceId||null)===(addonChoiceId||null));
+    const line = order.items.find(i=>i.productId===productId && (i.variantId||null)===(variantId||null) && (i.optionChoiceId||null)===(optionChoiceId||null) && JSON.stringify((i.addonChoiceIds||[]).slice().sort())===JSON.stringify(sortedAddonIds));
     if(line) line.qty = Number(line.qty||0)+1;
-    else order.items.push({id:uid(), productId:p.id, variantId: variantId||null, optionGroupId: optionChoice? p.optionGroupId : null, optionChoiceId: optionChoiceId||null, addonGroupId: addonChoice? p.addonGroupId : null, addonChoiceId: addonChoiceId||null, name, price, qty:1});
+    else order.items.push({id:uid(), productId:p.id, variantId: variantId||null, optionGroupId: optionChoice? p.optionGroupId : null, optionChoiceId: optionChoiceId||null, addonGroupId: addonChoices.length? p.addonGroupId : null, addonChoiceIds: sortedAddonIds, name, price, qty:1});
   });
   renderPOS();
 }
@@ -6634,7 +6652,7 @@ function confirmPosCheckout(orderId, payMethod){
       const p = state.products.find(x=>x.id===i.productId);
       const unitCost = p ? productUnitCost(p) : 0;
       const sid = uid();
-      state.sales.push({id:sid, date, productId:i.productId, variantId:i.variantId||null, optionGroupId:i.optionGroupId||null, optionChoiceId:i.optionChoiceId||null, addonGroupId:i.addonGroupId||null, addonChoiceId:i.addonChoiceId||null, productName:i.name, qty:i.qty, price:i.price, amount:i.price*i.qty, cost:unitCost*i.qty, payMethod, company, posOrderId:orderId, posTableName:tableName});
+      state.sales.push({id:sid, date, productId:i.productId, variantId:i.variantId||null, optionGroupId:i.optionGroupId||null, optionChoiceId:i.optionChoiceId||null, addonGroupId:i.addonGroupId||null, addonChoiceIds:(i.addonChoiceIds||[]), productName:i.name, qty:i.qty, price:i.price, amount:i.price*i.qty, cost:unitCost*i.qty, payMethod, company, posOrderId:orderId, posTableName:tableName});
       if(p) pushSaleStockDeductions(p, i.qty, date, company, {_saleId:sid});
       // 选了选项组里的哪个选项（比如面包夹料选了Kaya），如果那个选项有设"扣哪个食材"，
       // 结账时就照这次的份数把食材扣掉，跟产品本身的食材成本项分开算、互不影响
@@ -6647,21 +6665,21 @@ function confirmPosCheckout(orderId, payMethod){
           state.stockAdjustments.push({id:uid(), date, itemName:primaryChoice.ingredientName, qty:-Math.abs(Number(primaryChoice.ingredientQty)*i.qty), note:`${i.name} ×${i.qty}`, company, _saleId:sid});
         }
       }
-      // 追加选项组（第二层，比如"加面"）：如果这个选项设了"额外多扣第一层选项食材的几倍"，
-      // 就回头拿第一层选中的那个选项的食材、按倍数多扣；没设倍数的话，就跟第一层一样，扣它自己填的固定食材。
-      if(i.addonChoiceId){
+      // 追加选项组（第二层，比如"加叉烧"、"加蛋"、"加面"）：这次可以同时选好几样，
+      // 逐一处理每一样——有设"额外多扣第一层选项食材的几倍"的（比如"加面"），就回头拿第一层
+      // 选中的那个选项的食材、按倍数多扣；没设倍数的话，就跟第一层一样，扣它自己填的固定食材。
+      (i.addonChoiceIds||[]).forEach(addonChoiceId=>{
         const ag = state.optionGroups.find(x=>x.id===i.addonGroupId);
-        const addonChoice = ag ? ag.choices.find(c=>c.id===i.addonChoiceId) : null;
-        if(addonChoice){
-          if(!state.stockAdjustments) state.stockAdjustments = [];
-          if(Number(addonChoice.linkPrimaryExtra)>0 && primaryChoice && primaryChoice.ingredientName && Number(primaryChoice.ingredientQty)>0){
-            const extraQty = Number(primaryChoice.ingredientQty) * Number(addonChoice.linkPrimaryExtra) * i.qty;
-            state.stockAdjustments.push({id:uid(), date, itemName:primaryChoice.ingredientName, qty:-Math.abs(extraQty), note:`${i.name} ×${i.qty}（追加选项按第一层食材加扣）`, company, _saleId:sid});
-          } else if(addonChoice.ingredientName && Number(addonChoice.ingredientQty)>0){
-            state.stockAdjustments.push({id:uid(), date, itemName:addonChoice.ingredientName, qty:-Math.abs(Number(addonChoice.ingredientQty)*i.qty), note:`${i.name} ×${i.qty}`, company, _saleId:sid});
-          }
+        const addonChoice = ag ? ag.choices.find(c=>c.id===addonChoiceId) : null;
+        if(!addonChoice) return;
+        if(!state.stockAdjustments) state.stockAdjustments = [];
+        if(Number(addonChoice.linkPrimaryExtra)>0 && primaryChoice && primaryChoice.ingredientName && Number(primaryChoice.ingredientQty)>0){
+          const extraQty = Number(primaryChoice.ingredientQty) * Number(addonChoice.linkPrimaryExtra) * i.qty;
+          state.stockAdjustments.push({id:uid(), date, itemName:primaryChoice.ingredientName, qty:-Math.abs(extraQty), note:`${i.name} ×${i.qty}（追加选项按第一层食材加扣）`, company, _saleId:sid});
+        } else if(addonChoice.ingredientName && Number(addonChoice.ingredientQty)>0){
+          state.stockAdjustments.push({id:uid(), date, itemName:addonChoice.ingredientName, qty:-Math.abs(Number(addonChoice.ingredientQty)*i.qty), note:`${i.name} ×${i.qty}`, company, _saleId:sid});
         }
-      }
+      });
     });
     state.posOrders = state.posOrders.filter(o=>o.id!==orderId);
   });
