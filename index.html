@@ -4094,57 +4094,70 @@ let mpState = {};
 function mpInit(wrapId, getProducts, getPicked, toggle){
   mpRegistry[wrapId] = {getProducts, getPicked, toggle};
   if(!mpState[wrapId]) mpState[wrapId] = {query:'', open:false};
-  mpRender(wrapId);
+  const el = document.getElementById(wrapId);
+  if(!el) return;
+  // 外层结构（含搜索框本身）只在第一次建立，之后打字/勾选都只改内层的 chips/下拉清单，
+  // 不重新生成 input 元素——不然每打一个字 input 就被换成新的 DOM，光标/焦点立刻掉了，
+  // 变成看起来"打不进字"（打一个字就要重新点一下才能打下一个）。
+  if(el.dataset.mpBuilt!=='1'){
+    el.dataset.mpBuilt = '1';
+    el.innerHTML = `
+      <div id="${wrapId}_chips"></div>
+      <div class="suggest-wrap">
+        <input id="${wrapId}_input" placeholder="🔍 搜索并勾选产品..." autocomplete="off"
+          oninput="mpSetQuery('${wrapId}', this.value)" onfocus="mpSetOpen('${wrapId}', true)">
+        <div class="suggest-dropdown" id="${wrapId}_dropdown"></div>
+      </div>
+    `;
+  }
+  mpRenderParts(wrapId);
 }
 function mpSetQuery(wrapId, val){
   if(!mpState[wrapId]) mpState[wrapId] = {query:'', open:false};
   mpState[wrapId].query = val;
   mpState[wrapId].open = true;
-  mpRender(wrapId);
+  mpRenderParts(wrapId);
 }
 function mpSetOpen(wrapId, open){
   if(!mpState[wrapId]) mpState[wrapId] = {query:'', open:false};
   mpState[wrapId].open = open;
-  mpRender(wrapId);
+  mpRenderParts(wrapId);
 }
 function mpToggle(wrapId, productId, checked){
   const reg = mpRegistry[wrapId];
   if(!reg) return;
   reg.toggle(productId, checked);
-  mpRender(wrapId);
+  mpRenderParts(wrapId);
 }
-function mpRender(wrapId){
+/* 只更新已选标签(chips)跟下拉清单(dropdown)这两块，完全不碰搜索框本身，
+   这样打字打到一半、勾选一个产品都不会让输入框失焦。 */
+function mpRenderParts(wrapId){
   const reg = mpRegistry[wrapId];
   const st = mpState[wrapId];
-  const el = document.getElementById(wrapId);
-  if(!reg || !st || !el) return;
+  const chipsEl = document.getElementById(wrapId+'_chips');
+  const dropEl = document.getElementById(wrapId+'_dropdown');
+  if(!reg || !st || !chipsEl || !dropEl) return;
   const products = reg.getProducts();
   const pickedIds = reg.getPicked()||[];
   const pickedSet = new Set(pickedIds);
   const pickedProducts = products.filter(p=>pickedSet.has(p.id));
   const q = st.query.trim().toLowerCase();
   const matches = products.filter(p=>!q || p.name.toLowerCase().includes(q)).slice(0,30);
-  el.innerHTML = `
-    ${pickedProducts.length? `<div class="opt-choice-chips" style="margin-bottom:6px;">
+  chipsEl.innerHTML = pickedProducts.length? `<div class="opt-choice-chips" style="margin-bottom:6px;">
       ${pickedProducts.map(p=>`<span class="opt-choice-chip">${p.name} <b style="cursor:pointer; margin-left:2px;" onclick="mpToggle('${wrapId}','${p.id}',false)">×</b></span>`).join('')}
-    </div>` : ''}
-    <div class="suggest-wrap">
-      <input placeholder="🔍 搜索并勾选产品..." autocomplete="off" value="${st.query.replace(/"/g,'&quot;')}"
-        oninput="mpSetQuery('${wrapId}', this.value)" onfocus="mpSetOpen('${wrapId}', true)">
-      <div class="suggest-dropdown ${st.open?'show':''}" style="max-height:200px;">
-        ${matches.length? matches.map(p=>`
-          <div class="suggest-item" style="display:flex; align-items:center; gap:6px;" onmousedown="event.preventDefault(); mpToggle('${wrapId}','${p.id}',${pickedSet.has(p.id)?'false':'true'})">
-            <span style="width:14px; color:var(--green); font-weight:700;">${pickedSet.has(p.id)?'✓':''}</span>${p.name}
-          </div>`).join('') : `<div class="suggest-item muted">没有符合的产品</div>`}
-      </div>
-    </div>
-  `;
+    </div>` : '';
+  dropEl.className = 'suggest-dropdown' + (st.open?' show':'');
+  dropEl.style.maxHeight = '200px';
+  dropEl.innerHTML = matches.length? matches.map(p=>`
+      <div class="suggest-item" style="display:flex; align-items:center; gap:6px;" onmousedown="event.preventDefault(); mpToggle('${wrapId}','${p.id}',${pickedSet.has(p.id)?'false':'true'})">
+        <span style="width:14px; color:var(--green); font-weight:700;">${pickedSet.has(p.id)?'✓':''}</span>${p.name}
+      </div>`).join('') : `<div class="suggest-item muted">没有符合的产品</div>`;
 }
 document.addEventListener('click', (e)=>{
   Object.keys(mpState).forEach(wrapId=>{
     if(!mpState[wrapId].open) return;
     const el = document.getElementById(wrapId);
-    if(el && !el.contains(e.target)){ mpState[wrapId].open = false; mpRender(wrapId); }
+    if(el && !el.contains(e.target)){ mpState[wrapId].open = false; mpRenderParts(wrapId); }
   });
 });
 /* 食材数量一多（比如几百个），每个食材列出全部产品的打勾格子，一次要生出好几万个DOM元素，
