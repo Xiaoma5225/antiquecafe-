@@ -2307,7 +2307,7 @@ function renderPurchase(){
         <div><label>采购日期</label><input type="date" id="purDate" value="${editingPurchase? editingPurchase.date : (draft.purDate||todayStr())}" onchange="this.blur()"></div>
       </div>
       <div id="purSupplierHistoryBox">${supplierHistoryBoxHtml()}</div>
-      <label>Invoice 号码（选填）</label><input id="purInvoiceNumber" placeholder="例：INV-00123" autocomplete="off" value="${editingPurchase? (editingPurchase.invoiceNumber||'') : (draft.purInvoiceNumber||'')}">
+      <label>Invoice 号码</label><input id="purInvoiceNumber" placeholder="例：INV-00123" autocomplete="off" value="${editingPurchase? (editingPurchase.invoiceNumber||'') : (draft.purInvoiceNumber||'')}">
       <label style="margin-top:14px">品项明细（同一供应商可一次拿多个不同产品）</label>
       <div id="purItemsWrap"></div>
       <button class="btn-line" onclick="addPurchaseItemRow()">+ 添加一项</button>
@@ -3456,9 +3456,24 @@ function supplierPurchaseHistory(supplierId){
 function supplierHistoryBoxHtml(){
   if(!currentSupplierHistory.length) return '';
   return `<div class="muted" style="font-size:11.5px; margin:10px 0 4px;">💡 这家供应商之前拿过这些，点一下自动加一行，只要填数量：</div>
-  <div class="btn-group" style="margin-bottom:6px;">
-    ${currentSupplierHistory.map((h,idx)=>`<button type="button" class="btn-toggle btn-small" onclick="quickAddSupplierItem(${idx})">${h.name}${h.unit?` · ${h.unit}`:''}${h.unitPrice?` · RM${fmtPlain(h.unitPrice)}`:''}</button>`).join('')}
+  <input id="supHistFilterInput" placeholder="🔍 搜索之前拿过的品名..." autocomplete="off" oninput="filterSupplierHistoryChips(this.value)" style="margin-bottom:6px;">
+  <div id="supHistChipsEmpty" class="empty" style="display:none; margin-bottom:6px;">没有符合的品名</div>
+  <div class="btn-group" id="supHistChipsWrap" style="margin-bottom:6px;">
+    ${currentSupplierHistory.map((h,idx)=>`<button type="button" class="btn-toggle btn-small" data-hname="${h.name.toLowerCase().replace(/"/g,'&quot;')}" onclick="quickAddSupplierItem(${idx})">${h.name}${h.unit?` · ${h.unit}`:''}${h.unitPrice?` · RM${fmtPlain(h.unitPrice)}`:''}</button>`).join('')}
   </div>`;
+}
+function filterSupplierHistoryChips(q){
+  const wrap = document.getElementById('supHistChipsWrap');
+  if(!wrap) return;
+  const query = (q||'').trim().toLowerCase();
+  let anyVisible = false;
+  wrap.querySelectorAll('button[data-hname]').forEach(btn=>{
+    const match = !query || btn.dataset.hname.includes(query);
+    btn.style.display = match ? '' : 'none';
+    if(match) anyVisible = true;
+  });
+  const emptyEl = document.getElementById('supHistChipsEmpty');
+  if(emptyEl) emptyEl.style.display = (query && !anyVisible) ? '' : 'none';
 }
 function onPurSupplierChange(val){
   const s = state.suppliers.find(x=>x.name.trim().toLowerCase()===val.trim().toLowerCase());
@@ -3652,6 +3667,7 @@ function submitPurchase(){
   const date = document.getElementById('purDate').value || todayStr();
   const invoiceNumber = document.getElementById('purInvoiceNumber').value.trim();
   if(!typedName || !typedName.trim()){ alert('请输入或选择供应商'); return; }
+  if(!invoiceNumber){ alert('请填写 Invoice 号码'); return; }
   const items = tempPurchaseItems.filter(r=>r.name && r.total!=='').map(r=>({
     id:uid(), name:r.name, category:r.category||'食材', qty:Number(r.qty||0), unit:r.unit, unitPrice:Number(r.unitPrice||0), totalCost:Number(r.total||0),
     productIds: (r.productIds||[]).slice(), company: r.company||''
