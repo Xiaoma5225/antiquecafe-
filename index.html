@@ -2306,8 +2306,8 @@ function renderPurchase(){
         </div>
         <div><label>采购日期</label><input type="date" id="purDate" value="${editingPurchase? editingPurchase.date : (draft.purDate||todayStr())}" onchange="this.blur()"></div>
       </div>
-      <div id="purSupplierHistoryBox">${supplierHistoryBoxHtml()}</div>
       <label>Invoice 号码</label><input id="purInvoiceNumber" placeholder="例：INV-00123" autocomplete="off" value="${editingPurchase? (editingPurchase.invoiceNumber||'') : (draft.purInvoiceNumber||'')}">
+      <div id="purSupplierHistoryBox">${supplierHistoryBoxHtml()}</div>
       <label style="margin-top:14px">品项明细（同一供应商可一次拿多个不同产品）</label>
       <div id="purItemsWrap"></div>
       <button class="btn-line" onclick="addPurchaseItemRow()">+ 添加一项</button>
@@ -2470,8 +2470,20 @@ function renderPurchase(){
       </div>`;
       })()}
     </div>
+
+    <div class="card">
+      <h3>合并采购品项名称</h3>
+      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">不同张采购单（不同日期、不同供应商）里，同一样东西有时候会因为打法不一样被记成好几个不同的品名（比如"猪肝"跟"Pork Liver"）。这里可以把这些旧名字统一合并成一个：所有采购单、库存出入库记录里的品名都会一起改过来，食材字典（含关联的产品、参考单价）也会合并成一条，半成品配方/Addon消耗对照/选项组/单位换算设定里用到旧名字的地方也会一起更新。此操作无法撤销。</div>
+      <label>要合并掉的旧品名（可以填好几个，用顿号"、"分开）</label>
+      <input id="mergeItemFromList" placeholder="例：猪肝、Pork Liver" autocomplete="off">
+      <label style="margin-top:10px">统一成这个品名</label>
+      <input id="mergeItemToTarget" placeholder="例：猪肝" autocomplete="off">
+      <button class="btn-line" onclick="mergePurchaseItemNames()">🔀 合并</button>
+    </div>
   `;
   renderPurchaseItemRows();
+  wireSuggest('mergeItemFromList', getIngredientNames());
+  wireSuggest('mergeItemToTarget', getIngredientNames());
   wireSuggest('purSupplier', state.suppliers.map(s=>s.name).sort((a,b)=>a.localeCompare(b,'zh')));
   const invoiceNumbers = Array.from(new Set(state.purchases.map(p=>p.invoiceNumber).filter(Boolean)));
   wireSuggest('purInvoiceNumber', invoiceNumbers);
@@ -3455,11 +3467,11 @@ function supplierPurchaseHistory(supplierId){
 }
 function supplierHistoryBoxHtml(){
   if(!currentSupplierHistory.length) return '';
-  return `<div class="muted" style="font-size:11.5px; margin:10px 0 4px;">💡 这家供应商之前拿过这些，点一下自动加一行，只要填数量：</div>
+  return `<div class="muted" style="font-size:11.5px; margin:10px 0 4px;">💡 这家供应商之前拿过这些，搜索品名点一下自动加一行，只要填数量：</div>
   <input id="supHistFilterInput" placeholder="🔍 搜索之前拿过的品名..." autocomplete="off" oninput="filterSupplierHistoryChips(this.value)" style="margin-bottom:6px;">
   <div id="supHistChipsEmpty" class="empty" style="display:none; margin-bottom:6px;">没有符合的品名</div>
   <div class="btn-group" id="supHistChipsWrap" style="margin-bottom:6px;">
-    ${currentSupplierHistory.map((h,idx)=>`<button type="button" class="btn-toggle btn-small" data-hname="${h.name.toLowerCase().replace(/"/g,'&quot;')}" onclick="quickAddSupplierItem(${idx})">${h.name}${h.unit?` · ${h.unit}`:''}${h.unitPrice?` · RM${fmtPlain(h.unitPrice)}`:''}</button>`).join('')}
+    ${currentSupplierHistory.map((h,idx)=>`<button type="button" class="btn-toggle btn-small" data-hname="${h.name.toLowerCase().replace(/"/g,'&quot;')}" style="display:none;" onclick="quickAddSupplierItem(${idx})">${h.name}${h.unit?` · ${h.unit}`:''}${h.unitPrice?` · RM${fmtPlain(h.unitPrice)}`:''}</button>`).join('')}
   </div>`;
 }
 function filterSupplierHistoryChips(q){
@@ -3468,7 +3480,8 @@ function filterSupplierHistoryChips(q){
   const query = (q||'').trim().toLowerCase();
   let anyVisible = false;
   wrap.querySelectorAll('button[data-hname]').forEach(btn=>{
-    const match = !query || btn.dataset.hname.includes(query);
+    // 没打字的时候完全不列出来，只有真的打了才显示符合的——不是先摊平全部品名再筛选
+    const match = query && btn.dataset.hname.includes(query);
     btn.style.display = match ? '' : 'none';
     if(match) anyVisible = true;
   });
@@ -4808,6 +4821,84 @@ function syncPosMenu(){
     });
   });
   alert(`同步完成：\n・${updated} 个已有产品补上了分类/编号/所属公司\n・${created} 个新增建档（售价照抄 POS 菜单，食材成本还没填，记得去补）\n\n建议接着看看下面列表有没有意思相同、但名字打法跟 POS 不一样变成"重复"的产品（比如手动加的旧名字），有的话把旧的那个食材成本转移过去、再删掉旧的就好。`);
+}
+/* 把不同采购单里、名字打法不一样的同一样东西，统一合并成同一个品名：
+   - 所有采购单里符合旧名字的品项，名字直接改成新名字；
+   - 库存出入库调整记录里的品名也一起改；
+   - 半成品配方(含批次记录)、Addon消耗对照、选项组食材、单位换算、产品的"共同食材"/食材成本项，
+     只要用到旧名字，也一起改成新名字，不然改名之后这些设定会突然对不上、悄悄失效；
+   - 食材字典（产品关联、参考单位/单价）：旧名字的条目合并进新名字那一条（关联的产品取联集），
+     旧条目删掉，不会留下两条重复的食材。 */
+function mergePurchaseItemNames(){
+  const fromRaw = document.getElementById('mergeItemFromList').value.trim();
+  const toName = document.getElementById('mergeItemToTarget').value.trim();
+  if(!fromRaw || !toName){ alert('请填写要合并的旧品名，和统一后的品名'); return; }
+  const fromNames = fromRaw.split(/[、,，]/).map(s=>s.trim()).filter(Boolean);
+  if(!fromNames.length){ alert('请填写要合并的旧品名'); return; }
+  const norm = s=>(s||'').trim().toLowerCase();
+  const toNorm = norm(toName);
+  const fromNormSet = new Set(fromNames.map(norm));
+  fromNormSet.delete(toNorm); // 万一新名字自己也被打进旧名字清单，排除掉，不要自己合并自己
+  if(!fromNormSet.size){ alert('旧品名跟统一后的品名一样，没有东西要合并'); return; }
+  if(!confirm(`确定把这些品名：${fromNames.join('、')} 统一改成「${toName}」吗？\n\n会一起更新：采购单品项、库存出入库记录、食材字典（含关联的产品）、半成品配方、Addon消耗对照、选项组食材、单位换算、产品的共同食材/食材成本项。此操作无法撤销。`)) return;
+  const summary = {items:0, adj:0, misc:0, ingredientMerged:0};
+  mutate(()=>{
+    state.purchases.forEach(pu=>{
+      (pu.items||[]).forEach(item=>{
+        if(item.name && fromNormSet.has(norm(item.name))){ item.name = toName; summary.items++; }
+      });
+    });
+    (state.stockAdjustments||[]).forEach(a=>{
+      if(a.itemName && fromNormSet.has(norm(a.itemName))){ a.itemName = toName; summary.adj++; }
+    });
+    (state.recipes||[]).forEach(r=>{
+      if(r.outputName && fromNormSet.has(norm(r.outputName))){ r.outputName = toName; summary.misc++; }
+    });
+    (state.recipeBatchLogs||[]).forEach(l=>{
+      if(l.outputName && fromNormSet.has(norm(l.outputName))){ l.outputName = toName; summary.misc++; }
+      (l.components||[]).forEach(c=>{ if(c.name && fromNormSet.has(norm(c.name))){ c.name = toName; summary.misc++; } });
+    });
+    (state.addonMappings||[]).forEach(m=>{
+      (m.components||[]).forEach(c=>{ if(c.name && fromNormSet.has(norm(c.name))){ c.name = toName; summary.misc++; } });
+    });
+    (state.optionGroups||[]).forEach(g=>{
+      (g.choices||[]).forEach(c=>{ if(c.ingredientName && fromNormSet.has(norm(c.ingredientName))){ c.ingredientName = toName; summary.misc++; } });
+    });
+    (state.unitConversions||[]).forEach(c=>{
+      if(c.ingredientName && fromNormSet.has(norm(c.ingredientName))){ c.ingredientName = toName; summary.misc++; }
+    });
+    state.products.forEach(p=>{
+      if(p.sharedIngredients && p.sharedIngredients.length){
+        let changed = false;
+        p.sharedIngredients = p.sharedIngredients.map(n=>{
+          if(fromNormSet.has(norm(n))){ changed = true; return toName; }
+          return n;
+        });
+        if(changed){ p.sharedIngredients = Array.from(new Set(p.sharedIngredients)); summary.misc++; }
+      }
+      (p.costItems||[]).forEach(ci=>{
+        if(ci.name && fromNormSet.has(norm(ci.name))){ ci.name = toName; summary.misc++; }
+      });
+    });
+    if(!state.ingredients) state.ingredients = [];
+    let target = state.ingredients.find(i=>norm(i.name)===toNorm);
+    const oldEntries = state.ingredients.filter(i=>fromNormSet.has(norm(i.name)));
+    if(!target && oldEntries.length){ target = oldEntries[0]; target.name = toName; }
+    if(target){
+      oldEntries.forEach(old=>{
+        if(old===target) return;
+        (old.productIds||[]).forEach(pid=>{ if(!target.productIds.includes(pid)) target.productIds.push(pid); });
+        if(!target.unit && old.unit) target.unit = old.unit;
+        if(!target.unitPrice && old.unitPrice) target.unitPrice = old.unitPrice;
+      });
+    }
+    state.ingredients = state.ingredients.filter(i=> i===target || !fromNormSet.has(norm(i.name)));
+    summary.ingredientMerged = oldEntries.filter(i=>i!==target).length;
+  });
+  document.getElementById('mergeItemFromList').value = '';
+  document.getElementById('mergeItemToTarget').value = '';
+  alert(`合并完成：\n・${summary.items} 笔采购品项改名为「${toName}」\n・${summary.adj} 笔库存出入库记录改名\n・食材字典合并掉 ${summary.ingredientMerged} 条重复条目${summary.misc? `\n・另外 ${summary.misc} 处半成品配方/Addon消耗对照/选项组/单位换算/产品食材设定一起更新了名字` : ''}`);
+  renderPurchase();
 }
 /* 把好几个写法不一样、其实是同一样东西的产品合并成一个：
    - fromNames 底下任何一个名字（不分大小写）的历史销售记录，productName 全部改成 toName，
