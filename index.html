@@ -4058,9 +4058,47 @@ function recipeOccupiedIngredientNames(){
   return set;
 }
 let ingredientLinkExpandedIds = new Set(); // 哪些食材目前"展开"在挑产品；没在这里面、又已经有关联的，就显示收起的一行结果
+let editingIngredientId = null; // 目前正在编辑名称/单位/参考单价的食材id，null表示没有
 function toggleIngredientLinkRowExpand(ingredientId, expand){
   if(expand) ingredientLinkExpandedIds.add(ingredientId); else ingredientLinkExpandedIds.delete(ingredientId);
   refreshIngredientLinkRow(ingredientId);
+}
+function startEditIngredientField(id){
+  editingIngredientId = id;
+  refreshIngredientLinkRow(id);
+}
+function cancelEditIngredientField(id){
+  editingIngredientId = null;
+  refreshIngredientLinkRow(id);
+}
+/* 保存食材的名称/单位/参考单价——名称如果真的改了，用跟"合并采购品项名称"同一套逻辑
+   （renameIngredientCore），把所有采购单品项、库存记录、半成品配方、Addon消耗对照、
+   选项组食材、单位换算、产品共同食材/食材成本项都一起改过来，不是只改这个食材字典条目本身。 */
+function saveEditIngredientField(id){
+  const ing = (state.ingredients||[]).find(i=>i.id===id);
+  if(!ing) return;
+  const nameEl = document.getElementById('ingEditName_'+id);
+  const unitEl = document.getElementById('ingEditUnit_'+id);
+  const priceEl = document.getElementById('ingEditPrice_'+id);
+  const newName = (nameEl.value||'').trim();
+  const newUnit = (unitEl.value||'').trim();
+  const newPrice = Number(priceEl.value)||0;
+  if(!newName){ alert('食材名称不能为空'); return; }
+  const oldName = ing.name;
+  const nameChanged = oldName.trim().toLowerCase() !== newName.trim().toLowerCase();
+  if(nameChanged && !confirm(`确定把「${oldName}」改名成「${newName}」吗？\n\n会一起更新：采购单品项、库存出入库记录、半成品配方、Addon消耗对照、选项组食材、单位换算、产品的共同食材/食材成本项。此操作无法撤销。`)) return;
+  editingIngredientId = null;
+  mutate(()=>{
+    if(nameChanged){
+      renameIngredientCore([oldName], newName);
+      const target = (state.ingredients||[]).find(i=>i.name.trim().toLowerCase()===newName.trim().toLowerCase());
+      if(target){ target.unit = newUnit; target.unitPrice = newPrice; }
+    } else {
+      ing.unit = newUnit;
+      ing.unitPrice = newPrice;
+    }
+  });
+  renderCost();
 }
 function refreshIngredientLinkRow(ingredientId){
   const ing = (state.ingredients||[]).find(i=>i.id===ingredientId);
@@ -4076,13 +4114,32 @@ function wireIngredientLinkPicker(ing){
 }
 function ingredientLinkRowHtml(ing){
   const linkedIds = ing.productIds||[];
+  if(editingIngredientId===ing.id){
+    return `
+    <div class="supplier-card">
+      <label style="margin-top:0;">食材名称</label>
+      <input id="ingEditName_${ing.id}" autocomplete="off" value="${ing.name.replace(/"/g,'&quot;')}">
+      <div class="grid2" style="margin-top:8px;">
+        <div><label>单位</label><input id="ingEditUnit_${ing.id}" autocomplete="off" value="${(ing.unit||'').replace(/"/g,'&quot;')}"></div>
+        <div><label>参考单价RM</label><input id="ingEditPrice_${ing.id}" type="text" inputmode="decimal" step="0.01" value="${ing.unitPrice||''}"></div>
+      </div>
+      <div class="muted" style="font-size:11px; margin-top:6px;">改名称的话，会一起更新采购记录、库存记录、半成品配方、Addon消耗对照、选项组食材、单位换算、产品食材设定里用到这个名字的地方。</div>
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button class="btn-main" style="flex:1; margin-top:0;" onclick="saveEditIngredientField('${ing.id}')">保存</button>
+        <button class="btn-ghost" style="flex:1;" onclick="cancelEditIngredientField('${ing.id}')">取消</button>
+      </div>
+    </div>`;
+  }
   const infoParts = [];
   if(ing.unit) infoParts.push(`单位 ${ing.unit}`);
   if(ing.unitPrice>0) infoParts.push(`参考单价 RM${fmtPlain(ing.unitPrice)}`);
   const header = `
       <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
         <b>${ing.name}</b>
-        ${infoParts.length? `<span class="muted" style="font-size:11px; text-align:right;">${infoParts.join(' · ')}</span>` : ''}
+        <div style="display:flex; align-items:center; gap:8px; flex:0 0 auto;">
+          ${infoParts.length? `<span class="muted" style="font-size:11px; text-align:right;">${infoParts.join(' · ')}</span>` : ''}
+          <a href="javascript:void(0)" style="font-size:11px; white-space:nowrap;" onclick="startEditIngredientField('${ing.id}')">✏️ 编辑</a>
+        </div>
       </div>`;
   // 已经关联好、又没被使用者主动点开的话，只显示一行小结果，不用整块打勾清单一直占地方。
   if(linkedIds.length && !ingredientLinkExpandedIds.has(ing.id)){
@@ -4204,8 +4261,8 @@ function ingredientLinkListHtml(){
 function renderIngredientLinkSectionHtml(){
   return `
     <div class="card">
-      <h3>食材关联 <span class="n">${(state.ingredients||[]).length} 个食材</span></h3>
-      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">这里统一管理"哪个食材算给哪个产品的成本"——改一次，所有历史采购单（不管新旧）都会一起用新的关联去重新算成本，不用回去一张一张改旧采购单。半成品配方本身用到的原料/用料不会出现在这里（它们的成本走配方那边自动算），但配方做出来、还没被任何产品用到的半成品会出现在下面提醒你。</div>
+      <h3>食材管理 <span class="n">${(state.ingredients||[]).length} 个食材</span></h3>
+      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">这里统一管理所有食材——每个食材右上角有个"✏️ 编辑"，可以直接改名称、单位、参考单价，不用跑去改某一张采购单（改名称会连着采购记录、库存记录、半成品配方、Addon消耗对照、选项组、单位换算这些一起更新，不是只改这里）。也可以在这里管理"哪个食材算给哪个产品的成本"——改一次，所有历史采购单（不管新旧）都会一起用新的关联去重新算成本，不用回去一张一张改旧采购单。半成品配方本身用到的原料/用料不会出现在这里（它们的成本走配方那边自动算），但配方做出来、还没被任何产品用到的半成品会出现在下面提醒你。</div>
       <input id="ingredientLinkSearchInput" placeholder="🔍 搜索食材名称..." value="${ingredientLinkSearchQuery.replace(/"/g,'&quot;')}" oninput="filterIngredientLinkList(this.value)">
     </div>
     <div id="ingredientLinkListWrap">${ingredientLinkListHtml()}</div>
@@ -4259,7 +4316,7 @@ function renderCost(){
       <button type="button" class="btn-toggle ${prodSubView==='cost'?'active':''}" onclick="setProdSubView('cost')">🧮 成本</button>
       <button type="button" class="btn-toggle ${prodSubView==='recipe'?'active':''}" onclick="setProdSubView('recipe')">🧑‍🍳 半成品成本</button>
       <button type="button" class="btn-toggle ${prodSubView==='options'?'active':''}" onclick="setProdSubView('options')">🎛️ 选项组</button>
-      <button type="button" class="btn-toggle ${prodSubView==='link'?'active':''}" onclick="setProdSubView('link')">🔗 食材关联</button>
+      <button type="button" class="btn-toggle ${prodSubView==='link'?'active':''}" onclick="setProdSubView('link')">🔗 食材管理</button>
     </div>`;
   if(prodSubView==='options'){
     el.innerHTML = prodSubTabHtml + renderOptionGroupSectionHtml();
@@ -4830,72 +4887,79 @@ function syncPosMenu(){
      只要用到旧名字，也一起改成新名字，不然改名之后这些设定会突然对不上、悄悄失效；
    - 食材字典（产品关联、参考单位/单价）：旧名字的条目合并进新名字那一条（关联的产品取联集），
      旧条目删掉，不会留下两条重复的食材。 */
+/* 把改名字这件事抽成一个纯函数（不含确认框/alert），"合并采购品项名称"跟"食材管理"页
+   的单一改名各自包一层自己的确认/提示文字，底层都共用这个逻辑，不用维护两份一样的代码。 */
+function renameIngredientCore(fromNames, toName){
+  const norm = s=>(s||'').trim().toLowerCase();
+  const toNorm = norm(toName);
+  const fromNormSet = new Set(fromNames.map(norm));
+  fromNormSet.delete(toNorm);
+  const summary = {items:0, adj:0, misc:0, ingredientMerged:0};
+  if(!fromNormSet.size) return summary;
+  state.purchases.forEach(pu=>{
+    (pu.items||[]).forEach(item=>{
+      if(item.name && fromNormSet.has(norm(item.name))){ item.name = toName; summary.items++; }
+    });
+  });
+  (state.stockAdjustments||[]).forEach(a=>{
+    if(a.itemName && fromNormSet.has(norm(a.itemName))){ a.itemName = toName; summary.adj++; }
+  });
+  (state.recipes||[]).forEach(r=>{
+    if(r.outputName && fromNormSet.has(norm(r.outputName))){ r.outputName = toName; summary.misc++; }
+  });
+  (state.recipeBatchLogs||[]).forEach(l=>{
+    if(l.outputName && fromNormSet.has(norm(l.outputName))){ l.outputName = toName; summary.misc++; }
+    (l.components||[]).forEach(c=>{ if(c.name && fromNormSet.has(norm(c.name))){ c.name = toName; summary.misc++; } });
+  });
+  (state.addonMappings||[]).forEach(m=>{
+    (m.components||[]).forEach(c=>{ if(c.name && fromNormSet.has(norm(c.name))){ c.name = toName; summary.misc++; } });
+  });
+  (state.optionGroups||[]).forEach(g=>{
+    (g.choices||[]).forEach(c=>{ if(c.ingredientName && fromNormSet.has(norm(c.ingredientName))){ c.ingredientName = toName; summary.misc++; } });
+  });
+  (state.unitConversions||[]).forEach(c=>{
+    if(c.ingredientName && fromNormSet.has(norm(c.ingredientName))){ c.ingredientName = toName; summary.misc++; }
+  });
+  state.products.forEach(p=>{
+    if(p.sharedIngredients && p.sharedIngredients.length){
+      let changed = false;
+      p.sharedIngredients = p.sharedIngredients.map(n=>{
+        if(fromNormSet.has(norm(n))){ changed = true; return toName; }
+        return n;
+      });
+      if(changed){ p.sharedIngredients = Array.from(new Set(p.sharedIngredients)); summary.misc++; }
+    }
+    (p.costItems||[]).forEach(ci=>{
+      if(ci.name && fromNormSet.has(norm(ci.name))){ ci.name = toName; summary.misc++; }
+    });
+  });
+  if(!state.ingredients) state.ingredients = [];
+  let target = state.ingredients.find(i=>norm(i.name)===toNorm);
+  const oldEntries = state.ingredients.filter(i=>fromNormSet.has(norm(i.name)));
+  if(!target && oldEntries.length){ target = oldEntries[0]; target.name = toName; }
+  if(target){
+    oldEntries.forEach(old=>{
+      if(old===target) return;
+      (old.productIds||[]).forEach(pid=>{ if(!target.productIds.includes(pid)) target.productIds.push(pid); });
+      if(!target.unit && old.unit) target.unit = old.unit;
+      if(!target.unitPrice && old.unitPrice) target.unitPrice = old.unitPrice;
+    });
+  }
+  state.ingredients = state.ingredients.filter(i=> i===target || !fromNormSet.has(norm(i.name)));
+  summary.ingredientMerged = oldEntries.filter(i=>i!==target).length;
+  return summary;
+}
 function mergePurchaseItemNames(){
   const fromRaw = document.getElementById('mergeItemFromList').value.trim();
   const toName = document.getElementById('mergeItemToTarget').value.trim();
   if(!fromRaw || !toName){ alert('请填写要合并的旧品名，和统一后的品名'); return; }
   const fromNames = fromRaw.split(/[、,，]/).map(s=>s.trim()).filter(Boolean);
   if(!fromNames.length){ alert('请填写要合并的旧品名'); return; }
-  const norm = s=>(s||'').trim().toLowerCase();
-  const toNorm = norm(toName);
-  const fromNormSet = new Set(fromNames.map(norm));
-  fromNormSet.delete(toNorm); // 万一新名字自己也被打进旧名字清单，排除掉，不要自己合并自己
-  if(!fromNormSet.size){ alert('旧品名跟统一后的品名一样，没有东西要合并'); return; }
+  const normCheck = s=>(s||'').trim().toLowerCase();
+  if(fromNames.every(n=>normCheck(n)===normCheck(toName))){ alert('旧品名跟统一后的品名一样，没有东西要合并'); return; }
   if(!confirm(`确定把这些品名：${fromNames.join('、')} 统一改成「${toName}」吗？\n\n会一起更新：采购单品项、库存出入库记录、食材字典（含关联的产品）、半成品配方、Addon消耗对照、选项组食材、单位换算、产品的共同食材/食材成本项。此操作无法撤销。`)) return;
-  const summary = {items:0, adj:0, misc:0, ingredientMerged:0};
-  mutate(()=>{
-    state.purchases.forEach(pu=>{
-      (pu.items||[]).forEach(item=>{
-        if(item.name && fromNormSet.has(norm(item.name))){ item.name = toName; summary.items++; }
-      });
-    });
-    (state.stockAdjustments||[]).forEach(a=>{
-      if(a.itemName && fromNormSet.has(norm(a.itemName))){ a.itemName = toName; summary.adj++; }
-    });
-    (state.recipes||[]).forEach(r=>{
-      if(r.outputName && fromNormSet.has(norm(r.outputName))){ r.outputName = toName; summary.misc++; }
-    });
-    (state.recipeBatchLogs||[]).forEach(l=>{
-      if(l.outputName && fromNormSet.has(norm(l.outputName))){ l.outputName = toName; summary.misc++; }
-      (l.components||[]).forEach(c=>{ if(c.name && fromNormSet.has(norm(c.name))){ c.name = toName; summary.misc++; } });
-    });
-    (state.addonMappings||[]).forEach(m=>{
-      (m.components||[]).forEach(c=>{ if(c.name && fromNormSet.has(norm(c.name))){ c.name = toName; summary.misc++; } });
-    });
-    (state.optionGroups||[]).forEach(g=>{
-      (g.choices||[]).forEach(c=>{ if(c.ingredientName && fromNormSet.has(norm(c.ingredientName))){ c.ingredientName = toName; summary.misc++; } });
-    });
-    (state.unitConversions||[]).forEach(c=>{
-      if(c.ingredientName && fromNormSet.has(norm(c.ingredientName))){ c.ingredientName = toName; summary.misc++; }
-    });
-    state.products.forEach(p=>{
-      if(p.sharedIngredients && p.sharedIngredients.length){
-        let changed = false;
-        p.sharedIngredients = p.sharedIngredients.map(n=>{
-          if(fromNormSet.has(norm(n))){ changed = true; return toName; }
-          return n;
-        });
-        if(changed){ p.sharedIngredients = Array.from(new Set(p.sharedIngredients)); summary.misc++; }
-      }
-      (p.costItems||[]).forEach(ci=>{
-        if(ci.name && fromNormSet.has(norm(ci.name))){ ci.name = toName; summary.misc++; }
-      });
-    });
-    if(!state.ingredients) state.ingredients = [];
-    let target = state.ingredients.find(i=>norm(i.name)===toNorm);
-    const oldEntries = state.ingredients.filter(i=>fromNormSet.has(norm(i.name)));
-    if(!target && oldEntries.length){ target = oldEntries[0]; target.name = toName; }
-    if(target){
-      oldEntries.forEach(old=>{
-        if(old===target) return;
-        (old.productIds||[]).forEach(pid=>{ if(!target.productIds.includes(pid)) target.productIds.push(pid); });
-        if(!target.unit && old.unit) target.unit = old.unit;
-        if(!target.unitPrice && old.unitPrice) target.unitPrice = old.unitPrice;
-      });
-    }
-    state.ingredients = state.ingredients.filter(i=> i===target || !fromNormSet.has(norm(i.name)));
-    summary.ingredientMerged = oldEntries.filter(i=>i!==target).length;
-  });
+  let summary;
+  mutate(()=>{ summary = renameIngredientCore(fromNames, toName); });
   document.getElementById('mergeItemFromList').value = '';
   document.getElementById('mergeItemToTarget').value = '';
   alert(`合并完成：\n・${summary.items} 笔采购品项改名为「${toName}」\n・${summary.adj} 笔库存出入库记录改名\n・食材字典合并掉 ${summary.ingredientMerged} 条重复条目${summary.misc? `\n・另外 ${summary.misc} 处半成品配方/Addon消耗对照/选项组/单位换算/产品食材设定一起更新了名字` : ''}`);
