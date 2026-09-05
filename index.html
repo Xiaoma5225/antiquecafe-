@@ -1367,6 +1367,32 @@ function reconcileCashflow(){
 }
 /* 食材字典有可能漏掉"这个功能上线之前"就已经存在的历史数据（比如老的采购单、老的产品食材成本项）。
    这里每次都用现有的产品成本项 + 采购记录里的关联，重新补一遍字典，确保老数据也能被记住，不用重新输入一次。 */
+/* 食材字典有可能残留"名字明明一样、却是两条不同记录"的情况（比如很早以前存进去的时候
+   头尾多了空格，或大小写不同，当时比对逻辑还没修好、被当成两个不同食材各自建了档）。
+   这里每次都检查一次，把去头尾空格、不分大小写之后名字相同的条目自动合并成一条——
+   关联的产品取联集，单位/参考单价缺的话互相补上，不会平白多出两个"同名却各管各的"食材。 */
+function dedupeIngredientEntries(){
+  if(!state.ingredients || !state.ingredients.length) return;
+  const norm = s=>(s||'').trim().toLowerCase();
+  const seen = new Map();
+  const survivors = [];
+  state.ingredients.forEach(ing=>{
+    const key = norm(ing.name);
+    const existing = seen.get(key);
+    if(!existing){
+      seen.set(key, ing);
+      survivors.push(ing);
+    } else {
+      (ing.productIds||[]).forEach(pid=>{
+        if(!existing.productIds) existing.productIds = [];
+        if(!existing.productIds.includes(pid)) existing.productIds.push(pid);
+      });
+      if(!existing.unit && ing.unit) existing.unit = ing.unit;
+      if(!existing.unitPrice && ing.unitPrice) existing.unitPrice = ing.unitPrice;
+    }
+  });
+  state.ingredients = survivors;
+}
 function reconcileIngredients(){
   if(!state.ingredients) state.ingredients = [];
   const before = JSON.stringify(state.ingredients);
@@ -1382,6 +1408,7 @@ function reconcileIngredients(){
       learnIngredientLink(item.name, item.productIds||[], {unit: item.unit, unitPrice: item.unitPrice});
     });
   });
+  dedupeIngredientEntries();
   return JSON.stringify(state.ingredients) !== before;
 }
 function mutate(fn){
