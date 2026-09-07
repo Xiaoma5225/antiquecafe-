@@ -1551,7 +1551,11 @@ function productIngredientQtyLinkCost(productId){
   let total = 0;
   (state.ingredients||[]).forEach(ing=>{
     const link = ing.qtyLinks && ing.qtyLinks[productId];
-    if(link && Number(link.qty)>0){ total += Number(link.qty) * Number(ing.unitPrice||0); }
+    if(link && Number(link.qty)>0){
+      const converted = ingredientPriceInUnit(ing.name, link.unit);
+      const unitPrice = (converted!=null) ? converted : Number(ing.unitPrice||0);
+      total += Number(link.qty) * unitPrice;
+    }
   });
   return total;
 }
@@ -4209,11 +4213,13 @@ function ingredientLinkRowHtml(ing){
 }
 /* 每个关联产品可以选填"用量"：填了的话，这个食材对这个产品的成本改用「用量 × 参考单价」
    固定算，不再跟着营业额比例分摊（也会连带影响 purchaseItemProductIds 那边的分组计算，见那里的注解）；
-   留空就维持原本按营业额比例分摊的算法，两种可以并存、每个产品各自决定要用哪一种。 */
+   留空就维持原本按营业额比例分摊的算法，两种可以并存、每个产品各自决定要用哪一种。
+   如果这里填的单位跟食材参考单位不一样，会自动去查"采购→单位换算"设的比例折算单价
+   （比如食材参考单价是"RM24/桶"，这里填"200ml"，设过"1桶=20000ml"就会自动抓出正确单价）。 */
 function ingredientQtyLinksHtml(ing){
   const linkedIds = ing.productIds||[];
   return `
-    <div class="muted" style="font-size:11px; margin:10px 0 4px;">每个关联产品可以填"用量"，变成固定成本算法（用量 × 这个食材的参考单价）；不填的话，这个食材的采购花费会照这些产品的营业额比例自动分摊：</div>
+    <div class="muted" style="font-size:11px; margin:10px 0 4px;">每个关联产品可以填"用量"，变成固定成本算法（用量 × 这个食材的参考单价，单位不一样的话会自动用"采购→单位换算"设的比例折算）；不填的话，这个食材的采购花费会照这些产品的营业额比例自动分摊：</div>
     ${linkedIds.map(pid=>{
       const pr = state.products.find(x=>x.id===pid);
       if(!pr) return '';
@@ -4222,12 +4228,36 @@ function ingredientQtyLinksHtml(ing){
       <div class="pi-card">
         <div class="pi-top"><b style="flex:1; font-size:13px;">${pr.name}</b></div>
         <div class="pi-bottom" style="grid-template-columns:1fr 1fr;">
-          <input placeholder="用量(选填)" type="text" inputmode="decimal" value="${link.qty||''}" oninput="updateIngredientLinkQty('${ing.id}','${pid}','qty',this.value)">
-          <input placeholder="单位" autocomplete="off" value="${(link.unit||'').replace(/"/g,'&quot;')}" oninput="updateIngredientLinkQty('${ing.id}','${pid}','unit',this.value)">
+          <input placeholder="用量(选填)" type="text" inputmode="decimal" id="ingQLQty_${ing.id}_${pid}" value="${link.qty||''}" oninput="updateIngredientLinkQty('${ing.id}','${pid}','qty',this.value); refreshIngredientQtyLinkPreview('${ing.id}','${pid}')">
+          <input placeholder="单位" autocomplete="off" id="ingQLUnit_${ing.id}_${pid}" value="${(link.unit||'').replace(/"/g,'&quot;')}" oninput="updateIngredientLinkQty('${ing.id}','${pid}','unit',this.value); refreshIngredientQtyLinkPreview('${ing.id}','${pid}')">
         </div>
+        <div class="muted" style="font-size:11px; margin-top:3px;" id="ingQLPreview_${ing.id}_${pid}">${qtyLinkPreviewText(ing, link.qty, link.unit)}</div>
       </div>`;
     }).join('')}
   `;
+}
+/* 用量/单位改的时候，即时算给这一格看的成本预览文字——单位跟食材参考单位一样就直接乘参考单价；
+   不一样但有设换算比例就折算后再乘；不一样又没设换算比例，就先照参考单价直接乘、
+   但加个提醒，让使用者知道这个数字可能不准，该去"采购→单位换算"补一条比例。 */
+function qtyLinkPreviewText(ing, qty, unit){
+  const q = Number(qty);
+  if(!q || q<=0) return '';
+  const converted = ingredientPriceInUnit(ing.name, unit);
+  const sameUnit = unit && ing.unit && unit.trim().toLowerCase()===ing.unit.trim().toLowerCase();
+  if(converted!=null){
+    return `= RM${fmtPlain(q*converted)} / 份${(!sameUnit && unit)? '（已按单位换算折算）' : ''}`;
+  }
+  if(unit && ing.unit && !sameUnit){
+    return `⚠️ 单位跟食材参考单位（${ing.unit}）不一样，还没设换算比例，暂时照 RM${fmtPlain(ing.unitPrice||0)}/${ing.unit} 直接乘，可能不准 ≈ RM${fmtPlain(q*Number(ing.unitPrice||0))} / 份——去"采购→单位换算"设好比例会更准`;
+  }
+  return `= RM${fmtPlain(q*Number(ing.unitPrice||0))} / 份`;
+}
+function refreshIngredientQtyLinkPreview(ingredientId, productId){
+  const ing = (state.ingredients||[]).find(i=>i.id===ingredientId);
+  const el = document.getElementById(`ingQLPreview_${ingredientId}_${productId}`);
+  if(!ing || !el) return;
+  const link = (ing.qtyLinks && ing.qtyLinks[productId]) || {};
+  el.innerHTML = qtyLinkPreviewText(ing, link.qty, link.unit);
 }
 function updateIngredientLinkQty(ingredientId, productId, field, val){
   const ing = (state.ingredients||[]).find(i=>i.id===ingredientId);
@@ -4235,7 +4265,7 @@ function updateIngredientLinkQty(ingredientId, productId, field, val){
   if(!ing.qtyLinks) ing.qtyLinks = {};
   if(!ing.qtyLinks[productId]) ing.qtyLinks[productId] = {qty:'', unit:''};
   ing.qtyLinks[productId][field] = val;
-  // 打字打到一半不整页重画（不然输入框会失焦），只存档就好；数字算成本要等下次进这页/存档时才会重算显示。
+  // 打字打到一半不整页重画（不然输入框会失焦），只存档就好；预览文字用上面那个专门的 refresh 函数即时更新。
   saveState();
 }
 /* 通用的"下拉搜索 + 打勾多选"组件，取代之前把全部产品摊平列成一排勾选格子的做法（产品一多看起来很乱）。
