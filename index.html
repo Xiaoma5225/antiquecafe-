@@ -4182,6 +4182,14 @@ function ingredientLinkRowHtml(ing){
       </div>
     </div>`;
   }
+  const addonUsage = ingredientAddonUsage(ing.name);
+  const optionUsage = ingredientOptionUsage(ing.name);
+  const hasOtherUsage = addonUsage.length>0 || optionUsage.length>0;
+  const otherUsageHtml = hasOtherUsage ? `<div class="muted" style="font-size:11.5px; margin-top:6px; line-height:1.5;">
+      ${addonUsage.length? `🧾 也用在Addon选项：${addonUsage.map(u=>`${u.addonName}（${u.qty||0}${u.unit||''}/次）`).join('、')}` : ''}
+      ${(addonUsage.length && optionUsage.length)? '<br>' : ''}
+      ${optionUsage.length? `🎛️ 也用在选项组：${optionUsage.map(u=>`${u.groupName}→${u.choiceName}（${u.qty||0}${u.unit||''}）`).join('、')}` : ''}
+    </div>` : '';
   const infoParts = [];
   if(ing.unit) infoParts.push(`单位 ${ing.unit}`);
   if(ing.unitPrice>0) infoParts.push(`参考单价 RM${fmtPlain(ing.unitPrice)}`);
@@ -4193,22 +4201,25 @@ function ingredientLinkRowHtml(ing){
           <a href="javascript:void(0)" style="font-size:11px; white-space:nowrap;" onclick="startEditIngredientField('${ing.id}')">✏️ 编辑</a>
         </div>
       </div>`;
-  // 已经关联好、又没被使用者主动点开的话，只显示一行小结果，不用整块打勾清单一直占地方。
-  if(linkedIds.length && !ingredientLinkExpandedIds.has(ing.id)){
+  const expanded = ingredientLinkExpandedIds.has(ing.id);
+  // 已经关联好、或已经透过Addon/选项组在用、又没被使用者主动点开的话，只显示一行小结果，不用整块打勾清单一直占地方。
+  if(!expanded && (linkedIds.length || hasOtherUsage)){
     const names = linkedIds.map(pid=>{
       const pr=state.products.find(x=>x.id===pid); if(!pr) return '';
       const link = ing.qtyLinks && ing.qtyLinks[pid];
       return (link && Number(link.qty)>0) ? `${pr.name}（${link.qty}${link.unit||''}/份）` : pr.name;
     }).filter(Boolean);
     return `<div class="supplier-card">${header}
-      <div class="muted" style="font-size:12px; margin-top:6px;">🔗 关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="toggleIngredientLinkRowExpand('${ing.id}',true)">改关联</a></div>
+      ${names.length? `<div class="muted" style="font-size:12px; margin-top:6px;">🔗 关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="toggleIngredientLinkRowExpand('${ing.id}',true)">改关联</a></div>` : `<div class="muted" style="font-size:11px; margin-top:6px;"><a href="javascript:void(0)" onclick="toggleIngredientLinkRowExpand('${ing.id}',true)">＋ 也关联到某个产品（按营业额比例分摊或填固定用量）</a></div>`}
+      ${otherUsageHtml}
     </div>`;
   }
   return `
     <div class="supplier-card">${header}
+      ${otherUsageHtml}
       ${state.products.length? `<div id="ingProdPicks_${ing.id}" style="margin-top:8px;"></div>` : `<div class="muted" style="font-size:12px; margin-top:8px;">还没有产品，先去"产品"子页签新增</div>`}
       ${linkedIds.length? ingredientQtyLinksHtml(ing) : ''}
-      ${linkedIds.length? `<button type="button" class="btn-ghost btn-small" style="margin-top:8px;" onclick="toggleIngredientLinkRowExpand('${ing.id}',false)">✓ 挑好了，收起来</button>` : ''}
+      ${(linkedIds.length || hasOtherUsage)? `<button type="button" class="btn-ghost btn-small" style="margin-top:8px;" onclick="toggleIngredientLinkRowExpand('${ing.id}',false)">✓ 收起来</button>` : ''}
     </div>`;
 }
 /* 每个关联产品可以选填"用量"：填了的话，这个食材对这个产品的成本改用「用量 × 参考单价」
@@ -4348,6 +4359,31 @@ document.addEventListener('click', (e)=>{
 /* 食材数量一多（比如几百个），每个食材列出全部产品的打勾格子，一次要生出好几万个DOM元素，
    会很卡。所以：①没输入搜索字时，食材数量超过40个就先不列出全部，请使用者先搜索；
    ②搜索框加个小小的防抖（stopped typing 200ms 后才重新画），不用每打一个字就整个重画一次列表。 */
+/* 除了"关联到产品"，一个食材也可能是透过"Addon消耗对照"或"选项组"被追踪用量/成本的
+   （比如"牛油"只在 Addon 报表的"加央+雪油"选项里设了消耗，从来没被当成某个产品的固定食材）。
+   这两种也要在这里显示出来，不然会一直被误判成"还没关联"、显示恼人的警告，其实它已经在别的地方算过成本了。 */
+function ingredientAddonUsage(name){
+  const n = (name||'').trim().toLowerCase();
+  if(!n) return [];
+  const out = [];
+  (state.addonMappings||[]).forEach(m=>{
+    (m.components||[]).forEach(c=>{
+      if((c.name||'').trim().toLowerCase()===n) out.push({addonName:m.addonName, qty:c.qtyPerUse, unit:c.unit});
+    });
+  });
+  return out;
+}
+function ingredientOptionUsage(name){
+  const n = (name||'').trim().toLowerCase();
+  if(!n) return [];
+  const out = [];
+  (state.optionGroups||[]).forEach(g=>{
+    (g.choices||[]).forEach(c=>{
+      if((c.ingredientName||'').trim().toLowerCase()===n) out.push({groupName:g.name, choiceName:c.name, qty:c.ingredientQty, unit:c.ingredientUnit});
+    });
+  });
+  return out;
+}
 function ingredientLinkListHtml(){
   const occupied = recipeOccupiedIngredientNames();
   const q = (ingredientLinkSearchQuery||'').trim().toLowerCase();
@@ -4358,16 +4394,17 @@ function ingredientLinkListHtml(){
     return `<div class="card"><div class="muted" style="font-size:12.5px; line-height:1.6; padding:4px 0;">食材共 ${list.length} 个，数量比较多——请在上面搜索框输入食材名称来查看（一次列出全部会很卡，所以先请你搜索缩小范围）。</div></div>`;
   }
   list = list.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh'));
-  const unlinked = list.filter(ing=>!ing.productIds || !ing.productIds.length);
-  const linked = list.filter(ing=>ing.productIds && ing.productIds.length);
+  const isTracked = ing=> (ing.productIds && ing.productIds.length) || ingredientAddonUsage(ing.name).length || ingredientOptionUsage(ing.name).length;
+  const unlinked = list.filter(ing=>!isTracked(ing));
+  const linked = list.filter(ing=>isTracked(ing));
   return `
     <div class="card" style="border-top-color:var(--rust);">
       <h3>⚠️ 还没关联的食材 <span class="n">${unlinked.length} 个</span></h3>
-      <div class="muted" style="font-size:12px; margin-bottom:8px;">这些食材目前还没关联到任何产品，成本算不进任何产品里——勾选下面的产品名字就能关联。</div>
+      <div class="muted" style="font-size:12px; margin-bottom:8px;">这些食材目前既没有关联到任何产品，也没有在Addon消耗对照/选项组里被用到，成本算不进任何地方——勾选下面的产品名字就能关联。</div>
       ${unlinked.length? unlinked.map(ing=>`<div id="ingRow_${ing.id}">${ingredientLinkRowHtml(ing)}</div>`).join('') : `<div class="empty">都关联好了，没有遗漏的食材 👍</div>`}
     </div>
     <div class="card">
-      <h3>已关联的食材 <span class="n">${linked.length} 个</span></h3>
+      <h3>已关联/已在用的食材 <span class="n">${linked.length} 个</span></h3>
       ${linked.length? linked.map(ing=>`<div id="ingRow_${ing.id}">${ingredientLinkRowHtml(ing)}</div>`).join('') : `<div class="empty">还没有已关联的食材</div>`}
     </div>
   `;
