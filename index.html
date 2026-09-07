@@ -330,8 +330,35 @@
   nav.bottom button[data-tab="cash"] .ic{background:var(--teal-dim);}
   nav.bottom button[data-tab="overview"] .ic{background:var(--green-dim);}
   nav.bottom button[data-tab="pos"] .ic{background:var(--gold-dim);}
+  nav.bottom button[data-tab="ingredients"] .ic{background:var(--sky-dim);}
   nav.bottom button.active{color:var(--green); background:var(--green-dim);}
   nav.bottom button.active .ic{transform:scale(1.1);}
+  /* 点餐已经搬去首页当入口卡片，全权限帐号的导航不再占位置显示；只有"点餐限定权限"帐号
+     （applyRolePermissions 判定 currentUserRole!=='full'）才会把这颗按钮显示回来，
+     当作那种帐号唯一能看到的入口。本机存储模式（未登录、不受权限限制）也维持隐藏。 */
+  nav.bottom button[data-tab="pos"]{display:none;}
+
+  /* 顶部导航"产品"按钮的下拉——桌面版鼠标移过去就展开（见下面 hover 那条 media query），
+     iPad/手机没有"悬停"这回事，改成点一下展开/收起（由 handleProductNavClick 控制 .open class）。 */
+  .nav-dropdown{position:relative; display:flex; flex:1;}
+  .nav-dropdown > button{flex:1; width:100%;}
+  .nav-dropdown .dropdown-menu{
+    display:none; position:absolute; top:100%; left:50%; transform:translateX(-50%);
+    background:var(--paper); border:1px solid var(--border); border-radius:12px;
+    box-shadow:0 6px 20px rgba(43,38,32,0.18); min-width:170px; z-index:40; padding:6px; margin-top:4px;
+  }
+  .nav-dropdown.open .dropdown-menu{display:block;}
+  /* 用两层 class 选择器（.nav-dropdown .dropdown-menu button）故意让specificity高过
+     前面的「nav.bottom button」那条通用规则，不然 flex:1/纵向排列那些手机版底部导航的
+     样式会盖过来，下拉选单里的字会变成直向、置中、超小字。 */
+  .nav-dropdown .dropdown-menu button{
+    width:100%; flex:none; display:block; text-align:left; padding:9px 12px; font-size:13.5px;
+    background:none; border:none; border-radius:8px; color:var(--ink); font-weight:500;
+  }
+  .nav-dropdown .dropdown-menu button:hover{background:var(--sky-dim);}
+  @media (hover:hover) and (pointer:fine){
+    .nav-dropdown:hover .dropdown-menu{display:block;}
+  }
 
   .subtle-form summary{cursor:pointer; color:var(--green); font-size:13px; font-weight:600; padding:4px 0;}
 
@@ -367,6 +394,7 @@
       padding:12px 22px; margin-bottom:0; font-size:15.5px;
     }
     nav.bottom button .ic{font-size:18px; width:32px; height:32px;}
+    .nav-dropdown{flex:0 0 auto;}
     main{flex:1; padding:22px 26px; max-width:820px; margin:0 auto; width:100%;}
     header.top{display:none;}
     .header-desktop{max-width:none; margin:0; padding:18px 26px 0;}
@@ -518,9 +546,18 @@
 <div class="layout">
 <nav class="bottom" id="bottomNav">
   <button data-tab="home" class="active"><span class="ic">🏠</span>首页</button>
-  <button data-tab="pos"><span class="ic">🧾</span>点餐</button>
+  <button data-tab="pos" id="navPosBtn"><span class="ic">🧾</span>点餐</button>
   <button data-tab="purchase"><span class="ic">🛒</span>采购</button>
-  <button data-tab="cost"><span class="ic">🧮</span>产品</button>
+  <div class="nav-dropdown" id="navDropdownCost">
+    <button data-tab="cost" onclick="handleProductNavClick(event)"><span class="ic">🧮</span>产品</button>
+    <div class="dropdown-menu">
+      <button type="button" onclick="jumpProdSubView('product')">🏷️ 产品</button>
+      <button type="button" onclick="jumpProdSubView('cost')">🧮 成本</button>
+      <button type="button" onclick="jumpProdSubView('recipe')">🧑‍🍳 半成品成本</button>
+      <button type="button" onclick="jumpProdSubView('options')">🎛️ 选项组</button>
+    </div>
+  </div>
+  <button data-tab="ingredients"><span class="ic">🔗</span>食材</button>
   <button data-tab="sales"><span class="ic">💰</span>销售</button>
   <button data-tab="inventory"><span class="ic">📦</span>库存</button>
   <button data-tab="cash"><span class="ic">📒</span>收支</button>
@@ -533,6 +570,7 @@
   <section class="tab-panel" id="tab-pos"></section>
   <section class="tab-panel" id="tab-purchase"></section>
   <section class="tab-panel" id="tab-cost"></section>
+  <section class="tab-panel" id="tab-ingredients"></section>
   <section class="tab-panel" id="tab-sales"></section>
   <section class="tab-panel" id="tab-inventory"></section>
   <section class="tab-panel" id="tab-cash"></section>
@@ -961,11 +999,15 @@ function setSyncStatus(text){
 
 /* 依照 currentUserRole 隐藏/开放分页：只是App里的显示层级限制（方便管理，
    不是Firestore规则那种真正的资料隔离），符合目前"只在App里隐藏就够了"的需求。
-   role !== 'full' 的账号：底部导航只留"点餐"，账号选单里的"导出数据"也藏起来。 */
+   role !== 'full' 的账号：底部导航只留"点餐"，账号选单里的"导出数据"也藏起来。
+   点餐现在已经搬去首页当入口卡片，全权限帐号不需要在导航看到它（CSS默认就是隐藏的，
+   见 nav.bottom button[data-tab="pos"]{display:none}）；但"点餐限定权限"的帐号还是
+   得靠导航上这颗按钮当唯一入口，所以这里反而要把它显示回来。 */
 function applyRolePermissions(){
   const full = currentUserRole==='full';
   document.querySelectorAll('nav.bottom button[data-tab]').forEach(b=>{
-    b.style.display = (full || b.dataset.tab==='pos') ? '' : 'none';
+    if(b.dataset.tab==='pos'){ b.style.display = full ? 'none' : ''; }
+    else { b.style.display = full ? '' : 'none'; }
   });
   const exportBtn = document.querySelector('#accountMenu button[onclick*="\'export\'"]');
   if(exportBtn) exportBtn.style.display = full ? '' : 'none';
@@ -1987,6 +2029,7 @@ function renderHome(){
     <div class="card">
       <h3>快捷入口</h3>
       <div class="tile-grid">
+        <div class="tile" onclick="goToTab('pos')"><div class="circ" style="background:var(--gold-dim); color:var(--gold);">🧾</div><div class="lbl">点餐</div></div>
         <div class="tile" onclick="goToTab('purchase')"><div class="circ" style="background:var(--rust-dim); color:var(--rust);">🛒</div><div class="lbl">采购</div></div>
         <div class="tile" onclick="quickRecordIncome()"><div class="circ" style="background:var(--green-dim); color:var(--green);">💰</div><div class="lbl">记录收入</div></div>
         <div class="tile" onclick="quickRecordExpense()"><div class="circ" style="background:var(--teal-dim); color:var(--teal);">🧾</div><div class="lbl">记录支出</div></div>
@@ -2523,7 +2566,7 @@ function setPurSubView(val){
   renderPurchase();
 }
 function startNewRecipe(){
-  tempRecipe = {id:null, recipeId:null, outputName:'', outputUnit:'包', packQty:'', company:'', components:[{id:uid(), name:'', qty:'', unit:'', unitPrice:''}]};
+  tempRecipe = {id:null, recipeId:null, editingLogId:null, outputName:'', outputUnit:'包', packQty:'', company:'', date:todayStr(), components:[{id:uid(), name:'', qty:'', unit:'', unitPrice:''}]};
   renderCost();
 }
 /* 「记一批」：延续一个已经存在的半成品（沿用它的名字/单位，也把上一批用料列出来当草稿方便改），
@@ -2533,10 +2576,27 @@ function startNewRecipeBatchFor(recipeId){
   if(!r) return;
   const lastLog = (state.recipeBatchLogs||[]).filter(l=>l.recipeId===recipeId && l.components && l.components.length).sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
   tempRecipe = {
-    id:null, recipeId:r.id, outputName:r.outputName, outputUnit:r.outputUnit||'包', packQty:'', company:'',
+    id:null, recipeId:r.id, editingLogId:null, outputName:r.outputName, outputUnit:r.outputUnit||'包', packQty:'', company:'', date:todayStr(),
     components: lastLog ? lastLog.components.map(c=>({id:uid(), name:c.name, qty:'', unit:c.unit||'', unitPrice:c.unitPrice!=null?String(c.unitPrice):''})) : [{id:uid(), name:'', qty:'', unit:'', unitPrice:''}]
   };
   renderCost();
+}
+/* 编辑已经记过的某一批（在下面"批次记录历史"点"编辑"进来）：把当时记的日期/份数/用料
+   原封不动摆进同一份表单，让使用者直接改错的地方（比如份数打错、某样食材漏填），
+   不用先"撤销"整批重来。保存的时候会认出 tempRecipe.editingLogId，改成"更新这一笔"
+   而不是"新增一笔"，库存扣补也会跟着重算（见 submitRecipeBatch）。 */
+function startEditRecipeBatch(logId){
+  const log = (state.recipeBatchLogs||[]).find(l=>l.id===logId);
+  if(!log) return;
+  tempRecipe = {
+    id:null, recipeId:log.recipeId, editingLogId:log.id,
+    outputName:log.outputName, outputUnit:log.outputUnit||'包',
+    packQty: log.packQty!=null? String(log.packQty) : '',
+    company: log.company||'', date: log.date||todayStr(),
+    components: (log.components&&log.components.length)? log.components.map(c=>({id:uid(), name:c.name, qty:c.qty!=null?String(c.qty):'', unit:c.unit||'', unitPrice:c.unitPrice!=null?String(c.unitPrice):''})) : [{id:uid(), name:'', qty:'', unit:'', unitPrice:''}]
+  };
+  renderCost();
+  window.scrollTo({top:0, behavior:'smooth'});
 }
 function cancelEditRecipe(){
   tempRecipe = null;
@@ -2604,7 +2664,10 @@ function autoLinkRecipeComponentUnit(id){
 }
 /* 提交这一批：算出这批实际用料成本、每份成本，记一笔批次记录；
    然后把这个半成品所有批次记录加总起来，算出加权平均每份成本（总成本合计 ÷ 总份数合计，
-   份数越多的批次占比越重，比单纯把每批的"每份成本"平均起来更准），存进食材字典。 */
+   份数越多的批次占比越重，比单纯把每批的"每份成本"平均起来更准），存进食材字典。
+   如果 tempRecipe.editingLogId 有值，代表是在改一笔已经存在的批次记录（从"批次记录历史"
+   点"编辑"进来的），这时候改成"更新原本那一笔"，而不是另外新增一笔：原本那批自动生成的
+   出入库调整（食材出库+成品入库）会先删掉、照新的数字重新生成，不会新旧两批的库存调整叠在一起。 */
 function submitRecipeBatch(){
   if(!tempRecipe) return;
   const outputName = (tempRecipe.outputName||'').trim();
@@ -2620,7 +2683,8 @@ function submitRecipeBatch(){
   const componentsCostTotal = Math.round(comps.reduce((a,c)=>a+c.cost,0)*100)/100;
   const costPerPack = Math.round((componentsCostTotal/packQty)*10000)/10000;
   const company = tempRecipe.company || '';
-  const date = todayStr();
+  const date = tempRecipe.date || todayStr();
+  const editingLogId = tempRecipe.editingLogId;
   const newAdjIds = [];
   let recipeId = tempRecipe.recipeId;
   mutate(()=>{
@@ -2628,11 +2692,20 @@ function submitRecipeBatch(){
       const existing = state.recipes.find(r=>r.outputName.trim().toLowerCase()===outputName.toLowerCase());
       if(existing) recipeId = existing.id;
       else { recipeId = uid(); state.recipes.push({id:recipeId, outputName, outputUnit}); }
-    } else {
+    } else if(!editingLogId){
+      // 编辑单一批次记录的时候，半成品名称/单位那两格是锁住不给改的（避免连带牵动改名逻辑），
+      // 所以这里只有"新增/记一批"（不是在编辑既有批次）才需要同步半成品本身的名称/单位。
       const r = state.recipes.find(x=>x.id===recipeId);
       if(r){ r.outputName = outputName; r.outputUnit = outputUnit; }
     }
     if(!state.stockAdjustments) state.stockAdjustments = [];
+    if(editingLogId){
+      const oldLog = (state.recipeBatchLogs||[]).find(l=>l.id===editingLogId);
+      if(oldLog){
+        const oldAdjIds = new Set(oldLog.stockAdjIds||[]);
+        state.stockAdjustments = state.stockAdjustments.filter(a=>!oldAdjIds.has(a.id));
+      }
+    }
     comps.forEach(c=>{
       const adjId = uid();
       state.stockAdjustments.push({id:adjId, date, itemName:c.name, qty:-Math.abs(c.qty), note:`做成 ${packQty}${outputUnit} ${outputName}`, company});
@@ -2642,11 +2715,24 @@ function submitRecipeBatch(){
     state.stockAdjustments.push({id:outAdjId, date, itemName:outputName, qty:Math.abs(packQty), note:`这批用料成本RM${componentsCostTotal}，每${outputUnit}约RM${costPerPack}`, company});
     newAdjIds.push(outAdjId);
     if(!state.recipeBatchLogs) state.recipeBatchLogs = [];
-    state.recipeBatchLogs.push({id:uid(), recipeId, date, company, components:comps, packQty, outputName, outputUnit, componentsCostTotal, costPerPack, stockAdjIds:newAdjIds});
+    if(editingLogId){
+      const oldLog = state.recipeBatchLogs.find(l=>l.id===editingLogId);
+      if(oldLog){
+        Object.assign(oldLog, {recipeId, date, company, components:comps, packQty, outputName, outputUnit, componentsCostTotal, costPerPack, stockAdjIds:newAdjIds});
+      } else {
+        state.recipeBatchLogs.push({id:editingLogId, recipeId, date, company, components:comps, packQty, outputName, outputUnit, componentsCostTotal, costPerPack, stockAdjIds:newAdjIds});
+      }
+    } else {
+      state.recipeBatchLogs.push({id:uid(), recipeId, date, company, components:comps, packQty, outputName, outputUnit, componentsCostTotal, costPerPack, stockAdjIds:newAdjIds});
+    }
     recalcRecipeAverage(recipeId);
   });
   const avg = averageCostForRecipe(recipeId);
-  alert(`已记录：这批 ${packQty}${outputUnit} ${outputName}，用料成本 RM${componentsCostTotal}，这批每${outputUnit} RM${costPerPack}。\n跟之前的批次加权平均下来，「${outputName}」现在每${outputUnit}成本约 RM${avg}，已经存进食材字典——之后任何产品的"食材成本项"打这个名字就会带出这个单价。\n库存已经自动把用到的食材出库、${outputName} 入库，可以去"库存"页确认。`);
+  if(editingLogId){
+    alert(`已更新这批记录：${date} · ${packQty}${outputUnit} ${outputName}，用料成本 RM${componentsCostTotal}，这批每${outputUnit} RM${costPerPack}。\n跟其他批次加权平均下来，「${outputName}」现在每${outputUnit}成本约 RM${avg}。\n原本这批自动生成的库存出入库已经照新的数字重新生成，可以去"库存"页确认。`);
+  } else {
+    alert(`已记录：这批 ${packQty}${outputUnit} ${outputName}，用料成本 RM${componentsCostTotal}，这批每${outputUnit} RM${costPerPack}。\n跟之前的批次加权平均下来，「${outputName}」现在每${outputUnit}成本约 RM${avg}，已经存进食材字典——之后任何产品的"食材成本项"打这个名字就会带出这个单价。\n库存已经自动把用到的食材出库、${outputName} 入库，可以去"库存"页确认。`);
+  }
   tempRecipe = null;
   renderCost();
 }
@@ -2767,7 +2853,7 @@ function ensureDefaultPosTables(){
 }
 function startNewAddonMapping(){
   tempAddonMapping = {id:null, addonName:'', components:[{id:uid(), name:'', qtyPerUse:'', unit:''}]};
-  renderCost();
+  renderIngredients();
 }
 function startEditAddonMapping(id){
   const m = state.addonMappings.find(x=>x.id===id);
@@ -2776,11 +2862,11 @@ function startEditAddonMapping(id){
     id:m.id, addonName:m.addonName||'',
     components:(m.components&&m.components.length)? m.components.map(c=>({id:uid(), name:c.name, qtyPerUse:c.qtyPerUse!=null?String(c.qtyPerUse):'', unit:c.unit||''})) : [{id:uid(), name:'', qtyPerUse:'', unit:''}]
   };
-  renderCost();
+  renderIngredients();
 }
 function cancelEditAddonMapping(){
   tempAddonMapping = null;
-  renderCost();
+  renderIngredients();
 }
 function updateAddonMappingField(field, val){
   if(!tempAddonMapping) return;
@@ -2789,13 +2875,13 @@ function updateAddonMappingField(field, val){
 function addAddonMappingComponentRow(){
   if(!tempAddonMapping) return;
   tempAddonMapping.components.push({id:uid(), name:'', qtyPerUse:'', unit:''});
-  renderCost();
+  renderIngredients();
 }
 function removeAddonMappingComponent(id){
   if(!tempAddonMapping) return;
   tempAddonMapping.components = tempAddonMapping.components.filter(c=>c.id!==id);
   if(tempAddonMapping.components.length===0) tempAddonMapping.components.push({id:uid(), name:'', qtyPerUse:'', unit:''});
-  renderCost();
+  renderIngredients();
 }
 function updateAddonMappingComponent(id, field, val){
   if(!tempAddonMapping) return;
@@ -2809,7 +2895,7 @@ function autoLinkAddonMappingComponentUnit(id){
   if(!c) return;
   const ing = findIngredient(c.name);
   if(!ing) return;
-  if(ing.unit && !c.unit){ c.unit = ing.unit; renderCost(); }
+  if(ing.unit && !c.unit){ c.unit = ing.unit; renderIngredients(); }
 }
 function submitAddonMapping(){
   if(!tempAddonMapping) return;
@@ -2829,7 +2915,7 @@ function submitAddonMapping(){
     }
   });
   tempAddonMapping = null;
-  renderCost();
+  renderIngredients();
 }
 function deleteAddonMapping(id){
   if(!confirm('确定删除这份Addon消耗对照吗？（已经导入扣过的库存记录不会被撤销，只是以后再导入Addon报表，这个选项不会再自动扣库存）')) return;
@@ -2893,17 +2979,17 @@ function renderAddonMappingSectionHtml(){
 /* ---- 单位换算管理界面 ---- */
 function startNewUnitConversion(){
   tempUnitConversion = {id:null, ingredientName:'', purchaseUnit:'', usageUnit:'', ratio:''};
-  renderCost();
+  renderIngredients();
 }
 function startEditUnitConversion(id){
   const c = state.unitConversions.find(x=>x.id===id);
   if(!c) return;
   tempUnitConversion = {id:c.id, ingredientName:c.ingredientName, purchaseUnit:c.purchaseUnit||'', usageUnit:c.usageUnit, ratio:c.ratio!=null?String(c.ratio):''};
-  renderCost();
+  renderIngredients();
 }
 function cancelEditUnitConversion(){
   tempUnitConversion = null;
-  renderCost();
+  renderIngredients();
 }
 function updateUnitConversionField(field, val){
   if(!tempUnitConversion) return;
@@ -2940,7 +3026,7 @@ function submitUnitConversion(){
     }
   });
   tempUnitConversion = null;
-  renderCost();
+  renderIngredients();
 }
 function deleteUnitConversion(id){
   if(!confirm('确定删除这条单位换算吗？（之前已经算过的价钱不会改，只是以后再遇到这个单位不会自动换算了）')) return;
@@ -3043,11 +3129,16 @@ function recipeFormHtml(){
   const previewText = packQty>0
     ? `这批用料成本 ≈ RM${fmtPlain(total)}　÷${packQty}${tempRecipe.outputUnit||'包'} ≈ 每${tempRecipe.outputUnit||'包'} RM${fmtPlain(total/packQty)}`
     : `这批用料成本 ≈ RM${fmtPlain(total)}（填了"分成幾${tempRecipe.outputUnit||'包'}"之后会算出每${tempRecipe.outputUnit||'包'}成本）`;
+  const titleText = tempRecipe.editingLogId
+    ? `✏️ 编辑批次记录「${tempRecipe.outputName}」`
+    : (tempRecipe.recipeId? `📝 记一批「${tempRecipe.outputName}」` : '新增半成品 · 记第一批');
   return `
     <div class="card">
-      <h3>${tempRecipe.recipeId? `📝 记一批「${tempRecipe.outputName}」` : '新增半成品 · 记第一批'}</h3>
+      <h3>${titleText}</h3>
       <label>半成品名称（做出来的东西叫什么，比如：肉碎腌料 / 招牌辣椒酱）</label>
-      <input id="recipeOutputName" placeholder="半成品名称" autocomplete="off" value="${tempRecipe.outputName||''}" oninput="updateRecipeField('outputName', this.value)">
+      <input id="recipeOutputName" placeholder="半成品名称" autocomplete="off" value="${tempRecipe.outputName||''}" oninput="updateRecipeField('outputName', this.value)" ${tempRecipe.editingLogId?'disabled':''}>
+      <label style="margin-top:10px">日期</label>
+      <input type="date" id="recipeBatchDate" value="${tempRecipe.date||todayStr()}" onchange="updateRecipeField('date', this.value); this.blur();">
       <label style="margin-top:10px">分成了幾份（这批实际分装出来的数量）</label>
       <div style="display:flex; gap:8px;">
         <input id="recipePackQty" type="text" inputmode="decimal" step="0.01" placeholder="例：25" style="flex:1;" value="${tempRecipe.packQty}" oninput="updateRecipeField('packQty', this.value)">
@@ -3057,7 +3148,7 @@ function recipeFormHtml(){
       <div id="recipeComponentsWrap">${recipeComponentRowsHtml()}</div>
       <button class="btn-line" onclick="addRecipeComponentRow()">+ 添加一样食材</button>
       <div style="margin-top:8px; font-size:13px; color:var(--muted)" id="recipeTotalPreview">${previewText}</div>
-      <button class="btn-main" onclick="submitRecipeBatch()">✅ 保存这批</button>
+      <button class="btn-main" onclick="submitRecipeBatch()">${tempRecipe.editingLogId? '💾 保存修改' : '✅ 保存这批'}</button>
       <button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditRecipe()">取消</button>
     </div>
   `;
@@ -3114,7 +3205,10 @@ function renderRecipeSectionHtml(){
         <div class="phr-sub">
           <div style="display:flex; justify-content:space-between; align-items:baseline;">
             <span class="muted">${l.date}</span>
-            <button class="btn-danger-text" onclick="undoRecipeBatch('${l.id}')">撤销</button>
+            <div style="display:flex; gap:10px;">
+              ${(l.components&&l.components.length)? `<button class="btn-ghost btn-small" style="padding:4px 10px;" onclick="startEditRecipeBatch('${l.id}')">编辑</button>` : ''}
+              <button class="btn-danger-text" onclick="undoRecipeBatch('${l.id}')">撤销</button>
+            </div>
           </div>
           <div style="font-size:13px; margin-top:2px;">${l.packQty}${l.outputUnit} ${l.outputName}</div>
           ${(l.components&&l.components.length)? `<div class="muted" style="font-size:11.5px;">用料：${l.components.map(c=>`${c.name} ${c.qty}${c.unit}`).join('、')}</div>` : (l.triggerName? `<div class="muted" style="font-size:11.5px;">（旧格式记录）${l.triggerName} ${l.triggerQty||''}${l.triggerUnit||''}</div>` : '')}
@@ -4088,7 +4182,8 @@ let tempVariants = [{id:uid(), label:'', price:''}];
 let draftProductOptionGroupId = '';
 let draftProductAddonGroupId = '';
 let tempMergeVariantRows = [{id:uid(), sourceName:'', label:''}];
-let prodSubView = 'product'; // 'product' = 名称/售价/分类等基本资料的新增编辑，'cost' = 食材成本/毛利细项，'recipe' = 半成品配方，'link' = 食材关联
+let prodSubView = 'product'; // 'product' = 名称/售价/分类等基本资料的新增编辑，'cost' = 食材成本/毛利细项，'recipe' = 半成品配方，'options' = 选项组
+let ingSubView = 'list'; // 食材页（独立顶层tab）自己的子分页：'list' = 食材列表，'merge' = 合并采购品项名称，'addon' = Addon消耗对照，'unit' = 单位换算
 let ingredientLinkSearchQuery = '';
 /* 食材关联页要把"半成品配方本身用到的食材"排除掉——那些原料/用料的成本已经透过配方自动流进
    做出来的半成品成本里了，不需要使用者再额外去关联产品，免得清单上一堆用不着理会的东西。
@@ -4111,13 +4206,18 @@ function toggleIngredientLinkRowExpand(ingredientId, expand){
   if(expand) ingredientLinkExpandedIds.add(ingredientId); else ingredientLinkExpandedIds.delete(ingredientId);
   refreshIngredientLinkRow(ingredientId);
 }
+/* 编辑食材以前是在那一行底下直接展开一个内嵌表单，现在改成在「食材」页sub-tab那排
+   临时多长出一个「✏️ 编辑：某某 ✕」的tab，切过去整页显示编辑表单；保存/取消/关掉✕
+   都会让这个临时tab消失，回到「食材列表」——所以这里改成整页重画（renderIngredients），
+   不再只重画那一行（原本的 refreshIngredientLinkRow 只更新单一行，装不下"多一个tab"这件事）。 */
 function startEditIngredientField(id){
   editingIngredientId = id;
-  refreshIngredientLinkRow(id);
+  renderIngredients();
+  window.scrollTo({top:0, behavior:'smooth'});
 }
 function cancelEditIngredientField(id){
   editingIngredientId = null;
-  refreshIngredientLinkRow(id);
+  renderIngredients();
 }
 /* 保存食材的名称/单位/参考单价——名称如果真的改了，用跟"合并采购品项名称"同一套逻辑
    （renameIngredientCore），把所有采购单品项、库存记录、半成品配方、Addon消耗对照、
@@ -4146,7 +4246,7 @@ function saveEditIngredientField(id){
       ing.unitPrice = newPrice;
     }
   });
-  renderCost();
+  renderIngredients();
 }
 function refreshIngredientLinkRow(ingredientId){
   const ing = (state.ingredients||[]).find(i=>i.id===ingredientId);
@@ -4160,11 +4260,12 @@ function wireIngredientLinkPicker(ing){
   if(!document.getElementById(wrapId)) return;
   mpInit(wrapId, ()=>state.products.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')), ()=> ing.productIds||[], (id,checked)=>{ toggleIngredientLinkProduct(ing.id, id, checked); });
 }
-function ingredientLinkRowHtml(ing){
-  const linkedIds = ing.productIds||[];
-  if(editingIngredientId===ing.id){
-    return `
-    <div class="supplier-card">
+/* 编辑食材的表单——现在是「食材」页临时子tab的整页内容（见 renderIngredients），
+   不再内嵌在列表某一行下面。 */
+function ingredientEditFormHtml(ing){
+  return `
+    <div class="card">
+      <h3>✏️ 编辑食材</h3>
       <label style="margin-top:0;">食材名称</label>
       <input id="ingEditName_${ing.id}" autocomplete="off" value="${ing.name.replace(/"/g,'&quot;')}">
       <div class="grid2" style="margin-top:8px;">
@@ -4177,7 +4278,9 @@ function ingredientLinkRowHtml(ing){
         <button class="btn-ghost" style="flex:1;" onclick="cancelEditIngredientField('${ing.id}')">取消</button>
       </div>
     </div>`;
-  }
+}
+function ingredientLinkRowHtml(ing){
+  const linkedIds = ing.productIds||[];
   const addonUsage = ingredientAddonUsage(ing.name);
   const optionUsage = ingredientOptionUsage(ing.name);
   const hasOtherUsage = addonUsage.length>0 || optionUsage.length>0;
@@ -4405,6 +4508,67 @@ function ingredientLinkListHtml(){
     </div>
   `;
 }
+/* 食材页（独立顶层tab）自己的子分页切换——跟"产品"页的 setProdSubView 是同一个概念，
+   只是这里管的是食材列表/合并品项名称/Addon消耗对照/单位换算这四个。切分页的时候顺便
+   把"正在编辑食材"这个临时子tab关掉（不管使用者是不是编辑到一半，切走就等于放弃这次编辑，
+   跟一般分页切换的习惯一致，不会留着孤儿状态的编辑框）。 */
+function setIngSubView(val){
+  ingSubView = val;
+  editingIngredientId = null;
+  tempAddonMapping = null;
+  tempUnitConversion = null;
+  renderIngredients();
+}
+function renderIngredients(){
+  const el = document.getElementById('tab-ingredients');
+  const editingIng = editingIngredientId ? (state.ingredients||[]).find(i=>i.id===editingIngredientId) : null;
+  const ingSubTabHtml = `
+    <div class="btn-group" style="margin-bottom:14px;">
+      <button type="button" class="btn-toggle ${(!editingIng && ingSubView==='list')?'active':''}" onclick="setIngSubView('list')">📋 食材列表</button>
+      <button type="button" class="btn-toggle ${(!editingIng && ingSubView==='merge')?'active':''}" onclick="setIngSubView('merge')">🔀 合并品项名称</button>
+      <button type="button" class="btn-toggle ${(!editingIng && ingSubView==='addon')?'active':''}" onclick="setIngSubView('addon')">🧾 Addon消耗对照</button>
+      <button type="button" class="btn-toggle ${(!editingIng && ingSubView==='unit')?'active':''}" onclick="setIngSubView('unit')">📐 单位换算</button>
+      ${editingIng? `<button type="button" class="btn-toggle active" style="display:inline-flex; align-items:center; gap:6px;">✏️ 编辑：${editingIng.name}<span role="button" style="cursor:pointer; font-weight:700;" onclick="event.stopPropagation(); cancelEditIngredientField('${editingIng.id}')">✕</span></button>` : ''}
+    </div>`;
+  if(editingIng){
+    el.innerHTML = ingSubTabHtml + ingredientEditFormHtml(editingIng);
+    return;
+  }
+  if(ingSubView==='merge'){
+    el.innerHTML = ingSubTabHtml + renderMergeIngredientNameSectionHtml();
+    wireSuggest('mergeItemFromList', getIngredientNames());
+    wireSuggest('mergeItemToTarget', getIngredientNames());
+    return;
+  }
+  if(ingSubView==='addon'){
+    el.innerHTML = ingSubTabHtml + renderAddonMappingSectionHtml();
+    const ingredientNames = getIngredientNames();
+    const unitSuggestions = getUnitSuggestions();
+    if(tempAddonMapping){
+      wireSuggest('addonMapNameText', getAddonNamesFromSales());
+      tempAddonMapping.components.forEach(c=>{
+        wireSuggest('addonMapCompName_'+c.id, ingredientNames);
+        wireSuggest('addonMapCompUnit_'+c.id, unitSuggestions);
+      });
+    }
+    return;
+  }
+  if(ingSubView==='unit'){
+    el.innerHTML = ingSubTabHtml + renderUnitConversionSectionHtml();
+    const ingredientNames = getIngredientNames();
+    const unitSuggestions = getUnitSuggestions();
+    if(tempUnitConversion){
+      wireSuggest('convIngredientName', ingredientNames);
+      wireSuggest('convUsageUnit', unitSuggestions);
+    }
+    return;
+  }
+  // 默认：'list' 食材列表
+  el.innerHTML = ingSubTabHtml + renderIngredientLinkSectionHtml();
+  if(ingredientLinkSearchQuery) filterIngredientLinkList(ingredientLinkSearchQuery);
+  else wireVisibleIngredientLinkPickers();
+  wireSuggest('ingredientLinkSearchInput', getIngredientNames());
+}
 function renderIngredientLinkSectionHtml(){
   return `
     <div class="card">
@@ -4415,8 +4579,8 @@ function renderIngredientLinkSectionHtml(){
     <div id="ingredientLinkListWrap">${ingredientLinkListHtml()}</div>
   `;
 }
-/* 合并采购品项名称——原本放在"采购"页，现在跟食材管理、Addon消耗对照、单位换算收在同一个
-   "产品→🔗食材"页面，全部跟食材有关的东西不用再两个分页之间跳来跳去找。 */
+/* 合并采购品项名称——原本放在"采购"页，现在跟食材列表、Addon消耗对照、单位换算收在
+   独立的"食材"顶层tab底下当sub-tab，全部跟食材有关的东西不用再两个分页之间跳来跳去找。 */
 function renderMergeIngredientNameSectionHtml(){
   return `
     <div class="card">
@@ -4458,12 +4622,13 @@ function toggleIngredientLinkProduct(ingredientId, productId, checked){
   }
   saveState();
 }
-/* 从"采购"页那个"还没关联/去设定"小连结跳过来：切到"产品"页、开到"食材关联"子页签，
-   顺便把搜索框帮你填好这个食材的名字，直接定位过去不用自己找。 */
+/* 从"采购"页那个"还没关联/去设定"小连结跳过来：切到独立的"食材"顶层tab、开到"食材列表"
+   子分页，顺便把搜索框帮你填好这个食材的名字，直接定位过去不用自己找。 */
 function goToIngredientLinkTab(name){
-  prodSubView = 'link';
+  ingSubView = 'list';
+  editingIngredientId = null;
   ingredientLinkSearchQuery = name || '';
-  switchToTab('cost');
+  switchToTab('ingredients');
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
@@ -4476,6 +4641,30 @@ function setProdSubView(val){
   tempUnitConversion = null;
   renderCost();
 }
+/* 顶部导航「产品」按钮的下拉选单点了之后跳到指定子分页——跟 setProdSubView 做的事一样，
+   只是额外确保真的切到「产品」这个tab（万一使用者当下人在别的tab，直接从导航点下拉进来）。 */
+function jumpProdSubView(view){
+  setProdSubView(view);
+  switchToTab('cost');
+  closeAllNavDropdowns();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+/* 桌面版靠 CSS :hover 展开下拉，不需要点击也能看到选单，所以这里点击「产品」按钮本身
+   就正常导航过去（不拦截）。iPad/手机没有 hover，点一下要先展开下拉选单本身，
+   不直接跳分页，选到下拉里具体哪一项才真的过去。 */
+function handleProductNavClick(e){
+  const hasHover = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  if(hasHover) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const wrap = document.getElementById('navDropdownCost');
+  const wasOpen = wrap.classList.contains('open');
+  closeAllNavDropdowns();
+  if(!wasOpen) wrap.classList.add('open');
+}
+function closeAllNavDropdowns(){
+  document.querySelectorAll('.nav-dropdown.open').forEach(w=>w.classList.remove('open'));
+}
 function renderCost(){
   const el = document.getElementById('tab-cost');
   const prodSubTabHtml = `
@@ -4484,7 +4673,6 @@ function renderCost(){
       <button type="button" class="btn-toggle ${prodSubView==='cost'?'active':''}" onclick="setProdSubView('cost')">🧮 成本</button>
       <button type="button" class="btn-toggle ${prodSubView==='recipe'?'active':''}" onclick="setProdSubView('recipe')">🧑‍🍳 半成品成本</button>
       <button type="button" class="btn-toggle ${prodSubView==='options'?'active':''}" onclick="setProdSubView('options')">🎛️ 选项组</button>
-      <button type="button" class="btn-toggle ${prodSubView==='link'?'active':''}" onclick="setProdSubView('link')">🔗 食材</button>
     </div>`;
   if(prodSubView==='options'){
     el.innerHTML = prodSubTabHtml + renderOptionGroupSectionHtml();
@@ -4495,28 +4683,6 @@ function renderCost(){
         wireSuggest('ogIng_'+c.id, ingredientNames);
         wireSuggest('ogUnit_'+c.id, unitSuggestions);
       });
-    }
-    return;
-  }
-  if(prodSubView==='link'){
-    el.innerHTML = prodSubTabHtml + renderIngredientLinkSectionHtml() + renderMergeIngredientNameSectionHtml() + renderAddonMappingSectionHtml() + renderUnitConversionSectionHtml();
-    if(ingredientLinkSearchQuery) filterIngredientLinkList(ingredientLinkSearchQuery);
-    else wireVisibleIngredientLinkPickers();
-    wireSuggest('ingredientLinkSearchInput', getIngredientNames());
-    wireSuggest('mergeItemFromList', getIngredientNames());
-    wireSuggest('mergeItemToTarget', getIngredientNames());
-    const ingredientNames2 = getIngredientNames();
-    const unitSuggestions2 = getUnitSuggestions();
-    if(tempAddonMapping){
-      wireSuggest('addonMapNameText', getAddonNamesFromSales());
-      tempAddonMapping.components.forEach(c=>{
-        wireSuggest('addonMapCompName_'+c.id, ingredientNames2);
-        wireSuggest('addonMapCompUnit_'+c.id, unitSuggestions2);
-      });
-    }
-    if(tempUnitConversion){
-      wireSuggest('convIngredientName', ingredientNames2);
-      wireSuggest('convUsageUnit', unitSuggestions2);
     }
     return;
   }
@@ -5150,7 +5316,7 @@ function mergePurchaseItemNames(){
   document.getElementById('mergeItemFromList').value = '';
   document.getElementById('mergeItemToTarget').value = '';
   alert(`合并完成：\n・${summary.items} 笔采购品项改名为「${toName}」\n・${summary.adj} 笔库存出入库记录改名\n・食材字典合并掉 ${summary.ingredientMerged} 条重复条目${summary.misc? `\n・另外 ${summary.misc} 处半成品配方/Addon消耗对照/选项组/单位换算/产品食材设定一起更新了名字` : ''}`);
-  renderCost();
+  renderIngredients();
 }
 /* 把好几个写法不一样、其实是同一样东西的产品合并成一个：
    - fromNames 底下任何一个名字（不分大小写）的历史销售记录，productName 全部改成 toName，
@@ -7084,6 +7250,7 @@ const TAB_RENDERERS = {
   overview: renderOverview,
   purchase: renderPurchase,
   cost: renderCost,
+  ingredients: renderIngredients,
   sales: renderSales,
   inventory: renderInventory,
   cash: renderCash,
@@ -7142,6 +7309,11 @@ document.getElementById('bottomNav').addEventListener('click', (e)=>{
   const btn = e.target.closest('button[data-tab]');
   if(!btn) return;
   switchToTab(btn.dataset.tab);
+});
+/* 点其他地方（不是"产品"那个下拉本身）就把下拉收起来——主要是给iPad/手机那种
+   点一下才展开的情境用；桌面版靠 CSS :hover 收放，跟这个click监听互不影响。 */
+document.addEventListener('click', (e)=>{
+  if(!e.target.closest('.nav-dropdown')) closeAllNavDropdowns();
 });
 
 loadState();
