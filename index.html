@@ -1387,6 +1387,10 @@ function dedupeIngredientEntries(){
         if(!existing.productIds) existing.productIds = [];
         if(!existing.productIds.includes(pid)) existing.productIds.push(pid);
       });
+      if(ing.qtyLinks){
+        if(!existing.qtyLinks) existing.qtyLinks = {};
+        Object.keys(ing.qtyLinks).forEach(pid=>{ if(!existing.qtyLinks[pid]) existing.qtyLinks[pid] = ing.qtyLinks[pid]; });
+      }
       if(!existing.unit && ing.unit) existing.unit = ing.unit;
       if(!existing.unitPrice && ing.unitPrice) existing.unitPrice = ing.unitPrice;
     }
@@ -1528,15 +1532,32 @@ function findOrCreateSupplierId(typedName){
 }
 function productCost(p){ return (p.costItems||[]).reduce((a,c)=>a+Number(c.cost||0),0); }
 /* 「食材属于哪个产品」现在统一从全局的食材字典（state.ingredients，按品名查）读取，
-   不再是每一张采购单自己各自存一份 —— 这样在「产品→食材关联」改一次某个食材的关联，
+   不再是每一张采购单自己各自存一份 —— 这样在「产品→食材管理」改一次某个食材的关联，
    所有历史采购单（不管新旧）的成本分摊会立刻一起跟着更新，不用一张一张回去改旧单据。
-   旧数据里如果 item 本身还留着 productIds 字段，那个字段已经不再使用（保留着不影响什么）。 */
+   旧数据里如果 item 本身还留着 productIds 字段，那个字段已经不再使用（保留着不影响什么）。
+   有些关联设了固定用量（ing.qtyLinks[productId]），代表那个产品这个食材的成本已经改成
+   「用量 × 参考单价」的固定算法（见 productIngredientQtyLinkCost），不再走这里的营业额比例分摊，
+   所以要从这个函数排除掉，不然同一个食材的钱会被算两次。 */
 function purchaseItemProductIds(item){
   const ing = findIngredient(item && item.name);
-  return ing && Array.isArray(ing.productIds) ? ing.productIds.filter(Boolean) : [];
+  if(!ing || !Array.isArray(ing.productIds)) return [];
+  return ing.productIds.filter(pid=> pid && !(ing.qtyLinks && ing.qtyLinks[pid] && Number(ing.qtyLinks[pid].qty)>0));
+}
+/* 「食材管理」页可以直接给某个关联的产品填"用量"，变成固定成本算法（用量 × 这个食材的参考单价），
+   不再看实际采购总额、也不参与跟其他产品的营业额比例分摊——比较接近"食材成本项"，
+   只是设定的地方在食材那边、而且单价会跟着食材的参考单价自动更新，不是存一个固定死的单价。 */
+function productIngredientQtyLinkCost(productId){
+  if(!productId) return 0;
+  let total = 0;
+  (state.ingredients||[]).forEach(ing=>{
+    const link = ing.qtyLinks && ing.qtyLinks[productId];
+    if(link && Number(link.qty)>0){ total += Number(link.qty) * Number(ing.unitPrice||0); }
+  });
+  return total;
 }
 /* 算法一：单位成本法——把同一个产品关联的采购金额加总，除以这个产品已经卖出的总数量，得到平均单位成本。
-   如果还没有关联采购或还没卖出过，就退回手动填的"食材成本项"当保底。 */
+   如果还没有关联采购或还没卖出过，就退回手动填的"食材成本项"当保底。
+   食材管理页设了固定用量的食材，成本另外用 productIngredientQtyLinkCost 算，这里一律加总进来。 */
 function productIngredientSpend(productId){
   if(!productId) return 0;
   let total = 0;
@@ -1551,8 +1572,8 @@ function productQtySold(productId){
 function productUnitCost(p){
   const spend = productIngredientSpend(p.id);
   const qtySold = productQtySold(p.id);
-  if(spend>0 && qtySold>0) return spend/qtySold;
-  return productCost(p);
+  const base = (spend>0 && qtySold>0) ? spend/qtySold : productCost(p);
+  return base + productIngredientQtyLinkCost(p.id);
 }
 /* 算法二：总额法——不用"传递性分组"（那样A跟B同一个采购品项、B又跟C同一个采购品项，
    A跟C也会被拖进同一个大群组一起分摊，很容易滚雪球式地把互不相干的产品扯在一起，比如虾肉明明只该算给虾面，
@@ -4170,7 +4191,11 @@ function ingredientLinkRowHtml(ing){
       </div>`;
   // 已经关联好、又没被使用者主动点开的话，只显示一行小结果，不用整块打勾清单一直占地方。
   if(linkedIds.length && !ingredientLinkExpandedIds.has(ing.id)){
-    const names = linkedIds.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean);
+    const names = linkedIds.map(pid=>{
+      const pr=state.products.find(x=>x.id===pid); if(!pr) return '';
+      const link = ing.qtyLinks && ing.qtyLinks[pid];
+      return (link && Number(link.qty)>0) ? `${pr.name}（${link.qty}${link.unit||''}/份）` : pr.name;
+    }).filter(Boolean);
     return `<div class="supplier-card">${header}
       <div class="muted" style="font-size:12px; margin-top:6px;">🔗 关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="toggleIngredientLinkRowExpand('${ing.id}',true)">改关联</a></div>
     </div>`;
@@ -4178,8 +4203,40 @@ function ingredientLinkRowHtml(ing){
   return `
     <div class="supplier-card">${header}
       ${state.products.length? `<div id="ingProdPicks_${ing.id}" style="margin-top:8px;"></div>` : `<div class="muted" style="font-size:12px; margin-top:8px;">还没有产品，先去"产品"子页签新增</div>`}
+      ${linkedIds.length? ingredientQtyLinksHtml(ing) : ''}
       ${linkedIds.length? `<button type="button" class="btn-ghost btn-small" style="margin-top:8px;" onclick="toggleIngredientLinkRowExpand('${ing.id}',false)">✓ 挑好了，收起来</button>` : ''}
     </div>`;
+}
+/* 每个关联产品可以选填"用量"：填了的话，这个食材对这个产品的成本改用「用量 × 参考单价」
+   固定算，不再跟着营业额比例分摊（也会连带影响 purchaseItemProductIds 那边的分组计算，见那里的注解）；
+   留空就维持原本按营业额比例分摊的算法，两种可以并存、每个产品各自决定要用哪一种。 */
+function ingredientQtyLinksHtml(ing){
+  const linkedIds = ing.productIds||[];
+  return `
+    <div class="muted" style="font-size:11px; margin:10px 0 4px;">每个关联产品可以填"用量"，变成固定成本算法（用量 × 这个食材的参考单价）；不填的话，这个食材的采购花费会照这些产品的营业额比例自动分摊：</div>
+    ${linkedIds.map(pid=>{
+      const pr = state.products.find(x=>x.id===pid);
+      if(!pr) return '';
+      const link = (ing.qtyLinks && ing.qtyLinks[pid]) || {};
+      return `
+      <div class="pi-card">
+        <div class="pi-top"><b style="flex:1; font-size:13px;">${pr.name}</b></div>
+        <div class="pi-bottom" style="grid-template-columns:1fr 1fr;">
+          <input placeholder="用量(选填)" type="text" inputmode="decimal" value="${link.qty||''}" oninput="updateIngredientLinkQty('${ing.id}','${pid}','qty',this.value)">
+          <input placeholder="单位" autocomplete="off" value="${(link.unit||'').replace(/"/g,'&quot;')}" oninput="updateIngredientLinkQty('${ing.id}','${pid}','unit',this.value)">
+        </div>
+      </div>`;
+    }).join('')}
+  `;
+}
+function updateIngredientLinkQty(ingredientId, productId, field, val){
+  const ing = (state.ingredients||[]).find(i=>i.id===ingredientId);
+  if(!ing) return;
+  if(!ing.qtyLinks) ing.qtyLinks = {};
+  if(!ing.qtyLinks[productId]) ing.qtyLinks[productId] = {qty:'', unit:''};
+  ing.qtyLinks[productId][field] = val;
+  // 打字打到一半不整页重画（不然输入框会失焦），只存档就好；数字算成本要等下次进这页/存档时才会重算显示。
+  saveState();
 }
 /* 通用的"下拉搜索 + 打勾多选"组件，取代之前把全部产品摊平列成一排勾选格子的做法（产品一多看起来很乱）。
    用法：先在HTML里放一个空容器 <div id="wrapId"></div>，render完之后呼叫
@@ -4289,7 +4346,7 @@ function renderIngredientLinkSectionHtml(){
   return `
     <div class="card">
       <h3>食材管理 <span class="n">${(state.ingredients||[]).length} 个食材</span></h3>
-      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">这里统一管理所有食材——每个食材右上角有个"✏️ 编辑"，可以直接改名称、单位、参考单价，不用跑去改某一张采购单（改名称会连着采购记录、库存记录、半成品配方、Addon消耗对照、选项组、单位换算这些一起更新，不是只改这里）。也可以在这里管理"哪个食材算给哪个产品的成本"——改一次，所有历史采购单（不管新旧）都会一起用新的关联去重新算成本，不用回去一张一张改旧采购单。半成品配方本身用到的原料/用料不会出现在这里（它们的成本走配方那边自动算），但配方做出来、还没被任何产品用到的半成品会出现在下面提醒你。</div>
+      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">这里统一管理所有食材——每个食材右上角有个"✏️ 编辑"，可以直接改名称、单位、参考单价，不用跑去改某一张采购单（改名称会连着采购记录、库存记录、半成品配方、Addon消耗对照、选项组、单位换算这些一起更新，不是只改这里）。也可以在这里管理"哪个食材算给哪个产品的成本"：关联好产品之后，每个产品可以选填"用量"——填了就变成固定成本（用量×这个食材的参考单价，参考单价会跟着最新采购自动更新）；不填的话，这个食材的采购花费会照关联产品各自的营业额比例自动分摊，改一次所有历史采购单都会一起用新的设定重新算成本，不用回去一张一张改旧单据。半成品配方本身用到的原料/用料不会出现在这里（它们的成本走配方那边自动算），但配方做出来、还没被任何产品用到的半成品会出现在下面提醒你。</div>
       <input id="ingredientLinkSearchInput" placeholder="🔍 搜索食材名称..." value="${ingredientLinkSearchQuery.replace(/"/g,'&quot;')}" oninput="filterIngredientLinkList(this.value)">
     </div>
     <div id="ingredientLinkListWrap">${ingredientLinkListHtml()}</div>
@@ -4317,7 +4374,10 @@ function toggleIngredientLinkProduct(ingredientId, productId, checked){
   if(!ing) return;
   if(!ing.productIds) ing.productIds = [];
   if(checked){ if(!ing.productIds.includes(productId)) ing.productIds.push(productId); }
-  else { ing.productIds = ing.productIds.filter(id=>id!==productId); }
+  else {
+    ing.productIds = ing.productIds.filter(id=>id!==productId);
+    if(ing.qtyLinks && ing.qtyLinks[productId]) delete ing.qtyLinks[productId];
+  }
   saveState();
 }
 /* 从"采购"页那个"还没关联/去设定"小连结跳过来：切到"产品"页、开到"食材关联"子页签，
@@ -4547,7 +4607,7 @@ function renderCost(){
         ${editingProduct? (()=>{
           const links = productLinkedPurchaseItems(editingProduct.id);
           return `
-          <label style="margin-top:14px">已关联的食材（在"产品→食材关联"页设定的，按品名汇总；跟上面的共同食材名字是两回事，两种都会一起算成本）</label>
+          <label style="margin-top:14px">已关联的食材（在"产品→食材管理"页设定、按营业额比例分摊的那些；如果在食材管理页给这个产品填了固定用量，会改用固定成本算法，不会出现在这个列表，但一样算进总成本）</label>
           ${links.length? links.map(l=>`
             <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border);">
               <div style="font-size:12.5px;">
@@ -4968,6 +5028,10 @@ function renameIngredientCore(fromNames, toName){
     oldEntries.forEach(old=>{
       if(old===target) return;
       (old.productIds||[]).forEach(pid=>{ if(!target.productIds.includes(pid)) target.productIds.push(pid); });
+      if(old.qtyLinks){
+        if(!target.qtyLinks) target.qtyLinks = {};
+        Object.keys(old.qtyLinks).forEach(pid=>{ if(!target.qtyLinks[pid]) target.qtyLinks[pid] = old.qtyLinks[pid]; });
+      }
       if(!target.unit && old.unit) target.unit = old.unit;
       if(!target.unitPrice && old.unitPrice) target.unitPrice = old.unitPrice;
     });
