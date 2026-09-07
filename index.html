@@ -2285,8 +2285,6 @@ function renderPurchase(){
       <button type="button" class="btn-toggle ${purSubView==='main'?'active':''}" onclick="setPurSubView('main')">🛒 采购单</button>
       <button type="button" class="btn-toggle ${purSubView==='payment'?'active':''}" onclick="setPurSubView('payment')">💳 付款</button>
       <button type="button" class="btn-toggle ${purSubView==='debt'?'active':''}" onclick="setPurSubView('debt')">📋 欠款</button>
-      <button type="button" class="btn-toggle ${purSubView==='addon'?'active':''}" onclick="setPurSubView('addon')">🧾 Addon消耗</button>
-      <button type="button" class="btn-toggle ${purSubView==='conv'?'active':''}" onclick="setPurSubView('conv')">🔄 单位换算</button>
     </div>`;
   if(purSubView==='debt'){
     el.innerHTML = purSubTabHtml + renderSupplierDebtSectionHtml();
@@ -2299,29 +2297,6 @@ function renderPurchase(){
     wireSuggest('supTitle', state.suppliers.map(s=>s.name).sort((a,b)=>a.localeCompare(b,'zh')));
     const paySupplierEl = document.getElementById('paySupplier');
     if(paySupplierEl && paySupplierEl.value.trim()) onPaySupplierInput();
-    return;
-  }
-  if(purSubView==='addon'){
-    el.innerHTML = purSubTabHtml + renderAddonMappingSectionHtml();
-    const ingredientNames = getIngredientNames();
-    const unitSuggestions = getUnitSuggestions();
-    if(tempAddonMapping){
-      wireSuggest('addonMapNameText', getAddonNamesFromSales());
-      tempAddonMapping.components.forEach(c=>{
-        wireSuggest('addonMapCompName_'+c.id, ingredientNames);
-        wireSuggest('addonMapCompUnit_'+c.id, unitSuggestions);
-      });
-    }
-    return;
-  }
-  if(purSubView==='conv'){
-    el.innerHTML = purSubTabHtml + renderUnitConversionSectionHtml();
-    const ingredientNames = getIngredientNames();
-    const unitSuggestions = getUnitSuggestions();
-    if(tempUnitConversion){
-      wireSuggest('convIngredientName', ingredientNames);
-      wireSuggest('convUsageUnit', unitSuggestions);
-    }
     return;
   }
   const editingPurchase = editingPurchaseId ? state.purchases.find(x=>x.id===editingPurchaseId) : null;
@@ -2525,18 +2500,10 @@ function renderPurchase(){
     </div>
 
     <div class="card">
-      <h3>合并采购品项名称</h3>
-      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">不同张采购单（不同日期、不同供应商）里，同一样东西有时候会因为打法不一样被记成好几个不同的品名（比如"猪肝"跟"Pork Liver"）。这里可以把这些旧名字统一合并成一个：所有采购单、库存出入库记录里的品名都会一起改过来，食材字典（含关联的产品、参考单价）也会合并成一条，半成品配方/Addon消耗对照/选项组/单位换算设定里用到旧名字的地方也会一起更新。此操作无法撤销。</div>
-      <label>要合并掉的旧品名（可以填好几个，用顿号"、"分开）</label>
-      <input id="mergeItemFromList" placeholder="例：猪肝、Pork Liver" autocomplete="off">
-      <label style="margin-top:10px">统一成这个品名</label>
-      <input id="mergeItemToTarget" placeholder="例：猪肝" autocomplete="off">
-      <button class="btn-line" onclick="mergePurchaseItemNames()">🔀 合并</button>
+      <div class="muted" style="font-size:12px;">品名打法不一样、要合并成同一个食材？连同 Addon消耗对照、单位换算，现在统一收在 <a href="javascript:void(0)" onclick="switchToTab('cost'); setProdSubView('link');">产品 → 🔗 食材</a> 页面。</div>
     </div>
   `;
   renderPurchaseItemRows();
-  wireSuggest('mergeItemFromList', getIngredientNames());
-  wireSuggest('mergeItemToTarget', getIngredientNames());
   wireSuggest('purSupplier', state.suppliers.map(s=>s.name).sort((a,b)=>a.localeCompare(b,'zh')));
   const invoiceNumbers = Array.from(new Set(state.purchases.map(p=>p.invoiceNumber).filter(Boolean)));
   wireSuggest('purInvoiceNumber', invoiceNumbers);
@@ -2698,20 +2665,35 @@ function recalcRecipeAverage(recipeId){
   if(!logs.length) return; // 一批都没有了，先不动食材字典，避免把单价清成0
   learnIngredientLink(recipe.outputName, [], {unit: recipe.outputUnit, unitPrice: averageCostForRecipe(recipeId)});
 }
-function startRenameRecipe(id){
+let editingRecipeId = null; // 目前正在编辑名称/单位的半成品id，null表示没有
+function startEditRecipeField(id){
+  editingRecipeId = id;
+  renderCost();
+}
+function cancelEditRecipeField(){
+  editingRecipeId = null;
+  renderCost();
+}
+/* 保存半成品的名称/单位——名称如果真的改了，用跟"食材管理"页改食材名字同一套逻辑
+   （renameIngredientCore），把采购记录、库存记录、食材字典、Addon消耗对照、选项组食材、
+   单位换算、产品食材设定、这个半成品自己的批次记录，全部用到旧名字的地方一起改过来，
+   不是像以前那样只改这一条半成品本身、历史记录留着旧名字不管。 */
+function saveEditRecipeField(id){
   const r = state.recipes.find(x=>x.id===id);
   if(!r) return;
-  const newName = prompt('半成品名称：', r.outputName);
-  if(newName==null) return;
-  const trimmed = newName.trim();
-  if(!trimmed) return;
-  const newUnit = prompt('单位（比如：包）：', r.outputUnit||'包');
-  if(newUnit==null) return;
+  const nameEl = document.getElementById('recipeEditName_'+id);
+  const unitEl = document.getElementById('recipeEditUnit_'+id);
+  const newName = (nameEl.value||'').trim();
+  const newUnit = (unitEl.value||'').trim() || '包';
+  if(!newName){ alert('半成品名称不能为空'); return; }
+  const oldName = r.outputName;
+  const nameChanged = oldName.trim().toLowerCase() !== newName.trim().toLowerCase();
+  if(nameChanged && !confirm(`确定把「${oldName}」改名成「${newName}」吗？\n\n会一起更新：采购单品项、库存出入库记录、食材字典、Addon消耗对照、选项组食材、单位换算、产品的共同食材/食材成本项、这个半成品的批次记录。此操作无法撤销。`)) return;
+  editingRecipeId = null;
   mutate(()=>{
-    r.outputName = trimmed;
-    r.outputUnit = newUnit.trim()||'包';
-    // 改名字之后，历史批次记录、库存记录上的旧名字不会跟着改（保留当时的历史原样），
-    // 只有食材字典会更新成新名字底下、用最新平均算出来的单价
+    if(nameChanged) renameIngredientCore([oldName], newName);
+    const r2 = state.recipes.find(x=>x.id===id);
+    if(r2) r2.outputUnit = newUnit;
     recalcRecipeAverage(id);
   });
   renderCost();
@@ -2785,7 +2767,7 @@ function ensureDefaultPosTables(){
 }
 function startNewAddonMapping(){
   tempAddonMapping = {id:null, addonName:'', components:[{id:uid(), name:'', qtyPerUse:'', unit:''}]};
-  renderPurchase();
+  renderCost();
 }
 function startEditAddonMapping(id){
   const m = state.addonMappings.find(x=>x.id===id);
@@ -2794,11 +2776,11 @@ function startEditAddonMapping(id){
     id:m.id, addonName:m.addonName||'',
     components:(m.components&&m.components.length)? m.components.map(c=>({id:uid(), name:c.name, qtyPerUse:c.qtyPerUse!=null?String(c.qtyPerUse):'', unit:c.unit||''})) : [{id:uid(), name:'', qtyPerUse:'', unit:''}]
   };
-  renderPurchase();
+  renderCost();
 }
 function cancelEditAddonMapping(){
   tempAddonMapping = null;
-  renderPurchase();
+  renderCost();
 }
 function updateAddonMappingField(field, val){
   if(!tempAddonMapping) return;
@@ -2807,13 +2789,13 @@ function updateAddonMappingField(field, val){
 function addAddonMappingComponentRow(){
   if(!tempAddonMapping) return;
   tempAddonMapping.components.push({id:uid(), name:'', qtyPerUse:'', unit:''});
-  renderPurchase();
+  renderCost();
 }
 function removeAddonMappingComponent(id){
   if(!tempAddonMapping) return;
   tempAddonMapping.components = tempAddonMapping.components.filter(c=>c.id!==id);
   if(tempAddonMapping.components.length===0) tempAddonMapping.components.push({id:uid(), name:'', qtyPerUse:'', unit:''});
-  renderPurchase();
+  renderCost();
 }
 function updateAddonMappingComponent(id, field, val){
   if(!tempAddonMapping) return;
@@ -2827,7 +2809,7 @@ function autoLinkAddonMappingComponentUnit(id){
   if(!c) return;
   const ing = findIngredient(c.name);
   if(!ing) return;
-  if(ing.unit && !c.unit){ c.unit = ing.unit; renderPurchase(); }
+  if(ing.unit && !c.unit){ c.unit = ing.unit; renderCost(); }
 }
 function submitAddonMapping(){
   if(!tempAddonMapping) return;
@@ -2847,7 +2829,7 @@ function submitAddonMapping(){
     }
   });
   tempAddonMapping = null;
-  renderPurchase();
+  renderCost();
 }
 function deleteAddonMapping(id){
   if(!confirm('确定删除这份Addon消耗对照吗？（已经导入扣过的库存记录不会被撤销，只是以后再导入Addon报表，这个选项不会再自动扣库存）')) return;
@@ -2911,17 +2893,17 @@ function renderAddonMappingSectionHtml(){
 /* ---- 单位换算管理界面 ---- */
 function startNewUnitConversion(){
   tempUnitConversion = {id:null, ingredientName:'', purchaseUnit:'', usageUnit:'', ratio:''};
-  renderPurchase();
+  renderCost();
 }
 function startEditUnitConversion(id){
   const c = state.unitConversions.find(x=>x.id===id);
   if(!c) return;
   tempUnitConversion = {id:c.id, ingredientName:c.ingredientName, purchaseUnit:c.purchaseUnit||'', usageUnit:c.usageUnit, ratio:c.ratio!=null?String(c.ratio):''};
-  renderPurchase();
+  renderCost();
 }
 function cancelEditUnitConversion(){
   tempUnitConversion = null;
-  renderPurchase();
+  renderCost();
 }
 function updateUnitConversionField(field, val){
   if(!tempUnitConversion) return;
@@ -2958,7 +2940,7 @@ function submitUnitConversion(){
     }
   });
   tempUnitConversion = null;
-  renderPurchase();
+  renderCost();
 }
 function deleteUnitConversion(id){
   if(!confirm('确定删除这条单位换算吗？（之前已经算过的价钱不会改，只是以后再遇到这个单位不会自动换算了）')) return;
@@ -3094,13 +3076,27 @@ function renderRecipeSectionHtml(){
       ${state.recipes.slice().sort((a,b)=>a.outputName.localeCompare(b.outputName,'zh')).length? state.recipes.slice().sort((a,b)=>a.outputName.localeCompare(b.outputName,'zh')).map(r=>{
         const logs = (state.recipeBatchLogs||[]).filter(l=>l.recipeId===r.id);
         const avg = averageCostForRecipe(r.id);
+        if(editingRecipeId===r.id){
+          return `
+          <div class="supplier-card">
+            <label style="margin-top:0;">半成品名称</label>
+            <input id="recipeEditName_${r.id}" autocomplete="off" value="${r.outputName.replace(/"/g,'&quot;')}">
+            <label style="margin-top:8px;">单位（比如：包）</label>
+            <input id="recipeEditUnit_${r.id}" autocomplete="off" value="${(r.outputUnit||'').replace(/"/g,'&quot;')}">
+            <div class="muted" style="font-size:11px; margin-top:6px;">改名称的话，会一起更新采购记录、库存记录、食材字典、Addon消耗对照、选项组食材、单位换算、产品食材设定、这个半成品的批次记录里用到这个名字的地方。</div>
+            <div style="display:flex; gap:8px; margin-top:10px;">
+              <button class="btn-main" style="flex:1; margin-top:0;" onclick="saveEditRecipeField('${r.id}')">保存</button>
+              <button class="btn-ghost" style="flex:1;" onclick="cancelEditRecipeField()">取消</button>
+            </div>
+          </div>`;
+        }
         return `
         <div class="supplier-card">
           <b>${r.outputName}${r.outputUnit?' ('+r.outputUnit+')':''}</b>
           <div class="muted" style="font-size:11.5px; margin-top:2px;">${logs.length? `已经记录 ${logs.length} 批，加权平均每${r.outputUnit||'包'}成本约 RM${fmtPlain(avg)}` : '还没记录过任何一批'}</div>
           <div style="display:flex; gap:8px; margin-top:8px;">
             <button class="btn-main" style="flex:1; margin:0; padding:9px 4px;" onclick="startNewRecipeBatchFor('${r.id}')">📝 记一批</button>
-            <button class="btn-ghost btn-small" onclick="startRenameRecipe('${r.id}')">改名</button>
+            <button class="btn-ghost btn-small" onclick="startEditRecipeField('${r.id}')">✏️ 编辑</button>
             <button class="btn-danger-text" onclick="deleteRecipe('${r.id}')">删除</button>
           </div>
         </div>`;
@@ -4188,7 +4184,7 @@ function ingredientLinkRowHtml(ing){
   const otherUsageHtml = hasOtherUsage ? `<div class="muted" style="font-size:11.5px; margin-top:6px; line-height:1.5;">
       ${addonUsage.length? `🧾 也用在Addon选项：${addonUsage.map(u=>`${u.addonName}（${u.qty||0}${u.unit||''}/次）`).join('、')}` : ''}
       ${(addonUsage.length && optionUsage.length)? '<br>' : ''}
-      ${optionUsage.length? `🎛️ 也用在选项组：${optionUsage.map(u=>`${u.groupName}→${u.choiceName}（${u.qty||0}${u.unit||''}）`).join('、')}` : ''}
+      ${optionUsage.length? `🎛️ 也用在选项组：${optionUsage.map(u=>`${u.groupName}→${u.choiceName}（${u.qty||0}${u.unit||''}）`).join('、')}　<a href="javascript:void(0)" onclick="switchToTab('cost'); setProdSubView('options');">去选项组编辑</a>` : ''}
     </div>` : '';
   const infoParts = [];
   if(ing.unit) infoParts.push(`单位 ${ing.unit}`);
@@ -4419,6 +4415,21 @@ function renderIngredientLinkSectionHtml(){
     <div id="ingredientLinkListWrap">${ingredientLinkListHtml()}</div>
   `;
 }
+/* 合并采购品项名称——原本放在"采购"页，现在跟食材管理、Addon消耗对照、单位换算收在同一个
+   "产品→🔗食材"页面，全部跟食材有关的东西不用再两个分页之间跳来跳去找。 */
+function renderMergeIngredientNameSectionHtml(){
+  return `
+    <div class="card">
+      <h3>合并采购品项名称</h3>
+      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">不同张采购单（不同日期、不同供应商）里，同一样东西有时候会因为打法不一样被记成好几个不同的品名（比如"猪肝"跟"Pork Liver"）。这里可以把这些旧名字统一合并成一个：所有采购单、库存出入库记录里的品名都会一起改过来，食材字典（含关联的产品、参考单价）也会合并成一条，半成品配方/Addon消耗对照/选项组/单位换算设定里用到旧名字的地方也会一起更新。此操作无法撤销。</div>
+      <label>要合并掉的旧品名（可以填好几个，用顿号"、"分开）</label>
+      <input id="mergeItemFromList" placeholder="例：猪肝、Pork Liver" autocomplete="off">
+      <label style="margin-top:10px">统一成这个品名</label>
+      <input id="mergeItemToTarget" placeholder="例：猪肝" autocomplete="off">
+      <button class="btn-line" onclick="mergePurchaseItemNames()">🔀 合并</button>
+    </div>
+  `;
+}
 let ingredientLinkFilterTimer = null;
 function filterIngredientLinkList(q){
   ingredientLinkSearchQuery = q;
@@ -4459,7 +4470,10 @@ function goToIngredientLinkTab(name){
 function setProdSubView(val){
   prodSubView = val;
   tempRecipe = null;
+  editingRecipeId = null;
   tempOptionGroup = null;
+  tempAddonMapping = null;
+  tempUnitConversion = null;
   renderCost();
 }
 function renderCost(){
@@ -4470,7 +4484,7 @@ function renderCost(){
       <button type="button" class="btn-toggle ${prodSubView==='cost'?'active':''}" onclick="setProdSubView('cost')">🧮 成本</button>
       <button type="button" class="btn-toggle ${prodSubView==='recipe'?'active':''}" onclick="setProdSubView('recipe')">🧑‍🍳 半成品成本</button>
       <button type="button" class="btn-toggle ${prodSubView==='options'?'active':''}" onclick="setProdSubView('options')">🎛️ 选项组</button>
-      <button type="button" class="btn-toggle ${prodSubView==='link'?'active':''}" onclick="setProdSubView('link')">🔗 食材管理</button>
+      <button type="button" class="btn-toggle ${prodSubView==='link'?'active':''}" onclick="setProdSubView('link')">🔗 食材</button>
     </div>`;
   if(prodSubView==='options'){
     el.innerHTML = prodSubTabHtml + renderOptionGroupSectionHtml();
@@ -4485,10 +4499,25 @@ function renderCost(){
     return;
   }
   if(prodSubView==='link'){
-    el.innerHTML = prodSubTabHtml + renderIngredientLinkSectionHtml();
+    el.innerHTML = prodSubTabHtml + renderIngredientLinkSectionHtml() + renderMergeIngredientNameSectionHtml() + renderAddonMappingSectionHtml() + renderUnitConversionSectionHtml();
     if(ingredientLinkSearchQuery) filterIngredientLinkList(ingredientLinkSearchQuery);
     else wireVisibleIngredientLinkPickers();
     wireSuggest('ingredientLinkSearchInput', getIngredientNames());
+    wireSuggest('mergeItemFromList', getIngredientNames());
+    wireSuggest('mergeItemToTarget', getIngredientNames());
+    const ingredientNames2 = getIngredientNames();
+    const unitSuggestions2 = getUnitSuggestions();
+    if(tempAddonMapping){
+      wireSuggest('addonMapNameText', getAddonNamesFromSales());
+      tempAddonMapping.components.forEach(c=>{
+        wireSuggest('addonMapCompName_'+c.id, ingredientNames2);
+        wireSuggest('addonMapCompUnit_'+c.id, unitSuggestions2);
+      });
+    }
+    if(tempUnitConversion){
+      wireSuggest('convIngredientName', ingredientNames2);
+      wireSuggest('convUsageUnit', unitSuggestions2);
+    }
     return;
   }
   if(prodSubView==='recipe'){
@@ -5121,7 +5150,7 @@ function mergePurchaseItemNames(){
   document.getElementById('mergeItemFromList').value = '';
   document.getElementById('mergeItemToTarget').value = '';
   alert(`合并完成：\n・${summary.items} 笔采购品项改名为「${toName}」\n・${summary.adj} 笔库存出入库记录改名\n・食材字典合并掉 ${summary.ingredientMerged} 条重复条目${summary.misc? `\n・另外 ${summary.misc} 处半成品配方/Addon消耗对照/选项组/单位换算/产品食材设定一起更新了名字` : ''}`);
-  renderPurchase();
+  renderCost();
 }
 /* 把好几个写法不一样、其实是同一样东西的产品合并成一个：
    - fromNames 底下任何一个名字（不分大小写）的历史销售记录，productName 全部改成 toName，
