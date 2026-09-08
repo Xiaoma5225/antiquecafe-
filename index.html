@@ -1087,7 +1087,8 @@ function loadLocalThenApp(){
   const changed2 = reconcileIngredients();
   const changed3 = ensureDefaultAddonMappings();
   const changed4 = ensureDefaultPosTables();
-  if(changed1 || changed2 || changed3 || changed4) saveState();
+  const changed5 = reconcileAddonMappings();
+  if(changed1 || changed2 || changed3 || changed4 || changed5) saveState();
   renderAll();
 }
 function doLogin(){
@@ -1211,7 +1212,8 @@ function scheduleRenderAfterSync(){
     const changed2 = reconcileIngredients();
     const changed3 = ensureDefaultAddonMappings();
     const changed4 = ensureDefaultPosTables();
-    if(changed1 || changed2 || changed3 || changed4) saveState();
+    const changed5 = reconcileAddonMappings();
+    if(changed1 || changed2 || changed3 || changed4 || changed5) saveState();
     renderAll();
     setSyncStatus('云同步：已连接 ✓（共享账本）');
   }, 200);
@@ -1457,10 +1459,49 @@ function reconcileIngredients(){
   dedupeIngredientEntries();
   return JSON.stringify(state.ingredients) !== before;
 }
+/* Addon消耗对照也可能出现"一模一样的addonName却存了好几条"——最常见的原因是：
+   共享账本刚启用的时候，如果有好几台装置几乎同时第一次打开这个App，各自都还没
+   同步到"已经自动补过一次默认Addon对照"这个旗标（addonMappingsSeeded），
+   于是每台装置都各自独立生成了一整套默认对照（各自随机的id），最后同步回同一个
+   共享账本的时候，变成同一个Addon选项名称出现两三条几乎一样的对照。
+   这里比照食材字典那边的做法：忽略大小写/头尾空格，名字相同就自动合并成一条，
+   耗用食材清单取联集（谁少了哪样食材就互相补上），不用手动一条条删多余的。 */
+function dedupeAddonMappings(){
+  if(!state.addonMappings || !state.addonMappings.length) return;
+  const norm = s=>(s||'').trim().toLowerCase();
+  const seen = new Map();
+  const survivors = [];
+  state.addonMappings.forEach(m=>{
+    const key = norm(m.addonName);
+    const existing = seen.get(key);
+    if(!existing){
+      seen.set(key, m);
+      survivors.push(m);
+    } else {
+      const existingCompNames = new Set((existing.components||[]).map(c=>norm(c.name)));
+      (m.components||[]).forEach(c=>{
+        const ck = norm(c.name);
+        if(!existingCompNames.has(ck)){
+          if(!existing.components) existing.components = [];
+          existing.components.push(c);
+          existingCompNames.add(ck);
+        }
+      });
+    }
+  });
+  state.addonMappings = survivors;
+}
+function reconcileAddonMappings(){
+  if(!state.addonMappings || !state.addonMappings.length) return false;
+  const before = JSON.stringify(state.addonMappings);
+  dedupeAddonMappings();
+  return JSON.stringify(state.addonMappings) !== before;
+}
 function mutate(fn){
   fn();
   reconcileCashflow();
   reconcileIngredients();
+  reconcileAddonMappings();
   saveState();
   renderAll();
 }
@@ -1797,6 +1838,23 @@ function ingredientPriceInUnit(ingredientName, targetUnit){
   const conv = findUnitConversion(ingredientName, targetUnit);
   if(conv && conv.ratio>0) return ing.unitPrice / conv.ratio;
   return null;
+}
+/* 半成品的"标准配方"存的是配方设定当下那一刻的单价快照——如果配方里用到的东西本身
+   也是别的食材/半成品（比如"虾面汤"配方里用到"虾汤"），"虾汤"自己后来改了单价或
+   重新记了一批、平均成本变了，"虾面汤"存的那份配方原本不会跟着动，会一直显示旧单价。
+   这里在每次要把"标准配方"拿出来当"记一批"草稿、或打开"编辑"配方screen的时候，
+   都重新对一次食材字典，把找得到的食材/半成品都换成现在最新的单价（单位不一样的话
+   也会照单位换算表折算），找不到的（比如已经改名或删掉的）就维持原本存的数字不动。
+   这只影响"预先带出来给你参考/编辑"的草稿，已经记录下来的历史批次成本不会被这样回头改动。 */
+function refreshComponentPricesFromIngredients(components){
+  (components||[]).forEach(c=>{
+    if(!c || !c.name) return;
+    const ing = findIngredient(c.name);
+    if(!ing) return;
+    const converted = ingredientPriceInUnit(c.name, c.unit);
+    if(converted!=null) c.unitPrice = converted;
+    else if(ing.unitPrice!=null && ing.unitPrice!=='') c.unitPrice = ing.unitPrice;
+  });
 }
 /* ---- 通用输入建议：单位 + 历史备注 + 产品编号 ----
    这几类字段没有一个中心字典，用得到的地方很分散（采购品项、成本项、配方用料、Addon消耗、各种备注），
@@ -2569,31 +2627,82 @@ function startNewRecipe(){
   tempRecipe = {id:null, recipeId:null, editingLogId:null, outputName:'', outputUnit:'包', packQty:'', company:'', date:todayStr(), components:[{id:uid(), name:'', qty:'', unit:'', unitPrice:''}]};
   renderCost();
 }
-/* 「记一批」：延续一个已经存在的半成品（沿用它的名字/单位，也把上一批用料列出来当草稿方便改），
-   这样填起来比每次从头打字快，但每一批实际用了多少还是要自己确认/改，不是自动重复上一批。 */
+/* 「记一批」：半成品有存过"标准配方"（固定的食材种类/比例 + 标准可以做出幾份）的话，
+   直接照配方带出草稿——预设"这次做了幾份"＝标准份数，食材数量＝配方原本的数量。
+   如果之后把"这次做了幾份"改掉，会照比例自动重新算这批共要多少（见 rescaleRecipeComponentsFromFormula），
+   但食材种类/比例不是锁死的，改完自动算出来的数字之后，仍然可以再手动调整任一样食材。
+   还没设过标准配方的半成品（比如这个功能上线以前就有的旧资料），退回沿用"上一批"的用料当草稿。 */
 function startNewRecipeBatchFor(recipeId){
   const r = state.recipes.find(x=>x.id===recipeId);
   if(!r) return;
-  const lastLog = (state.recipeBatchLogs||[]).filter(l=>l.recipeId===recipeId && l.components && l.components.length).sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
+  let packQty = '', components, formulaStdPackQty = null, formulaComponents = null;
+  if(r.components && r.components.length && r.standardPackQty){
+    const fresh = r.components.map(c=>({name:c.name, qty:c.qty, unit:c.unit, unitPrice:c.unitPrice}));
+    refreshComponentPricesFromIngredients(fresh);
+    packQty = String(r.standardPackQty);
+    components = fresh.map(c=>({id:uid(), name:c.name, qty:c.qty!=null?String(c.qty):'', unit:c.unit||'', unitPrice:c.unitPrice!=null?String(c.unitPrice):''}));
+    formulaStdPackQty = r.standardPackQty;
+    formulaComponents = fresh;
+  } else {
+    const lastLog = (state.recipeBatchLogs||[]).filter(l=>l.recipeId===recipeId && l.components && l.components.length).sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
+    const fresh = lastLog ? lastLog.components.map(c=>({name:c.name, qty:c.qty, unit:c.unit, unitPrice:c.unitPrice})) : [];
+    refreshComponentPricesFromIngredients(fresh);
+    components = fresh.length ? fresh.map(c=>({id:uid(), name:c.name, qty:'', unit:c.unit||'', unitPrice:c.unitPrice!=null?String(c.unitPrice):''})) : [{id:uid(), name:'', qty:'', unit:'', unitPrice:''}];
+  }
   tempRecipe = {
-    id:null, recipeId:r.id, editingLogId:null, outputName:r.outputName, outputUnit:r.outputUnit||'包', packQty:'', company:'', date:todayStr(),
-    components: lastLog ? lastLog.components.map(c=>({id:uid(), name:c.name, qty:'', unit:c.unit||'', unitPrice:c.unitPrice!=null?String(c.unitPrice):''})) : [{id:uid(), name:'', qty:'', unit:'', unitPrice:''}]
+    id:null, recipeId:r.id, editingLogId:null, outputName:r.outputName, outputUnit:r.outputUnit||'包', packQty, company:'', date:todayStr(),
+    components, _formulaStandardPackQty: formulaStdPackQty, _formulaComponents: formulaComponents
   };
+  renderCost();
+}
+/* "分成了幾份"这一格改掉之后，如果这个半成品有存过标准配方，就照"这次份数 ÷ 标准份数"的比例
+   重新算每样食材这次共要多少，直接覆盖掉表单上原本的数字——使用者还是可以在这之后手动改回自己要的数字，
+   不会被这次算出来的结果锁住。顺便也重新对一次食材字典，带出最新单价（见 refreshComponentPricesFromIngredients）。 */
+function rescaleRecipeComponentsFromFormula(){
+  if(!tempRecipe || !tempRecipe._formulaStandardPackQty || !tempRecipe._formulaComponents || !tempRecipe._formulaComponents.length) return;
+  const std = Number(tempRecipe._formulaStandardPackQty);
+  const target = Number(tempRecipe.packQty);
+  if(!std || !target || isNaN(std) || isNaN(target)) return;
+  const ratio = target/std;
+  const fresh = tempRecipe._formulaComponents.map(c=>({name:c.name, qty:c.qty, unit:c.unit, unitPrice:c.unitPrice}));
+  refreshComponentPricesFromIngredients(fresh);
+  tempRecipe.components = fresh.map(c=>({
+    id:uid(), name:c.name, unit:c.unit||'',
+    qty: String(Math.round((Number(c.qty)||0)*ratio*10000)/10000),
+    unitPrice: c.unitPrice!=null?String(c.unitPrice):''
+  }));
   renderCost();
 }
 /* 编辑已经记过的某一批（在下面"批次记录历史"点"编辑"进来）：把当时记的日期/份数/用料
    原封不动摆进同一份表单，让使用者直接改错的地方（比如份数打错、某样食材漏填），
    不用先"撤销"整批重来。保存的时候会认出 tempRecipe.editingLogId，改成"更新这一笔"
-   而不是"新增一笔"，库存扣补也会跟着重算（见 submitRecipeBatch）。 */
+   而不是"新增一笔"，库存扣补也会跟着重算（见 submitRecipeBatch）。
+   旧格式记录（那时候用 triggerName/triggerQty/triggerUnit + totalBatchCost 存，
+   没有正常的 components 用料清单）也可以编辑：这里先把当时那个"触发食材"当成第一样
+   食材列出来当草稿（单价没存过、只能倒推：总成本÷用量），使用者确认/补齐之后存下去，
+   就会变成正常格式的批次记录，以后显示、编辑都跟新格式记录一样。 */
 function startEditRecipeBatch(logId){
   const log = (state.recipeBatchLogs||[]).find(l=>l.id===logId);
   if(!log) return;
+  const recipe = state.recipes.find(r=>r.id===log.recipeId);
+  let components;
+  if(log.components && log.components.length){
+    components = log.components.map(c=>({id:uid(), name:c.name, qty:c.qty!=null?String(c.qty):'', unit:c.unit||'', unitPrice:c.unitPrice!=null?String(c.unitPrice):''}));
+  } else if(log.triggerName){
+    const totalCost = Number(log.totalBatchCost)||0;
+    const triggerQty = Number(log.triggerQty)||0;
+    const backCalcPrice = triggerQty>0 ? Math.round((totalCost/triggerQty)*10000)/10000 : '';
+    components = [{id:uid(), name:log.triggerName, qty:log.triggerQty!=null?String(log.triggerQty):'', unit:log.triggerUnit||'', unitPrice: backCalcPrice!==''?String(backCalcPrice):''}];
+  } else {
+    components = [{id:uid(), name:'', qty:'', unit:'', unitPrice:''}];
+  }
   tempRecipe = {
     id:null, recipeId:log.recipeId, editingLogId:log.id,
-    outputName:log.outputName, outputUnit:log.outputUnit||'包',
+    outputName: log.outputName || (recipe? recipe.outputName : effectiveOutputName(recipe)),
+    outputUnit: log.outputUnit || (recipe? recipe.outputUnit : '') || '包',
     packQty: log.packQty!=null? String(log.packQty) : '',
     company: log.company||'', date: log.date||todayStr(),
-    components: (log.components&&log.components.length)? log.components.map(c=>({id:uid(), name:c.name, qty:c.qty!=null?String(c.qty):'', unit:c.unit||'', unitPrice:c.unitPrice!=null?String(c.unitPrice):''})) : [{id:uid(), name:'', qty:'', unit:'', unitPrice:''}]
+    components
   };
   renderCost();
   window.scrollTo({top:0, behavior:'smooth'});
@@ -2698,6 +2807,17 @@ function submitRecipeBatch(){
       const r = state.recipes.find(x=>x.id===recipeId);
       if(r){ r.outputName = outputName; r.outputUnit = outputUnit; }
     }
+    if(!editingLogId){
+      // 这个半成品还没存过"标准配方"的话（第一次记的这一批，或者是这个功能上线以前
+      // 就有、从来没设过配方的旧半成品），就直接把这一批当成标准配方存起来，
+      // 之后"记一批"就有东西可以照比例带草稿了；已经有配方的话不动，配方本身
+      // 要改要去半成品的"编辑"里改，不会被"记一批"悄悄覆盖掉。
+      const r2 = state.recipes.find(x=>x.id===recipeId);
+      if(r2 && (!r2.components || !r2.components.length)){
+        r2.components = comps.map(c=>({name:c.name, qty:c.qty, unit:c.unit, unitPrice:c.unitPrice}));
+        r2.standardPackQty = packQty;
+      }
+    }
     if(!state.stockAdjustments) state.stockAdjustments = [];
     if(editingLogId){
       const oldLog = (state.recipeBatchLogs||[]).find(l=>l.id===editingLogId);
@@ -2751,19 +2871,89 @@ function recalcRecipeAverage(recipeId){
   if(!logs.length) return; // 一批都没有了，先不动食材字典，避免把单价清成0
   learnIngredientLink(recipe.outputName, [], {unit: recipe.outputUnit, unitPrice: averageCostForRecipe(recipeId)});
 }
-let editingRecipeId = null; // 目前正在编辑名称/单位的半成品id，null表示没有
+let editingRecipeId = null; // 目前正在编辑名称/单位/标准配方的半成品id，null表示没有
+let tempRecipeFormulaEdit = null; // 编辑半成品的时候，标准配方（食材清单+标准份数）的编辑草稿
 function startEditRecipeField(id){
+  const r = state.recipes.find(x=>x.id===id);
+  if(!r) return;
   editingRecipeId = id;
+  const fresh = (r.components||[]).map(c=>({name:c.name, qty:c.qty, unit:c.unit, unitPrice:c.unitPrice}));
+  refreshComponentPricesFromIngredients(fresh);
+  tempRecipeFormulaEdit = {
+    standardPackQty: r.standardPackQty!=null? String(r.standardPackQty) : '',
+    components: fresh.length? fresh.map(c=>({id:uid(), name:c.name, qty:c.qty!=null?String(c.qty):'', unit:c.unit||'', unitPrice:c.unitPrice!=null?String(c.unitPrice):''})) : [{id:uid(), name:'', qty:'', unit:'', unitPrice:''}]
+  };
   renderCost();
 }
 function cancelEditRecipeField(){
   editingRecipeId = null;
+  tempRecipeFormulaEdit = null;
   renderCost();
 }
-/* 保存半成品的名称/单位——名称如果真的改了，用跟"食材管理"页改食材名字同一套逻辑
+function updateRecipeFormulaField(field, val){
+  if(!tempRecipeFormulaEdit) return;
+  tempRecipeFormulaEdit[field] = val;
+}
+function addRecipeFormulaComponentRow(){
+  if(!tempRecipeFormulaEdit) return;
+  tempRecipeFormulaEdit.components.push({id:uid(), name:'', qty:'', unit:'', unitPrice:''});
+  renderCost();
+}
+function removeRecipeFormulaComponentRow(id){
+  if(!tempRecipeFormulaEdit) return;
+  tempRecipeFormulaEdit.components = tempRecipeFormulaEdit.components.filter(c=>c.id!==id);
+  if(tempRecipeFormulaEdit.components.length===0) tempRecipeFormulaEdit.components.push({id:uid(), name:'', qty:'', unit:'', unitPrice:''});
+  renderCost();
+}
+function updateRecipeFormulaComponent(id, field, val){
+  if(!tempRecipeFormulaEdit) return;
+  const c = tempRecipeFormulaEdit.components.find(x=>x.id===id);
+  if(!c) return;
+  c[field] = val;
+}
+function autoLinkRecipeFormulaComponentPrice(id){
+  if(!tempRecipeFormulaEdit) return;
+  const c = tempRecipeFormulaEdit.components.find(x=>x.id===id);
+  if(!c) return;
+  const ing = findIngredient(c.name);
+  if(!ing) return;
+  let changed = false;
+  if(ing.unit && !c.unit){ c.unit = ing.unit; changed = true; }
+  if(ing.unitPrice && !c.unitPrice){ c.unitPrice = String(ing.unitPrice); changed = true; }
+  if(changed) renderCost();
+}
+function autoLinkRecipeFormulaComponentUnit(id){
+  if(!tempRecipeFormulaEdit) return;
+  const c = tempRecipeFormulaEdit.components.find(x=>x.id===id);
+  if(!c) return;
+  const price = ingredientPriceInUnit(c.name, c.unit);
+  if(price==null) return;
+  c.unitPrice = String(Math.round(price*10000)/10000);
+  renderCost();
+}
+function recipeFormulaComponentRowsHtml(){
+  if(!tempRecipeFormulaEdit) return '';
+  return tempRecipeFormulaEdit.components.map(c=>`
+    <div class="pi-card">
+      <div class="pi-top">
+        <input autocomplete="off" id="recipeFormulaCompName_${c.id}" placeholder="食材品名" value="${c.name}" oninput="updateRecipeFormulaComponent('${c.id}','name',this.value)" onchange="autoLinkRecipeFormulaComponentPrice('${c.id}')">
+        ${tempRecipeFormulaEdit.components.length>1? `<button class="rm" onclick="removeRecipeFormulaComponentRow('${c.id}')">×</button>` : '<span style="width:20px"></span>'}
+      </div>
+      <div class="pi-bottom" style="grid-template-columns:repeat(3,1fr);">
+        <input placeholder="标准用量" type="text" inputmode="decimal" step="0.0001" value="${c.qty}" oninput="updateRecipeFormulaComponent('${c.id}','qty',this.value)">
+        <input autocomplete="off" id="recipeFormulaCompUnit_${c.id}" placeholder="单位" value="${c.unit}" oninput="updateRecipeFormulaComponent('${c.id}','unit',this.value)" onchange="autoLinkRecipeFormulaComponentUnit('${c.id}')">
+        <input placeholder="单价RM" type="text" inputmode="decimal" step="0.01" value="${c.unitPrice}" oninput="updateRecipeFormulaComponent('${c.id}','unitPrice',this.value)">
+      </div>
+    </div>
+  `).join('');
+}
+/* 保存半成品的名称/单位/标准配方——名称如果真的改了，用跟"食材管理"页改食材名字同一套逻辑
    （renameIngredientCore），把采购记录、库存记录、食材字典、Addon消耗对照、选项组食材、
    单位换算、产品食材设定、这个半成品自己的批次记录，全部用到旧名字的地方一起改过来，
-   不是像以前那样只改这一条半成品本身、历史记录留着旧名字不管。 */
+   不是像以前那样只改这一条半成品本身、历史记录留着旧名字不管。
+   标准配方（食材种类/比例+标准份数）是"记一批"带草稿用的参考基准，改了不会牵动
+   已经记过的批次历史（那些是当时的实际记录，照样保留），只影响以后"记一批"打开时
+   预先带出来的数字。 */
 function saveEditRecipeField(id){
   const r = state.recipes.find(x=>x.id===id);
   if(!r) return;
@@ -2772,14 +2962,25 @@ function saveEditRecipeField(id){
   const newName = (nameEl.value||'').trim();
   const newUnit = (unitEl.value||'').trim() || '包';
   if(!newName){ alert('半成品名称不能为空'); return; }
+  const formulaComps = (tempRecipeFormulaEdit? tempRecipeFormulaEdit.components : []).filter(c=>c.name && c.qty!=='' && c.unitPrice!=='').map(c=>({name:c.name.trim(), qty:Number(c.qty), unit:c.unit||'', unitPrice:Number(c.unitPrice)}));
+  const formulaStdPackQty = tempRecipeFormulaEdit? Number(tempRecipeFormulaEdit.standardPackQty) : 0;
+  if(formulaComps.length && (!formulaStdPackQty || formulaStdPackQty<=0 || isNaN(formulaStdPackQty))){
+    alert('配方食材已经填了，请也填一下"标准可以做出幾份"（要大于0），不然没办法照比例换算');
+    return;
+  }
   const oldName = r.outputName;
   const nameChanged = oldName.trim().toLowerCase() !== newName.trim().toLowerCase();
   if(nameChanged && !confirm(`确定把「${oldName}」改名成「${newName}」吗？\n\n会一起更新：采购单品项、库存出入库记录、食材字典、Addon消耗对照、选项组食材、单位换算、产品的共同食材/食材成本项、这个半成品的批次记录。此操作无法撤销。`)) return;
   editingRecipeId = null;
+  tempRecipeFormulaEdit = null;
   mutate(()=>{
     if(nameChanged) renameIngredientCore([oldName], newName);
     const r2 = state.recipes.find(x=>x.id===id);
-    if(r2) r2.outputUnit = newUnit;
+    if(r2){
+      r2.outputUnit = newUnit;
+      r2.components = formulaComps;
+      r2.standardPackQty = formulaComps.length? formulaStdPackQty : null;
+    }
     recalcRecipeAverage(id);
   });
   renderCost();
@@ -3141,9 +3342,10 @@ function recipeFormHtml(){
       <input type="date" id="recipeBatchDate" value="${tempRecipe.date||todayStr()}" onchange="updateRecipeField('date', this.value); this.blur();">
       <label style="margin-top:10px">分成了幾份（这批实际分装出来的数量）</label>
       <div style="display:flex; gap:8px;">
-        <input id="recipePackQty" type="text" inputmode="decimal" step="0.01" placeholder="例：25" style="flex:1;" value="${tempRecipe.packQty}" oninput="updateRecipeField('packQty', this.value)">
+        <input id="recipePackQty" type="text" inputmode="decimal" step="0.01" placeholder="例：25" style="flex:1;" value="${tempRecipe.packQty}" oninput="updateRecipeField('packQty', this.value)" onchange="rescaleRecipeComponentsFromFormula()">
         <input autocomplete="off" id="recipeOutputUnit" placeholder="单位，例：包" style="flex:1;" value="${tempRecipe.outputUnit||''}" oninput="updateRecipeField('outputUnit', this.value)">
       </div>
+      ${tempRecipe._formulaStandardPackQty? `<div class="muted" style="font-size:11px; margin-top:4px;">已经照标准配方（做${tempRecipe._formulaStandardPackQty}${tempRecipe.outputUnit||'包'}的比例）帮你算好下面的食材数量了；改这一格会照新的份数比例重新算一次，下面还是可以再手动调整任一样食材。</div>` : ''}
       <label style="margin-top:14px">这次用了什么食材、各自多少量（品名、这次用了多少、单价）</label>
       <div id="recipeComponentsWrap">${recipeComponentRowsHtml()}</div>
       <button class="btn-line" onclick="addRecipeComponentRow()">+ 添加一样食材</button>
@@ -3160,7 +3362,7 @@ function renderRecipeSectionHtml(){
     <div class="card">
       <h3>半成品 <span class="n">${state.recipes.length} 个</span></h3>
       <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">
-        有些东西要先加工/配料才能用在菜品上，比如"腌肉碎"要先配腌料、某个酱料要先调配。在这里记录：半成品叫什么名字、每次实际做的时候用了什么食材、各自多少量、分成了幾份——系统会算出这批的成本，再跟以前记过的批次一起加权平均，算出「现在」每份大概多少钱，直接存进食材字典，之后任何产品的"食材成本项"打这个半成品的名字就会自动带出单价，不用心算。因为每批实际用量本来就会不一样，所以是每次实际记、不是套固定公式。
+        有些东西要先加工/配料才能用在菜品上，比如"腌肉碎"要先配腌料、某个酱料要先调配。半成品有一份"标准配方"（固定的食材种类/比例、标准可以做出幾份，在"编辑"里设），"记一批"的时候会照配方自动带出这次的食材数量当草稿——只要改一下"这次做了幾份"，系统会照比例重新算，算出来的数字还是可以再手动调整任一样食材，不会被锁死。系统会把每一批实际记的成本、跟以前记过的批次一起加权平均，算出「现在」每份大概多少钱，直接存进食材字典，之后任何产品的"食材成本项"打这个半成品的名字就会自动带出单价，不用心算。
       </div>
       ${!tempRecipe? `<button class="btn-main" onclick="startNewRecipe()">+ 新增半成品（记第一批）</button>` : ''}
       <hr class="receipt-divider">
@@ -3175,6 +3377,12 @@ function renderRecipeSectionHtml(){
             <label style="margin-top:8px;">单位（比如：包）</label>
             <input id="recipeEditUnit_${r.id}" autocomplete="off" value="${(r.outputUnit||'').replace(/"/g,'&quot;')}">
             <div class="muted" style="font-size:11px; margin-top:6px;">改名称的话，会一起更新采购记录、库存记录、食材字典、Addon消耗对照、选项组食材、单位换算、产品食材设定、这个半成品的批次记录里用到这个名字的地方。</div>
+            <label style="margin-top:14px;">标准配方 · 标准可以做出幾份</label>
+            <input id="recipeFormulaStdPackQty" type="text" inputmode="decimal" step="0.01" placeholder="例：160" value="${tempRecipeFormulaEdit?tempRecipeFormulaEdit.standardPackQty:''}" oninput="updateRecipeFormulaField('standardPackQty', this.value)">
+            <label style="margin-top:10px;">标准配方 · 固定用哪些食材、各自多少量</label>
+            <div id="recipeFormulaComponentsWrap">${recipeFormulaComponentRowsHtml()}</div>
+            <button class="btn-line" onclick="addRecipeFormulaComponentRow()">+ 添加一样食材</button>
+            <div class="muted" style="font-size:11px; margin-top:6px;">这份配方是"记一批"预设带出来的参考基准，改这里不会动到已经记过的批次历史；食材种类/比例不是锁死的，每次记一批的时候都还是可以照实际情况手动调整。留空的话，以后"记一批"会退回沿用上一批的用料当草稿。</div>
             <div style="display:flex; gap:8px; margin-top:10px;">
               <button class="btn-main" style="flex:1; margin-top:0;" onclick="saveEditRecipeField('${r.id}')">保存</button>
               <button class="btn-ghost" style="flex:1;" onclick="cancelEditRecipeField()">取消</button>
@@ -3206,7 +3414,7 @@ function renderRecipeSectionHtml(){
           <div style="display:flex; justify-content:space-between; align-items:baseline;">
             <span class="muted">${l.date}</span>
             <div style="display:flex; gap:10px;">
-              ${(l.components&&l.components.length)? `<button class="btn-ghost btn-small" style="padding:4px 10px;" onclick="startEditRecipeBatch('${l.id}')">编辑</button>` : ''}
+              <button class="btn-ghost btn-small" style="padding:4px 10px;" onclick="startEditRecipeBatch('${l.id}')">编辑</button>
               <button class="btn-danger-text" onclick="undoRecipeBatch('${l.id}')">撤销</button>
             </div>
           </div>
@@ -4183,6 +4391,8 @@ let draftProductOptionGroupId = '';
 let draftProductAddonGroupId = '';
 let tempMergeVariantRows = [{id:uid(), sourceName:'', label:''}];
 let prodSubView = 'product'; // 'product' = 名称/售价/分类等基本资料的新增编辑，'cost' = 食材成本/毛利细项，'recipe' = 半成品配方，'options' = 选项组
+let productSubView = 'form'; // "产品"这个子分页底下自己的第三层分页：'form' = 新增/编辑产品表单，'mergeNames' = 合并重复产品，'mergeVariants' = 合并成同一产品的不同规格
+function setProductSubView(val){ productSubView = val; renderCost(); }
 let ingSubView = 'list'; // 食材页（独立顶层tab）自己的子分页：'list' = 食材列表，'merge' = 合并采购品项名称，'addon' = Addon消耗对照，'unit' = 单位换算
 let ingredientLinkSearchQuery = '';
 /* 食材关联页要把"半成品配方本身用到的食材"排除掉——那些原料/用料的成本已经透过配方自动流进
@@ -4820,7 +5030,49 @@ function renderCost(){
     displayProducts.forEach(p=>wireSuggest('addCi_'+p.id+'_name', ingNames));
     return;
   }
-  el.innerHTML = prodSubTabHtml + `
+  const productSubTabHtml = `
+    <div class="btn-group" style="margin-bottom:14px;">
+      <button type="button" class="btn-toggle ${productSubView==='form'?'active':''}" onclick="setProductSubView('form')">📝 ${editingProduct?'编辑产品':'新增产品'}</button>
+      <button type="button" class="btn-toggle ${productSubView==='mergeNames'?'active':''}" onclick="setProductSubView('mergeNames')">🔀 合并重复产品</button>
+      <button type="button" class="btn-toggle ${productSubView==='mergeVariants'?'active':''}" onclick="setProductSubView('mergeVariants')">📐 合并成规格</button>
+    </div>`;
+  if(productSubView==='mergeNames'){
+    el.innerHTML = prodSubTabHtml + productSubTabHtml + `
+    <div class="card">
+      <h3>合并重复产品</h3>
+      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">同一样东西有时候会因为大小写、多字少字，在 app 里变成好几个不同的产品（比如收银员打字打法不一样）。这里可以把旧名字统一合并成一个：旧名字底下的销售记录会全部改成新名字（这样以后算销量/毛利才不会分散算），旧的重复产品项目会被删掉，里面填过的食材成本项会自动搬到合并后的产品底下，不会不见。</div>
+      <label>要合并掉的旧名字（可以填好几个，用顿号"、"分开）</label>
+      <input id="mergeFromList" placeholder="例：Strawberry Jam、strawberry jam、add strawberry jam" autocomplete="off">
+      <label style="margin-top:10px">统一成这个名字（如果这个名字目前还没有产品，会直接拿旧产品其中一个改名字延用，食材成本不会丢）</label>
+      <input id="mergeToTarget" placeholder="例：STRAWBERRY JAM ONE BOTTLE" autocomplete="off">
+      <button class="btn-line" onclick="mergeProductsByName()">🔀 合并</button>
+    </div>
+    `;
+    const mergeNames = state.products.map(p=>p.name).sort((a,b)=>a.localeCompare(b,'zh'));
+    wireSuggest('mergeFromList', mergeNames);
+    wireSuggest('mergeToTarget', mergeNames);
+    return;
+  }
+  if(productSubView==='mergeVariants'){
+    el.innerHTML = prodSubTabHtml + productSubTabHtml + `
+    <div class="card">
+      <h3>合并成同一产品的不同规格</h3>
+      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">这个不一样：上面那个是"同一样东西、名字打法不同"；这个是"同一样东西，但有好几个规格/包装（1包、3包、6包...），本来各自开了独立产品"。合并之后会变成一个产品、底下挂好几个规格，价钱各自保留，历史销售记录会自动改连到对应的规格上（卖出数量还是能按规格分开看），旧的独立产品会被删掉。</div>
+      <label>统一成这个产品名字（原本哪个旧产品都可以直接拿来当这个名字）</label>
+      <input id="mvTarget" placeholder="例：小段玉米 Sliced Corn" autocomplete="off">
+      <div id="mvRowsWrap" style="margin-top:10px;"></div>
+      <button class="btn-line" onclick="addMergeVariantRow()">+ 再加一个旧产品</button>
+      <button class="btn-main" style="margin-top:10px;" onclick="mergeProductsIntoVariants()">🔀 合并成规格</button>
+    </div>
+    `;
+    renderMergeVariantRows();
+    const mergeNames = state.products.map(p=>p.name).sort((a,b)=>a.localeCompare(b,'zh'));
+    wireSuggest('mvTarget', mergeNames);
+    tempMergeVariantRows.forEach(row=>wireSuggest('mv_source_'+row.id, mergeNames));
+    return;
+  }
+  // 默认：'form' 新增/编辑产品
+  el.innerHTML = prodSubTabHtml + productSubTabHtml + `
     <div class="card">
       <h3>${editingProduct? `✏️ 编辑产品：${editingProduct.name}` : '新增菜品 / 产品'}</h3>
       <div class="grid2">
@@ -4884,38 +5136,12 @@ function renderCost(){
       <button class="btn-main" style="margin-top:14px" onclick="submitProduct()">${editingProduct?'保存修改':'保存产品'}</button>
       ${editingProduct?`<button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditProduct()">取消编辑</button>`:''}
     </div>
-
-    <div class="card">
-      <h3>合并重复产品</h3>
-      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">同一样东西有时候会因为大小写、多字少字，在 app 里变成好几个不同的产品（比如收银员打字打法不一样）。这里可以把旧名字统一合并成一个：旧名字底下的销售记录会全部改成新名字（这样以后算销量/毛利才不会分散算），旧的重复产品项目会被删掉，里面填过的食材成本项会自动搬到合并后的产品底下，不会不见。</div>
-      <label>要合并掉的旧名字（可以填好几个，用顿号"、"分开）</label>
-      <input id="mergeFromList" placeholder="例：Strawberry Jam、strawberry jam、add strawberry jam" autocomplete="off">
-      <label style="margin-top:10px">统一成这个名字（如果这个名字目前还没有产品，会直接拿旧产品其中一个改名字延用，食材成本不会丢）</label>
-      <input id="mergeToTarget" placeholder="例：STRAWBERRY JAM ONE BOTTLE" autocomplete="off">
-      <button class="btn-line" onclick="mergeProductsByName()">🔀 合并</button>
-    </div>
-
-    <div class="card">
-      <h3>合并成同一产品的不同规格</h3>
-      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">这个不一样：上面那个是"同一样东西、名字打法不同"；这个是"同一样东西，但有好几个规格/包装（1包、3包、6包...），本来各自开了独立产品"。合并之后会变成一个产品、底下挂好几个规格，价钱各自保留，历史销售记录会自动改连到对应的规格上（卖出数量还是能按规格分开看），旧的独立产品会被删掉。</div>
-      <label>统一成这个产品名字（原本哪个旧产品都可以直接拿来当这个名字）</label>
-      <input id="mvTarget" placeholder="例：小段玉米 Sliced Corn" autocomplete="off">
-      <div id="mvRowsWrap" style="margin-top:10px;"></div>
-      <button class="btn-line" onclick="addMergeVariantRow()">+ 再加一个旧产品</button>
-      <button class="btn-main" style="margin-top:10px;" onclick="mergeProductsIntoVariants()">🔀 合并成规格</button>
-    </div>
   `;
   renderCostItemRows();
   renderSharedIngredientRows();
   renderVariantRows();
-  renderMergeVariantRows();
   wireSuggest('prodTitle', state.products.map(p=>p.name).sort((a,b)=>a.localeCompare(b,'zh')));
   wireSuggest('prodCategory', categoryOptions);
-  const mergeNames = state.products.map(p=>p.name).sort((a,b)=>a.localeCompare(b,'zh'));
-  wireSuggest('mergeFromList', mergeNames);
-  wireSuggest('mergeToTarget', mergeNames);
-  wireSuggest('mvTarget', mergeNames);
-  tempMergeVariantRows.forEach(row=>wireSuggest('mv_source_'+row.id, mergeNames));
   wireSuggest('prodCode', getProductCodes());
 }
 function renderCostItemRows(){
@@ -5113,6 +5339,7 @@ function startEditProduct(id){
   if(!p) return;
   editingProductId = id;
   prodSubView = 'product';
+  productSubView = 'form';
   draftProductCompany = p.company || '';
   draftProductOptionGroupId = p.optionGroupId || '';
   draftProductAddonGroupId = p.addonGroupId || '';
