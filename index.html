@@ -547,7 +547,14 @@
 <nav class="bottom" id="bottomNav">
   <button data-tab="home" class="active"><span class="ic">🏠</span>首页</button>
   <button data-tab="pos" id="navPosBtn"><span class="ic">🧾</span>点餐</button>
-  <button data-tab="purchase"><span class="ic">🛒</span>采购</button>
+  <div class="nav-dropdown" id="navDropdownPurchase">
+    <button data-tab="purchase" onclick="handlePurchaseNavClick(event)"><span class="ic">🛒</span>采购</button>
+    <div class="dropdown-menu">
+      <button type="button" onclick="jumpPurSubView('main')">🛒 采购单</button>
+      <button type="button" onclick="jumpPurSubView('payment')">💳 付款</button>
+      <button type="button" onclick="jumpPurSubView('debt')">📋 欠款</button>
+    </div>
+  </div>
   <div class="nav-dropdown" id="navDropdownCost">
     <button data-tab="cost" onclick="handleProductNavClick(event)"><span class="ic">🧮</span>产品</button>
     <div class="dropdown-menu">
@@ -557,7 +564,15 @@
       <button type="button" onclick="jumpProdSubView('options')">🎛️ 选项组</button>
     </div>
   </div>
-  <button data-tab="ingredients"><span class="ic">🔗</span>食材</button>
+  <div class="nav-dropdown" id="navDropdownIngredients">
+    <button data-tab="ingredients" onclick="handleIngredientsNavClick(event)"><span class="ic">🔗</span>食材</button>
+    <div class="dropdown-menu">
+      <button type="button" onclick="jumpIngSubView('list')">📋 食材列表</button>
+      <button type="button" onclick="jumpIngSubView('merge')">🔀 合并品项名称</button>
+      <button type="button" onclick="jumpIngSubView('addon')">🧾 Addon消耗对照</button>
+      <button type="button" onclick="jumpIngSubView('unit')">📐 单位换算</button>
+    </div>
+  </div>
   <button data-tab="sales"><span class="ic">💰</span>销售</button>
   <button data-tab="inventory"><span class="ic">📦</span>库存</button>
   <button data-tab="cash"><span class="ic">📒</span>收支</button>
@@ -2381,18 +2396,14 @@ function renderSupplierDebtSectionHtml(){
 
 function renderPurchase(){
   const el = document.getElementById('tab-purchase');
-  const purSubTabHtml = `
-    <div class="btn-group" style="margin-bottom:14px;">
-      <button type="button" class="btn-toggle ${purSubView==='main'?'active':''}" onclick="setPurSubView('main')">🛒 采购单</button>
-      <button type="button" class="btn-toggle ${purSubView==='payment'?'active':''}" onclick="setPurSubView('payment')">💳 付款</button>
-      <button type="button" class="btn-toggle ${purSubView==='debt'?'active':''}" onclick="setPurSubView('debt')">📋 欠款</button>
-    </div>`;
+  // 采购单/付款/欠款 这3个子分页现在从顶部导航「采购」按钮那边用下拉选单切换
+  // （见 jumpPurSubView / handlePurchaseNavClick），页面内部不再重复画一排一样的按钮。
   if(purSubView==='debt'){
-    el.innerHTML = purSubTabHtml + renderSupplierDebtSectionHtml();
+    el.innerHTML = renderSupplierDebtSectionHtml();
     return;
   }
   if(purSubView==='payment'){
-    el.innerHTML = purSubTabHtml + renderPaymentSectionHtml();
+    el.innerHTML = renderPaymentSectionHtml();
     wireSuggest('paySupplier', state.suppliers.map(s=>s.name).sort((a,b)=>a.localeCompare(b,'zh')));
     wireSuggest('payNote', getNoteSuggestions(state.payments));
     wireSuggest('supTitle', state.suppliers.map(s=>s.name).sort((a,b)=>a.localeCompare(b,'zh')));
@@ -2422,7 +2433,7 @@ function renderPurchase(){
   const supplierInputVal = editingPurchase ? supplierName(editingPurchase.supplierId) : (draft.purSupplier||'');
   const matchedSupplierForHistory = state.suppliers.find(s=>s.name.trim().toLowerCase()===supplierInputVal.trim().toLowerCase());
   currentSupplierHistory = matchedSupplierForHistory ? supplierPurchaseHistory(matchedSupplierForHistory.id) : [];
-  el.innerHTML = purSubTabHtml + `
+  el.innerHTML = `
     <div class="card">
       <h3>${editingPurchase? '✏️ 编辑采购单' : '新增采购单'}</h3>
       <label>公司</label>
@@ -4732,14 +4743,15 @@ function setIngSubView(val){
 function renderIngredients(){
   const el = document.getElementById('tab-ingredients');
   const editingIng = editingIngredientId ? (state.ingredients||[]).find(i=>i.id===editingIngredientId) : null;
-  const ingSubTabHtml = `
-    <div class="btn-group" style="margin-bottom:14px;">
-      <button type="button" class="btn-toggle ${(!editingIng && ingSubView==='list')?'active':''}" onclick="setIngSubView('list')">📋 食材列表</button>
-      <button type="button" class="btn-toggle ${(!editingIng && ingSubView==='merge')?'active':''}" onclick="setIngSubView('merge')">🔀 合并品项名称</button>
-      <button type="button" class="btn-toggle ${(!editingIng && ingSubView==='addon')?'active':''}" onclick="setIngSubView('addon')">🧾 Addon消耗对照</button>
-      <button type="button" class="btn-toggle ${(!editingIng && ingSubView==='unit')?'active':''}" onclick="setIngSubView('unit')">📐 单位换算</button>
-      ${editingIng? `<button type="button" class="btn-toggle active" style="display:inline-flex; align-items:center; gap:6px;">✏️ 编辑：${editingIng.name}<span role="button" style="cursor:pointer; font-weight:700;" onclick="event.stopPropagation(); cancelEditIngredientField('${editingIng.id}')">✕</span></button>` : ''}
-    </div>`;
+  // 食材列表/合并品项名称/Addon消耗对照/单位换算 这4个子分页现在从顶部导航「食材」按钮那边
+  // 用下拉选单切换（见 jumpIngSubView / handleIngredientsNavClick），不再重复画一排一样的按钮；
+  // 但"正在编辑某个食材"这个临时状态是下拉选单没有的信息，所以编辑中还是会在最上面留一个
+  // 「✏️ 编辑：食材名 ✕」提示，点✕取消编辑、回到食材列表。
+  const ingSubTabHtml = editingIng
+    ? `<div class="btn-group" style="margin-bottom:14px;">
+         <button type="button" class="btn-toggle active" style="display:inline-flex; align-items:center; gap:6px;">✏️ 编辑：${editingIng.name}<span role="button" style="cursor:pointer; font-weight:700;" onclick="event.stopPropagation(); cancelEditIngredientField('${editingIng.id}')">✕</span></button>
+       </div>`
+    : '';
   if(editingIng){
     el.innerHTML = ingSubTabHtml + ingredientEditFormHtml(editingIng);
     return;
@@ -4859,33 +4871,45 @@ function jumpProdSubView(view){
   closeAllNavDropdowns();
   window.scrollTo({top:0, behavior:'smooth'});
 }
-/* 桌面版靠 CSS :hover 展开下拉，不需要点击也能看到选单，所以这里点击「产品」按钮本身
+/* 顶部导航「采购」「食材」按钮的下拉选单——用法跟「产品」那个一样，见 jumpProdSubView。 */
+function jumpPurSubView(view){
+  setPurSubView(view);
+  switchToTab('purchase');
+  closeAllNavDropdowns();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function jumpIngSubView(view){
+  setIngSubView(view);
+  switchToTab('ingredients');
+  closeAllNavDropdowns();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+/* 桌面版靠 CSS :hover 展开下拉，不需要点击也能看到选单，所以这里点击导航按钮本身
    就正常导航过去（不拦截）。iPad/手机没有 hover，点一下要先展开下拉选单本身，
-   不直接跳分页，选到下拉里具体哪一项才真的过去。 */
-function handleProductNavClick(e){
+   不直接跳分页，选到下拉里具体哪一项才真的过去。三个下拉（产品/采购/食材）共用同一套判断，
+   只是各自锁定的下拉容器id不一样。 */
+function handleNavDropdownClick(e, wrapId){
   const hasHover = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
   if(hasHover) return;
   e.preventDefault();
   e.stopPropagation();
-  const wrap = document.getElementById('navDropdownCost');
+  const wrap = document.getElementById(wrapId);
   const wasOpen = wrap.classList.contains('open');
   closeAllNavDropdowns();
   if(!wasOpen) wrap.classList.add('open');
 }
+function handleProductNavClick(e){ handleNavDropdownClick(e, 'navDropdownCost'); }
+function handlePurchaseNavClick(e){ handleNavDropdownClick(e, 'navDropdownPurchase'); }
+function handleIngredientsNavClick(e){ handleNavDropdownClick(e, 'navDropdownIngredients'); }
 function closeAllNavDropdowns(){
   document.querySelectorAll('.nav-dropdown.open').forEach(w=>w.classList.remove('open'));
 }
 function renderCost(){
   const el = document.getElementById('tab-cost');
-  const prodSubTabHtml = `
-    <div class="btn-group" style="margin-bottom:14px;">
-      <button type="button" class="btn-toggle ${prodSubView==='product'?'active':''}" onclick="setProdSubView('product')">🏷️ 产品</button>
-      <button type="button" class="btn-toggle ${prodSubView==='cost'?'active':''}" onclick="setProdSubView('cost')">🧮 成本</button>
-      <button type="button" class="btn-toggle ${prodSubView==='recipe'?'active':''}" onclick="setProdSubView('recipe')">🧑‍🍳 半成品成本</button>
-      <button type="button" class="btn-toggle ${prodSubView==='options'?'active':''}" onclick="setProdSubView('options')">🎛️ 选项组</button>
-    </div>`;
+  // 这4个子分页（产品/成本/半成品成本/选项组）现在从顶部导航「产品」按钮那边用下拉选单切换
+  // （见 jumpProdSubView / handleProductNavClick），页面内部不再重复画一排一样的按钮。
   if(prodSubView==='options'){
-    el.innerHTML = prodSubTabHtml + renderOptionGroupSectionHtml();
+    el.innerHTML = renderOptionGroupSectionHtml();
     if(tempOptionGroup){
       const ingredientNames = getIngredientNames();
       const unitSuggestions = getUnitSuggestions();
@@ -4897,7 +4921,7 @@ function renderCost(){
     return;
   }
   if(prodSubView==='recipe'){
-    el.innerHTML = prodSubTabHtml + renderRecipeSectionHtml();
+    el.innerHTML = renderRecipeSectionHtml();
     const ingredientNames = getIngredientNames();
     const unitSuggestions = getUnitSuggestions();
     if(tempRecipe){
@@ -4917,7 +4941,7 @@ function renderCost(){
   let displayProducts = state.products.slice().sort((a,b)=> a.name.localeCompare(b.name,'zh'));
   if(costCategoryFilter) displayProducts = displayProducts.filter(p=>(p.category||'')===costCategoryFilter);
   if(prodSubView==='cost'){
-    el.innerHTML = prodSubTabHtml + `
+    el.innerHTML = `
     <div class="card">
       <h3>产品成本一览 <span class="n">${state.products.length} 项</span></h3>
       <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">下面这颗按钮会拿 POS 系统导出的官方菜单（共 ${POS_MENU.length} 项）去补现有产品的分类/编号/所属公司，不会动已经填好的食材成本和售价，也不会删掉任何产品；菜单里有、但这里还没建档的产品会自动新增（售价照抄 POS，食材成本留空待填）。</div>
@@ -5037,7 +5061,7 @@ function renderCost(){
       <button type="button" class="btn-toggle ${productSubView==='mergeVariants'?'active':''}" onclick="setProductSubView('mergeVariants')">📐 合并成规格</button>
     </div>`;
   if(productSubView==='mergeNames'){
-    el.innerHTML = prodSubTabHtml + productSubTabHtml + `
+    el.innerHTML = productSubTabHtml + `
     <div class="card">
       <h3>合并重复产品</h3>
       <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">同一样东西有时候会因为大小写、多字少字，在 app 里变成好几个不同的产品（比如收银员打字打法不一样）。这里可以把旧名字统一合并成一个：旧名字底下的销售记录会全部改成新名字（这样以后算销量/毛利才不会分散算），旧的重复产品项目会被删掉，里面填过的食材成本项会自动搬到合并后的产品底下，不会不见。</div>
@@ -5054,7 +5078,7 @@ function renderCost(){
     return;
   }
   if(productSubView==='mergeVariants'){
-    el.innerHTML = prodSubTabHtml + productSubTabHtml + `
+    el.innerHTML = productSubTabHtml + `
     <div class="card">
       <h3>合并成同一产品的不同规格</h3>
       <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">这个不一样：上面那个是"同一样东西、名字打法不同"；这个是"同一样东西，但有好几个规格/包装（1包、3包、6包...），本来各自开了独立产品"。合并之后会变成一个产品、底下挂好几个规格，价钱各自保留，历史销售记录会自动改连到对应的规格上（卖出数量还是能按规格分开看），旧的独立产品会被删掉。</div>
@@ -5072,7 +5096,7 @@ function renderCost(){
     return;
   }
   // 默认：'form' 新增/编辑产品
-  el.innerHTML = prodSubTabHtml + productSubTabHtml + `
+  el.innerHTML = productSubTabHtml + `
     <div class="card">
       <h3>${editingProduct? `✏️ 编辑产品：${editingProduct.name}` : '新增菜品 / 产品'}</h3>
       <div class="grid2">
