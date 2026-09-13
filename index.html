@@ -942,6 +942,13 @@ function fmt(n){
   return 'RM ' + n.toLocaleString('en-MY',{minimumFractionDigits:2, maximumFractionDigits:2});
 }
 function fmtPlain(n){ return (Number(n)||0).toLocaleString('en-MY',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+/* 马来西亚现金找零的"四舍五入到最接近的5分"规则（1分/5分硬币已经停用）——
+   只套用在整张采购单的"本单总金额"上，不动每一项品名各自的总价（那些还是精确到分）。
+   例：12.32 → 12.30，12.33 → 12.35。 */
+function roundToNearest5Sen(amount){
+  const n = Number(amount)||0;
+  return Math.round(Math.round(n*20)/20*100)/100;
+}
 function vizBar(segments, maxOverride){
   const total = maxOverride || segments.reduce((a,s)=>a+Math.max(Number(s.value)||0,0),0) || 1;
   return `<div class="viz-bar">${segments.map(s=>`<div class="seg" style="width:${Math.min(100,Math.max(0,Number(s.value)||0)/total*100)}%; background:${s.color};"></div>`).join('')}</div>`;
@@ -2451,7 +2458,7 @@ function renderPurchase(){
       <label style="margin-top:14px">品项明细（同一供应商可一次拿多个不同产品）</label>
       <div id="purItemsWrap"></div>
       <button class="btn-line" onclick="addPurchaseItemRow()">+ 添加一项</button>
-      <div style="margin-top:8px; font-size:13px; color:var(--muted)">本单总金额：<b class="mono" id="purTotalPreview">RM 0.00</b></div>
+      <div style="margin-top:8px; font-size:13px; color:var(--muted)">本单总金额（已按大马找零规则四舍五入到最接近的5分）：<b class="mono" id="purTotalPreview">RM 0.00</b></div>
       <button class="btn-main" onclick="submitPurchase()">${editingPurchase?'保存修改':'保存采购单'}</button>
       ${editingPurchase?`<button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditPurchase()">取消编辑</button>`:''}
     </div>
@@ -3935,7 +3942,7 @@ function renderPurchaseItemRows(){
       <div class="muted" style="font-size:11px; margin-top:3px;">填了"数量"和"单价"会自动算出总价；不想算就直接填"总价"就好</div>
     </div>
   `).join('');
-  const total = tempPurchaseItems.reduce((a,r)=>a+Number(r.total||0),0);
+  const total = roundToNearest5Sen(tempPurchaseItems.reduce((a,r)=>a+Number(r.total||0),0));
   document.getElementById('purTotalPreview').textContent = fmt(total);
   const ingredientNames = getIngredientNames();
   const unitSuggestions = getUnitSuggestions();
@@ -3960,7 +3967,7 @@ function updatePurItem(id, field, val){
       if(totalInput) totalInput.value = row.total;
     }
   }
-  const total = tempPurchaseItems.reduce((a,r)=>a+Number(r.total||0),0);
+  const total = roundToNearest5Sen(tempPurchaseItems.reduce((a,r)=>a+Number(r.total||0),0));
   document.getElementById('purTotalPreview').textContent = fmt(total);
 }
 function addPurchaseItemRow(){
@@ -4061,7 +4068,7 @@ function submitPurchase(){
     productIds: (r.productIds||[]).slice(), company: r.company||''
   }));
   if(items.length===0){ alert('请至少填写一项品名和总价'); return; }
-  const totalAmount = items.reduce((a,i)=>a+i.totalCost,0);
+  const totalAmount = roundToNearest5Sen(items.reduce((a,i)=>a+i.totalCost,0));
   const company = purCompany;
   ['purSupplier','purInvoiceNumber'].forEach(id2=>{ const elx=document.getElementById(id2); if(elx) elx.value=''; });
   const purDateEl = document.getElementById('purDate'); if(purDateEl) purDateEl.value = todayStr();
@@ -6368,7 +6375,7 @@ function importPurchasesReport(fileInput){
         const pushedPurchases = [];
         purchaseGroups.forEach(g=>{
           const supplierId = findOrCreateSupplierId(g.supplierNameRaw);
-          const totalAmount = g.items.reduce((a,i)=>a+Number(i.totalCost||0),0);
+          const totalAmount = roundToNearest5Sen(g.items.reduce((a,i)=>a+Number(i.totalCost||0),0));
           const itemCompanies = new Set(g.items.map(i=>i.company).filter(Boolean));
           const groupCompany = itemCompanies.size===1 ? Array.from(itemCompanies)[0] : '';
           const newPur = {id:uid(), date:g.date, supplierId, items:g.items, totalAmount, invoiceNumber:g.invoiceNumber, company:groupCompany, importBatch:batchId};
