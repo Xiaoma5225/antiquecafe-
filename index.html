@@ -1472,8 +1472,19 @@ function dedupeIngredientEntries(){
 function reconcileIngredients(){
   if(!state.ingredients) state.ingredients = [];
   const before = JSON.stringify(state.ingredients);
+  /* 这两个循环是给"还没被使用者手动管理过"的食材做自动补链接用的（老资料、这个功能上线前
+     就存在的产品/采购单，或者刚从JSON备份导入、从来没走过 submitProduct/submitPurchase
+     那两个函数自己直接教一次的情况）。曾经在"食材管理"页用「改关联」手动加过/移除过某个
+     食材的产品关联的话，那个食材会被标记 userManagedLinks——之后这两个循环就不再帮它
+     自动加产品关联了，只补单位/参考单价。不然的话，只要任何一张历史采购单或任何一个产品
+     还留着这个食材的旧关联痕迹，每次重开App/每次存档都会把使用者刚手动移除掉的关联
+     又加回来，变成"关联怎么删都删不掉、一刷新就复活"。 */
   state.products.forEach(p=>{
-    (p.costItems||[]).forEach(ci=>{ learnIngredientLink(ci.name, [p.id], {unit: ci.unit, unitPrice: ci.unitPrice}); });
+    (p.costItems||[]).forEach(ci=>{
+      const existing = findIngredient(ci.name);
+      const productIds = (existing && existing.userManagedLinks) ? [] : [p.id];
+      learnIngredientLink(ci.name, productIds, {unit: ci.unit, unitPrice: ci.unitPrice});
+    });
   });
   // 采购单这边现在会把使用者在「新食材直接勾选」那里选的 productIds 一起教进食材字典
   // （原本是完全不碰，因为那是「产品→食材关联」页的事——但现在采购单也能直接勾选了，
@@ -1481,7 +1492,9 @@ function reconcileIngredients(){
   // 顺便更新单位/参考单价成最新一次采购的数据。
   state.purchases.forEach(pu=>{
     (pu.items||[]).forEach(item=>{
-      learnIngredientLink(item.name, item.productIds||[], {unit: item.unit, unitPrice: item.unitPrice});
+      const existing = findIngredient(item.name);
+      const productIds = (existing && existing.userManagedLinks) ? [] : (item.productIds||[]);
+      learnIngredientLink(item.name, productIds, {unit: item.unit, unitPrice: item.unitPrice});
     });
   });
   dedupeIngredientEntries();
@@ -4874,9 +4887,14 @@ function wireVisibleIngredientLinkPickers(){
    "已关联的食材"两个清单的分类马上就会不一样，整页重画会让这一行立刻从原本的清单跳到另一个，
    使用者人还在勾第二、第三个产品，那一行却不见了。所以这里直接改 state 存档，画面只手动
    更新被点的那个勾选格子颜色，等使用者之后重新搜索/切换分页，才会真的照最新状态分类。 */
+/* 这里是「食材管理」页"改关联"那个勾选清单——使用者在这里手动加/移除一个产品关联，
+   就代表这个食材的产品关联以后由使用者自己管理，标记 userManagedLinks=true，
+   这样 reconcileIngredients() 就不会再自动把旧采购单/产品成本项里残留的关联痕迹
+   加回来，手动移除掉的关联才会真的"删得掉、不会一刷新就复活"。 */
 function toggleIngredientLinkProduct(ingredientId, productId, checked){
   const ing = (state.ingredients||[]).find(i=>i.id===ingredientId);
   if(!ing) return;
+  ing.userManagedLinks = true;
   if(!ing.productIds) ing.productIds = [];
   if(checked){ if(!ing.productIds.includes(productId)) ing.productIds.push(productId); }
   else {
