@@ -4890,7 +4890,10 @@ function wireVisibleIngredientLinkPickers(){
 /* 这里是「食材管理」页"改关联"那个勾选清单——使用者在这里手动加/移除一个产品关联，
    就代表这个食材的产品关联以后由使用者自己管理，标记 userManagedLinks=true，
    这样 reconcileIngredients() 就不会再自动把旧采购单/产品成本项里残留的关联痕迹
-   加回来，手动移除掉的关联才会真的"删得掉、不会一刷新就复活"。 */
+   加回来。同时，历史采购单里品名对得上这个食材的每一项，当初在采购单直接勾选产品的时候
+   各自也存了一份 productIds 快照——这里改了就要一起同步过去（加的话每一张都加上，
+   移除的话每一张都拿掉），不然那些老快照会一直留着旧的关联痕迹，不清干净的话下次
+   有什么其他检查扫到还是会造成困惑。 */
 function toggleIngredientLinkProduct(ingredientId, productId, checked){
   const ing = (state.ingredients||[]).find(i=>i.id===ingredientId);
   if(!ing) return;
@@ -4901,6 +4904,15 @@ function toggleIngredientLinkProduct(ingredientId, productId, checked){
     ing.productIds = ing.productIds.filter(id=>id!==productId);
     if(ing.qtyLinks && ing.qtyLinks[productId]) delete ing.qtyLinks[productId];
   }
+  const nameKey = ing.name.trim().toLowerCase();
+  (state.purchases||[]).forEach(pu=>{
+    (pu.items||[]).forEach(item=>{
+      if((item.name||'').trim().toLowerCase()!==nameKey) return;
+      if(!item.productIds) item.productIds = [];
+      if(checked){ if(!item.productIds.includes(productId)) item.productIds.push(productId); }
+      else { item.productIds = item.productIds.filter(id=>id!==productId); }
+    });
+  });
   saveState();
 }
 /* 从"采购"页那个"还没关联/去设定"小连结跳过来：切到独立的"食材"顶层tab、开到"食材列表"
