@@ -4019,12 +4019,22 @@ function setPurItemPickerOpen(rowId, open){
   row.pickerOpen = open;
   renderPurchaseItemRows();
 }
+/* 勾选/取消勾选"这个食材算给哪个产品的成本"——之前只更新了资料本身（chips 那块靠
+   mpToggle 自己会立刻刷新，看得到勾选变化），但外层"⚠️ 还没关联产品"那段提示文字、
+   还有勾完之后才会出现的"✓ 挑好了，收起来"按钮，都是整个品项列表重画的时候才会
+   重新判断要不要显示——不整个重画一次的话，勾了老半天，提示文字还是停在"还没关联"，
+   收起来的按钮也一直不出现，勾选跟画面对不起来。所以这里勾完也要重画一次这一格的
+   品项列表（跟"类别"改掉要重画是同一个道理）。 */
 function togglePurItemProductPick(rowId, productId, checked){
   const row = tempPurchaseItems.find(r=>r.id===rowId);
   if(!row) return;
   if(!row.productIds) row.productIds = [];
   if(checked){ if(!row.productIds.includes(productId)) row.productIds.push(productId); }
   else { row.productIds = row.productIds.filter(id=>id!==productId); }
+  // 勾完保持展开（不要一勾就自动收起来变成摘要行），不然要一次勾好几个产品的时候，
+  // 勾一个就收起来、还要点"改选"才能勾下一个，太麻烦；使用者自己按"收起来"才会收。
+  row.pickerOpen = true;
+  renderPurchaseItemRows();
 }
 function autoLinkPurItemIngredient(rowId){
   const row = tempPurchaseItems.find(r=>r.id===rowId);
