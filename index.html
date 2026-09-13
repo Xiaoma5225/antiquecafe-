@@ -4043,6 +4043,19 @@ function submitPurchase(){
   const invoiceNumber = document.getElementById('purInvoiceNumber').value.trim();
   if(!typedName || !typedName.trim()){ alert('请输入或选择供应商'); return; }
   if(!invoiceNumber){ alert('请填写 Invoice 号码'); return; }
+  /* 同一个供应商、同一个Invoice号码，之前已经记过的话，跳出确认（不是直接挡死）——
+     有时候一张发票真的会拆成两次记（比如金额太大分两次入），所以是提醒、让使用者自己决定，
+     不是禁止。只比对"同一个供应商"底下的，不同供应商本来就可能撞号，不用管。
+     编辑既有采购单的时候，要排除掉自己这一笔（不然改个数量都会被自己"撞"到自己）。 */
+  const existingSupplier = state.suppliers.find(s=>s.name.trim().toLowerCase()===typedName.trim().toLowerCase());
+  if(existingSupplier){
+    const dupes = state.purchases.filter(p=>p.id!==editingPurchaseId && p.supplierId===existingSupplier.id && (p.invoiceNumber||'').trim().toLowerCase()===invoiceNumber.toLowerCase());
+    if(dupes.length){
+      const d = dupes.slice().sort((a,b)=>b.date.localeCompare(a.date))[0];
+      const more = dupes.length>1 ? `（这个号码在这家供应商名下总共已经有 ${dupes.length} 笔）` : '';
+      if(!confirm(`「${existingSupplier.name}」名下已经有一张 Invoice「${invoiceNumber}」的采购单了${more}，最近一笔：${d.date}，金额 RM${fmtPlain(d.totalAmount)}。\n\n确定要再记一笔吗？（如果这张发票本来就要拆开记好几笔，按"确定"没问题；如果是不小心重复输入，按"取消"。）`)) return;
+    }
+  }
   const items = tempPurchaseItems.filter(r=>r.name && r.total!=='').map(r=>({
     id:uid(), name:r.name, category:r.category||'食材', qty:Number(r.qty||0), unit:r.unit, unitPrice:Number(r.unitPrice||0), totalCost:Number(r.total||0),
     productIds: (r.productIds||[]).slice(), company: r.company||''
