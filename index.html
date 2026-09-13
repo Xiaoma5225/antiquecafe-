@@ -3967,6 +3967,13 @@ function updatePurItem(id, field, val){
       if(totalInput) totalInput.value = row.total;
     }
   }
+  /* "类别"改掉的话，"还没关联产品"那个警示区块要不要显示会跟着变（只有食材类别才需要关联产品算成本）——
+     那块HTML是渲染当下就决定好的，光改 row.category 不会自动让画面上已经显示的警示消失，
+     所以类别一改就整个重画一次这一格的品项列表，让警示区块照新类别重新判断该不该出现。 */
+  if(field==='category'){
+    renderPurchaseItemRows();
+    return;
+  }
   const total = roundToNearest5Sen(tempPurchaseItems.reduce((a,r)=>a+Number(r.total||0),0));
   document.getElementById('purTotalPreview').textContent = fmt(total);
 }
