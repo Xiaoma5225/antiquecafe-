@@ -2070,9 +2070,15 @@ function renderPayPopup(){
   `;
 }
 let supplierMgmtExpandedIds = new Set(); // 供应商管理页——已经点开"看Invoice"展开采购记录的供应商id
+/* 点"查看Invoice"只重画这一张供应商卡片本身，不整页重画——不然像之前那样叫
+   renderPurchase() 整个重来一次，搜索框打的字、"还有N家供应商"那个展开状态都会被重置，
+   点开的那家供应商在画面上就"跳掉"、找不到了（其实是页面被重设，不是真的不见）。 */
 function toggleSupplierMgmtExpand(id){
   if(supplierMgmtExpandedIds.has(id)) supplierMgmtExpandedIds.delete(id); else supplierMgmtExpandedIds.add(id);
-  renderPurchase();
+  const wrap = document.getElementById('supCard_'+id);
+  const s = state.suppliers.find(x=>x.id===id);
+  if(wrap && s) wrap.innerHTML = supplierCardHtml(s, supplierTotals(id));
+  else renderPurchase();
 }
 function supplierCardHtml(s,t){
   const expanded = supplierMgmtExpandedIds.has(s.id);
@@ -3784,10 +3790,10 @@ function renderSupplierManagementSectionHtml(){
           const top = ranked.slice(0,3);
           const rest = ranked.slice(3);
           return `
-            ${top.map(x=>`<div class="supplier-list-item" data-supname="${x.s.name.toLowerCase()}">${supplierCardHtml(x.s,x.t)}</div>`).join('')}
+            ${top.map(x=>`<div class="supplier-list-item" id="supCard_${x.s.id}" data-supname="${x.s.name.toLowerCase()}">${supplierCardHtml(x.s,x.t)}</div>`).join('')}
             ${rest.length? `<details class="subtle-form" id="supplierMoreDetails">
               <summary>还有 ${rest.length} 家供应商 ▾</summary>
-              <div style="margin-top:8px">${rest.map(x=>`<div class="supplier-list-item" data-supname="${x.s.name.toLowerCase()}">${supplierCardHtml(x.s,x.t)}</div>`).join('')}</div>
+              <div style="margin-top:8px">${rest.map(x=>`<div class="supplier-list-item" id="supCard_${x.s.id}" data-supname="${x.s.name.toLowerCase()}">${supplierCardHtml(x.s,x.t)}</div>`).join('')}</div>
             </details>` : ''}
           `;
         })()}
