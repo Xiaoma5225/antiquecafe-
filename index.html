@@ -1929,6 +1929,47 @@ function purchaseOutstanding(purchaseId){
   const paid = state.payments.filter(pay=>pay.purchaseId===purchaseId).reduce((a,pay)=>a+Number(pay.amount||0),0);
   return Number(pur.totalAmount||0) - paid;
 }
+/* 单一张采购单的展开明细（日期/Invoice/金额/未付徽章的摘要行 + 点开后的品项清单/编辑/删除/付款）——
+   "采购历史"列表跟"供应商"页点开的Invoice清单，共用这同一份，样式跟操作都一致，不用维护两份。 */
+function purchaseHistoryDetailHtml(p){
+  const outstanding = purchaseOutstanding(p.id);
+  return `
+    <details class="pur-hist-sub">
+      <summary>
+        <div style="display:flex; align-items:baseline; gap:8px; min-width:0; overflow:hidden;">
+          <span class="muted" style="white-space:nowrap;">${p.date}</span>
+          <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--sky);">${p.invoiceNumber?`Invoice #${p.invoiceNumber}`:'（无Invoice号）'}</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; flex:0 0 auto;">
+          <span class="num">${fmtPlain(p.totalAmount)}</span>
+          ${outstanding>0.001? `<span class="pill owe">${Math.abs(outstanding-p.totalAmount)<0.005?'未付':`未付 ${fmtPlain(outstanding)}`}</span>` : `<span class="pill clear">已付</span>`}
+          <span class="phs-chev">▾</span>
+        </div>
+      </summary>
+      <div style="margin-top:8px;">
+        <label style="margin-top:0">整单默认公司${p.items.some(it=>it.company)?'（下面有品项个别设了公司，以品项为准）':''}</label>
+        <select style="${!p.company?'color:var(--rust); border-color:var(--rust);':''}" onchange="updatePurchaseCompany('${p.id}', this.value)">
+          <option value="" ${!p.company?'selected':''}>未选择公司</option>
+          ${COMPANIES.map(c=>`<option value="${c}" ${p.company===c?'selected':''}>${c}</option>`).join('')}
+        </select>
+        <div style="margin-top:8px">
+          ${p.items.map(it=>`
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; font-size:12px; padding:3px 0; border-bottom:1px dashed var(--border);">
+            <span class="muted">${it.name} ×${it.qty}${it.unit||''} [${it.category||'食材'}]</span>
+            <select style="width:auto; flex:0 0 96px; padding:2px 4px; font-size:11px; border-radius:6px;" onchange="updatePurItemCompany('${p.id}','${it.id}', this.value)">
+              <option value="" ${!it.company?'selected':''}>跟随整单</option>
+              ${COMPANIES.map(c=>`<option value="${c}" ${it.company===c?'selected':''}>${companyShort(c)}</option>`).join('')}
+            </select>
+          </div>`).join('')}
+        </div>
+        <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <button class="btn-ghost btn-small" onclick="startEditPurchase('${p.id}')">编辑</button>
+          <button class="btn-danger-text" onclick="deletePurchase('${p.id}')">删除</button>
+          ${outstanding>0.001? `<button class="btn-pay-small" style="margin-left:auto;" onclick="openPurchasePayPopup('${p.id}', false)">💰 付款</button>` : ''}
+        </div>
+      </div>
+    </details>`;
+}
 function supplierUnpaidInvoices(supplierId){
   return state.purchases.filter(p=>p.supplierId===supplierId)
     .map(p=>({p, outstanding: purchaseOutstanding(p.id)}))
@@ -2051,17 +2092,7 @@ function supplierCardHtml(s,t){
     </div>
     ${t.bought>0? `<a href="javascript:void(0)" style="font-size:11.5px; display:inline-block; margin-top:6px;" onclick="toggleSupplierMgmtExpand('${s.id}')">${expanded?'收起 ▴':`查看Invoice（共${(state.purchases||[]).filter(p=>p.supplierId===s.id).length}笔）▾`}</a>` : ''}
     ${expanded? `<div style="margin-top:6px;">
-      ${purchases.length? purchases.map(p=>{
-        const outstanding = purchaseOutstanding(p.id);
-        return `
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 0; border-top:1px solid var(--border); font-size:12px;">
-          <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${p.date}　${p.invoiceNumber?`<span style="color:var(--sky);">Invoice #${p.invoiceNumber}</span>`:'（无Invoice号）'}</span>
-          <div style="display:flex; align-items:center; gap:8px; flex:0 0 auto;">
-            <span class="mono">${fmtPlain(p.totalAmount)}</span>
-            ${outstanding>0.001? `<span class="pill owe">${Math.abs(outstanding-p.totalAmount)<0.005?'未付':`未付 ${fmtPlain(outstanding)}`}</span>` : `<span class="pill clear">已付</span>`}
-          </div>
-        </div>`;
-      }).join('') : `<div class="muted" style="font-size:12px; padding:6px 0;">还没有采购记录</div>`}
+      ${purchases.length? purchases.map(p=>purchaseHistoryDetailHtml(p)).join('') : `<div class="muted" style="font-size:12px; padding:6px 0;">还没有采购记录</div>`}
     </div>` : ''}
   </div>`;
 }
@@ -2628,45 +2659,7 @@ function renderPurchase(){
             </div>
           </summary>
           <div class="phr-detail">
-            ${g.list.map((p,i)=>{
-              const outstanding = purchaseOutstanding(p.id);
-              return `
-            <details class="pur-hist-sub">
-              <summary>
-                <div style="display:flex; align-items:baseline; gap:8px; min-width:0; overflow:hidden;">
-                  <span class="muted" style="white-space:nowrap;">${p.date}</span>
-                  <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--sky);">${p.invoiceNumber?`Invoice #${p.invoiceNumber}`:'（无Invoice号）'}</span>
-                </div>
-                <div style="display:flex; align-items:center; gap:8px; flex:0 0 auto;">
-                  <span class="num">${fmtPlain(p.totalAmount)}</span>
-                  ${outstanding>0.001? `<span class="pill owe">${Math.abs(outstanding-p.totalAmount)<0.005?'未付':`未付 ${fmtPlain(outstanding)}`}</span>` : `<span class="pill clear">已付</span>`}
-                  <span class="phs-chev">▾</span>
-                </div>
-              </summary>
-              <div style="margin-top:8px;">
-                <label style="margin-top:0">整单默认公司${p.items.some(it=>it.company)?'（下面有品项个别设了公司，以品项为准）':''}</label>
-                <select style="${!p.company?'color:var(--rust); border-color:var(--rust);':''}" onchange="updatePurchaseCompany('${p.id}', this.value)">
-                  <option value="" ${!p.company?'selected':''}>未选择公司</option>
-                  ${COMPANIES.map(c=>`<option value="${c}" ${p.company===c?'selected':''}>${c}</option>`).join('')}
-                </select>
-                <div style="margin-top:8px">
-                  ${p.items.map(it=>`
-                  <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; font-size:12px; padding:3px 0; border-bottom:1px dashed var(--border);">
-                    <span class="muted">${it.name} ×${it.qty}${it.unit||''} [${it.category||'食材'}]</span>
-                    <select style="width:auto; flex:0 0 96px; padding:2px 4px; font-size:11px; border-radius:6px;" onchange="updatePurItemCompany('${p.id}','${it.id}', this.value)">
-                      <option value="" ${!it.company?'selected':''}>跟随整单</option>
-                      ${COMPANIES.map(c=>`<option value="${c}" ${it.company===c?'selected':''}>${companyShort(c)}</option>`).join('')}
-                    </select>
-                  </div>`).join('')}
-                </div>
-                <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-                  <button class="btn-ghost btn-small" onclick="startEditPurchase('${p.id}')">编辑</button>
-                  <button class="btn-danger-text" onclick="deletePurchase('${p.id}')">删除</button>
-                  ${outstanding>0.001? `<button class="btn-pay-small" style="margin-left:auto;" onclick="openPurchasePayPopup('${p.id}', false)">💰 付款</button>` : ''}
-                </div>
-              </div>
-            </details>`;
-            }).join('')}
+            ${g.list.map(p=>purchaseHistoryDetailHtml(p)).join('')}
           </div>
         </details>`;
         }).join('')}
@@ -4241,6 +4234,7 @@ function startEditPurchase(id){
   const p = state.purchases.find(x=>x.id===id);
   if(!p) return;
   editingPurchaseId = id;
+  purSubView = 'main'; // 现在"编辑"也可能是从"供应商"页点进来的，要确保真的切到显示表单的"采购单"子分页
   purCompany = p.company || COMPANIES[0];
   tempPurchaseItems = (p.items&&p.items.length) ? p.items.map(i=>({
     id: uid(), name: i.name||'', category: i.category||'食材', company: i.company||'',
