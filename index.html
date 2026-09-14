@@ -3952,8 +3952,12 @@ function renderPaymentSectionHtml(){
     </div>
 
     <div class="card">
-      <h3>付款记录</h3>
-      <div class="grid2" style="margin-bottom:10px">
+      <details>
+        <summary style="cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center;">
+          <h3 style="margin:0;">付款记录</h3>
+          <span class="muted" style="font-size:12px;">共 ${state.payments.length} 笔 ▾</span>
+        </summary>
+      <div class="grid2" style="margin:10px 0;">
         <div><label>按日期查看</label><input type="date" id="payHistDate" value="${payHistoryFilterDate}" onchange="setPayHistoryFilterDate(this.value); this.blur();"></div>
         <div style="display:flex; align-items:flex-end;"><button class="btn-ghost" style="width:100%" onclick="setPayHistoryFilterDate('')">显示全部</button></div>
       </div>
@@ -3978,6 +3982,7 @@ function renderPaymentSectionHtml(){
         }).join('')}
         </table>`;
       })()}
+      </details>
     </div>
   `;
 }
@@ -4046,6 +4051,61 @@ function quickAddSupplierItem(idx){
   const qtyInput = document.getElementById('pi_qty_'+row.id);
   if(qtyInput) qtyInput.focus();
 }
+/* 品名底下那两块提示（"系统记得这个食材"+"关联到/还没关联产品"）抽成单独一个函数，
+   这样可以只重画这一小块、不用把整行(连同输入框本身)都拆掉重建——不然像"类别"那样
+   整行重画，遇到"打字打到一半"这种连续输入的情境就会一直抢焦点，没办法打字。 */
+function purItemInfoHtml(row){
+  const hintHtml = (()=>{
+    const ing = findIngredient(row.name);
+    if(!ing) return '';
+    const parts = [];
+    if(ing.unit) parts.push(`单位 ${ing.unit}`);
+    if(ing.unitPrice>0) parts.push(`参考单价 RM${fmtPlain(ing.unitPrice)}`);
+    return parts.length ? `<div class="muted" style="font-size:11px; margin-bottom:4px;">💡 系统记得这个食材 · ${parts.join(' · ')}</div>` : '';
+  })();
+  const linkHtml = (()=>{
+    /* 「这个食材属于哪个产品」原本统一在「产品→食材关联」那个子页签管理，要先保存这张采购单、
+       跳过去搜索才能设。现在改成：只要这个食材还没关联任何产品（不管是全新食材，还是已经在
+       字典里但还没设关联的），就直接在这里勾选——勾好的选择存在这一行草稿的 productIds 里，
+       等这张采购单真的保存/提交时会一起生效教进食材字典，不用先保存再跳页找。
+       已经关联好的食材，还是照旧只显示结果+"改关联"连结（改关联本来就该去那个统一管理的页面）。
+       只有「食材」类别才需要关联产品算成本——清洁用品、水电费这些其他类别不需要，不用显示这块。 */
+    if(!row.name || row.category!=='食材') return '';
+    const ing = findIngredient(row.name);
+    const linkedIds = ing && ing.productIds ? ing.productIds.filter(Boolean) : [];
+    if(linkedIds.length){
+      const names = linkedIds.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean);
+      return `<div class="muted" style="font-size:11px; margin-bottom:6px;">🔗 关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="goToIngredientLinkTab('${row.name.replace(/'/g,"\\'")}')">改关联</a></div>`;
+    }
+    const picked = row.productIds||[];
+    const newFlag = ing ? '' : '🆕 新食材，';
+    // 已经挑好至少1个产品、又还没收起来看的话，就先只显示一行小结果，
+    // 不用整块打勾清单一直占着地方——点"改选"才会再打开。
+    if(picked.length && !row.pickerOpen){
+      const names = picked.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean);
+      return `<div class="muted" style="font-size:11px; margin-bottom:6px; color:var(--green);">🆕 将关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="setPurItemPickerOpen('${row.id}',true)">改选</a></div>`;
+    }
+    return `
+      <div class="muted" style="font-size:11px; margin-bottom:4px; color:var(--rust);">⚠️ ${newFlag}还没关联产品，勾选这个算给哪个产品的成本（保存这张单会一起生效）：</div>
+      ${state.products.length? `<div id="purProdPicks_${row.id}" style="margin-bottom:6px;"></div>` : `<div class="muted" style="font-size:12px; margin-bottom:6px;">还没有产品，先去"产品"子页签新增</div>`}
+      ${picked.length? `<button type="button" class="btn-ghost btn-small" style="margin-bottom:6px;" onclick="setPurItemPickerOpen('${row.id}',false)">✓ 挑好了，收起来</button>` : ''}
+    `;
+  })();
+  return hintHtml + linkHtml;
+}
+/* 品名打字的时候（每一个字都算），马上重画这一行的"系统记得/关联到"提示——不用等失焦才更新，
+   不然像之前那样，改完名字如果没有明确触发失焦（比如用建议清单点选），提示会一直卡在旧的名字上，
+   使用者会以为"改了名字，提示没跟着换"。只重画这一小块，不动输入框本身，不会打字打到一半失焦。 */
+function refreshPurItemInfo(rowId){
+  const row = tempPurchaseItems.find(r=>r.id===rowId);
+  if(!row) return;
+  const el = document.getElementById('purItemInfo_'+rowId);
+  if(!el) return;
+  el.innerHTML = purItemInfoHtml(row);
+  if(document.getElementById('purProdPicks_'+rowId)){
+    mpInit('purProdPicks_'+rowId, ()=>state.products.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')), ()=> row.productIds||[], (id,checked)=>togglePurItemProductPick(rowId, id, checked));
+  }
+}
 function renderPurchaseItemRows(){
   const wrap = document.getElementById('purItemsWrap');
   wrap.innerHTML = `
@@ -4062,46 +4122,11 @@ function renderPurchaseItemRows(){
         </select>
         ${tempPurchaseItems.length>1?`<button class="rm" onclick="removePurItem('${row.id}')">×</button>`:'<span style="width:20px"></span>'}
       </div>
-      ${(()=>{
-        const ing = findIngredient(row.name);
-        if(!ing) return '';
-        const parts = [];
-        if(ing.unit) parts.push(`单位 ${ing.unit}`);
-        if(ing.unitPrice>0) parts.push(`参考单价 RM${fmtPlain(ing.unitPrice)}`);
-        return parts.length ? `<div class="muted" style="font-size:11px; margin-bottom:4px;">💡 系统记得这个食材 · ${parts.join(' · ')}</div>` : '';
-      })()}
-      ${(()=>{
-        /* 「这个食材属于哪个产品」原本统一在「产品→食材关联」那个子页签管理，要先保存这张采购单、
-           跳过去搜索才能设。现在改成：只要这个食材还没关联任何产品（不管是全新食材，还是已经在
-           字典里但还没设关联的），就直接在这里勾选——勾好的选择存在这一行草稿的 productIds 里，
-           等这张采购单真的保存/提交时会一起生效教进食材字典，不用先保存再跳页找。
-           已经关联好的食材，还是照旧只显示结果+"改关联"连结（改关联本来就该去那个统一管理的页面）。
-           只有「食材」类别才需要关联产品算成本——清洁用品、水电费这些其他类别不需要，不用显示这块。 */
-        if(!row.name || row.category!=='食材') return '';
-        const ing = findIngredient(row.name);
-        const linkedIds = ing && ing.productIds ? ing.productIds.filter(Boolean) : [];
-        if(linkedIds.length){
-          const names = linkedIds.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean);
-          return `<div class="muted" style="font-size:11px; margin-bottom:6px;">🔗 关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="goToIngredientLinkTab('${row.name.replace(/'/g,"\\'")}')">改关联</a></div>`;
-        }
-        const picked = row.productIds||[];
-        const newFlag = ing ? '' : '🆕 新食材，';
-        // 已经挑好至少1个产品、又还没收起来看的话，就先只显示一行小结果，
-        // 不用整块打勾清单一直占着地方——点"改选"才会再打开。
-        if(picked.length && !row.pickerOpen){
-          const names = picked.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean);
-          return `<div class="muted" style="font-size:11px; margin-bottom:6px; color:var(--green);">🆕 将关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="setPurItemPickerOpen('${row.id}',true)">改选</a></div>`;
-        }
-        return `
-          <div class="muted" style="font-size:11px; margin-bottom:4px; color:var(--rust);">⚠️ ${newFlag}还没关联产品，勾选这个算给哪个产品的成本（保存这张单会一起生效）：</div>
-          ${state.products.length? `<div id="purProdPicks_${row.id}" style="margin-bottom:6px;"></div>` : `<div class="muted" style="font-size:12px; margin-bottom:6px;">还没有产品，先去"产品"子页签新增</div>`}
-          ${picked.length? `<button type="button" class="btn-ghost btn-small" style="margin-bottom:6px;" onclick="setPurItemPickerOpen('${row.id}',false)">✓ 挑好了，收起来</button>` : ''}
-        `;
-      })()}
+      <div id="purItemInfo_${row.id}">${purItemInfoHtml(row)}</div>
       <div class="pi-bottom">
         <input id="pi_qty_${row.id}" placeholder="数量" type="text" inputmode="decimal" value="${row.qty}" oninput="updatePurItem('${row.id}','qty',this.value)">
         <input autocomplete="off" id="pi_unit_${row.id}" placeholder="单位" value="${row.unit}" oninput="updatePurItem('${row.id}','unit',this.value)">
-        <input placeholder="单价(选填)" type="text" inputmode="decimal" step="0.01" value="${row.unitPrice}" oninput="updatePurItem('${row.id}','unitPrice',this.value)">
+        <input placeholder="单价(选填)" type="text" inputmode="decimal" step="0.01" id="pi_price_${row.id}" value="${row.unitPrice}" oninput="updatePurItem('${row.id}','unitPrice',this.value)">
         <input id="pi_total_${row.id}" placeholder="总价RM" type="text" inputmode="decimal" step="0.01" value="${row.total}" oninput="updatePurItem('${row.id}','total',this.value)">
       </div>
       <div class="muted" style="font-size:11px; margin-top:3px;">填了"数量"和"单价"会自动算出总价；不想算就直接填"总价"就好</div>
@@ -4133,11 +4158,16 @@ function updatePurItem(id, field, val){
     }
   }
   /* "类别"改掉的话，"还没关联产品"那个警示区块要不要显示会跟着变（只有食材类别才需要关联产品算成本）——
-     那块HTML是渲染当下就决定好的，光改 row.category 不会自动让画面上已经显示的警示消失，
-     所以类别一改就整个重画一次这一格的品项列表，让警示区块照新类别重新判断该不该出现。 */
+     现在这块提示已经拆成单独一个 purItemInfo_ 容器，只重画那一小块就好，不用整行重画。 */
   if(field==='category'){
-    renderPurchaseItemRows();
+    refreshPurItemInfo(id);
     return;
+  }
+  /* 品名每打一个字，就重画一次这一行的"系统记得这个食材/关联到哪个产品"提示——
+     不用等失焦（onchange）才更新，不然像是用建议清单点选、或某些情况下失焦事件
+     没照预期触发的时候，提示会一直卡在改名字之前的旧内容，看起来像"改了名字但没反应"。 */
+  if(field==='name'){
+    refreshPurItemInfo(id);
   }
   const total = roundToNearest5Sen(tempPurchaseItems.reduce((a,r)=>a+Number(r.total||0),0));
   document.getElementById('purTotalPreview').textContent = fmt(total);
@@ -4179,16 +4209,30 @@ function autoLinkPurItemIngredient(rowId){
   if(!row) return;
   const ing = findIngredient(row.name);
   if(ing){
-    if(ing.unit && !row.unit) row.unit = ing.unit;
+    if(ing.unit && !row.unit){
+      row.unit = ing.unit;
+      const unitInput = document.getElementById('pi_unit_'+rowId);
+      if(unitInput) unitInput.value = row.unit;
+    }
     if(ing.unitPrice && !row.unitPrice){
       row.unitPrice = String(ing.unitPrice);
+      const priceInput = document.getElementById('pi_price_'+rowId);
+      if(priceInput) priceInput.value = row.unitPrice;
       const qty = Number(row.qty);
-      if(row.qty!=='' && !isNaN(qty)) row.total = String(Math.round(qty*ing.unitPrice*100)/100);
+      if(row.qty!=='' && !isNaN(qty)){
+        row.total = String(Math.round(qty*ing.unitPrice*100)/100);
+        const totalInput = document.getElementById('pi_total_'+rowId);
+        if(totalInput) totalInput.value = row.total;
+      }
     }
   }
-  // 名字打完（失焦）之后，不管有没有自动补到单位/单价，都重画一次，
-  // 让"还没关联产品"的勾选区块能跟上最新打的名字（不然新食材那个提示要等别的动作才会出现）。
-  renderPurchaseItemRows();
+  // 名字失焦之后，不管有没有自动补到单位/单价，都重画一次这一行的提示区块——只重画那一小块
+  // 就够了（品名本身打字过程中 updatePurItem 已经会即时重画，这里主要是把自动补的单位/单价
+  // 也一起反映出来，同时兜底一次，避免中间哪个环节漏掉重画）。
+  refreshPurItemInfo(rowId);
+  const total = roundToNearest5Sen(tempPurchaseItems.reduce((a,r)=>a+Number(r.total||0),0));
+  const totalPreview = document.getElementById('purTotalPreview');
+  if(totalPreview) totalPreview.textContent = fmt(total);
 }
 
 function addSupplier(){
