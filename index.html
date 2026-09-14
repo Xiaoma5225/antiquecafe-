@@ -2028,7 +2028,14 @@ function renderPayPopup(){
     </div>
   `;
 }
+let supplierMgmtExpandedIds = new Set(); // 供应商管理页——已经点开"看Invoice"展开采购记录的供应商id
+function toggleSupplierMgmtExpand(id){
+  if(supplierMgmtExpandedIds.has(id)) supplierMgmtExpandedIds.delete(id); else supplierMgmtExpandedIds.add(id);
+  renderPurchase();
+}
 function supplierCardHtml(s,t){
+  const expanded = supplierMgmtExpandedIds.has(s.id);
+  const purchases = expanded ? state.purchases.filter(p=>p.supplierId===s.id).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')) : [];
   return `<div class="supplier-card">
     <div class="row">
       <div>
@@ -2042,6 +2049,20 @@ function supplierCardHtml(s,t){
       <span class="muted">已购 ${fmtPlain(t.bought)} · 已付 ${fmtPlain(t.paid)}</span>
       ${t.owe>0.001? `<span class="pill owe">${Math.abs(t.owe-t.bought)<0.005?'欠':`欠 ${fmtPlain(t.owe)}`}</span>` : `<span class="pill clear">已结清</span>`}
     </div>
+    ${t.bought>0? `<a href="javascript:void(0)" style="font-size:11.5px; display:inline-block; margin-top:6px;" onclick="toggleSupplierMgmtExpand('${s.id}')">${expanded?'收起 ▴':`查看Invoice（共${(state.purchases||[]).filter(p=>p.supplierId===s.id).length}笔）▾`}</a>` : ''}
+    ${expanded? `<div style="margin-top:6px;">
+      ${purchases.length? purchases.map(p=>{
+        const outstanding = purchaseOutstanding(p.id);
+        return `
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 0; border-top:1px solid var(--border); font-size:12px;">
+          <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${p.date}　${p.invoiceNumber?`<span style="color:var(--sky);">Invoice #${p.invoiceNumber}</span>`:'（无Invoice号）'}</span>
+          <div style="display:flex; align-items:center; gap:8px; flex:0 0 auto;">
+            <span class="mono">${fmtPlain(p.totalAmount)}</span>
+            ${outstanding>0.001? `<span class="pill owe">${Math.abs(outstanding-p.totalAmount)<0.005?'未付':`未付 ${fmtPlain(outstanding)}`}</span>` : `<span class="pill clear">已付</span>`}
+          </div>
+        </div>`;
+      }).join('') : `<div class="muted" style="font-size:12px; padding:6px 0;">还没有采购记录</div>`}
+    </div>` : ''}
   </div>`;
 }
 function cashBalance(){
