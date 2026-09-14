@@ -557,6 +557,7 @@
     <button data-tab="purchase" onclick="handlePurchaseNavClick(event)"><span class="ic">🛒</span>采购</button>
     <div class="dropdown-menu">
       <button type="button" onclick="jumpPurSubView('main')">🛒 采购单</button>
+      <button type="button" onclick="jumpPurSubView('suppliers')">🏢 供应商</button>
       <button type="button" onclick="jumpPurSubView('payment')">💳 付款</button>
       <button type="button" onclick="jumpPurSubView('debt')">📋 欠款</button>
     </div>
@@ -2422,17 +2423,21 @@ function renderSupplierDebtSectionHtml(){
 
 function renderPurchase(){
   const el = document.getElementById('tab-purchase');
-  // 采购单/付款/欠款 这3个子分页现在从顶部导航「采购」按钮那边用下拉选单切换
+  // 采购单/供应商/付款/欠款 这4个子分页现在从顶部导航「采购」按钮那边用下拉选单切换
   // （见 jumpPurSubView / handlePurchaseNavClick），页面内部不再重复画一排一样的按钮。
   if(purSubView==='debt'){
     el.innerHTML = renderSupplierDebtSectionHtml();
+    return;
+  }
+  if(purSubView==='suppliers'){
+    el.innerHTML = renderSupplierManagementSectionHtml();
+    wireSuggest('supTitle', state.suppliers.map(s=>s.name).sort((a,b)=>a.localeCompare(b,'zh')));
     return;
   }
   if(purSubView==='payment'){
     el.innerHTML = renderPaymentSectionHtml();
     wireSuggest('paySupplier', state.suppliers.map(s=>s.name).sort((a,b)=>a.localeCompare(b,'zh')));
     wireSuggest('payNote', getNoteSuggestions(state.payments));
-    wireSuggest('supTitle', state.suppliers.map(s=>s.name).sort((a,b)=>a.localeCompare(b,'zh')));
     const paySupplierEl = document.getElementById('paySupplier');
     if(paySupplierEl && paySupplierEl.value.trim()) onPaySupplierInput();
     return;
@@ -3735,9 +3740,44 @@ function setPurCompany(val){
 }
 
 /* ================= 付款 Tab ================= */
+function renderSupplierManagementSectionHtml(){
+  const supplierDraft = captureFormValues(['supTitle','supPhone','bulkSupplierText']);
+  return `
+    <div class="card">
+      <h3>供应商 <span class="n">${state.suppliers.length} 家</span></h3>
+      <div class="grid2">
+        <div><label>供应商名称</label><input id="supTitle" placeholder="例：新鲜蔬果行" autocomplete="off" value="${supplierDraft.supTitle||''}"></div>
+        <div><label>联系电话（选填）</label><input autocomplete="off" id="supPhone" placeholder="012-3456789" value="${supplierDraft.supPhone||''}"></div>
+      </div>
+      <button class="btn-main" onclick="addSupplier()">+ 添加供应商</button>
+      <hr class="receipt-divider">
+      <details class="subtle-form">
+        <summary>批量添加供应商（一次贴一整份名单）</summary>
+        <label style="margin-top:8px">每行一个名字，前面的编号会自动去掉，已存在的名字会自动跳过</label>
+        <textarea id="bulkSupplierText" rows="6" style="width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px; font-family:inherit; font-size:13.5px;" placeholder="99 SPEED MART SDN BHD&#10;AH LOCK TRADING&#10;...">${supplierDraft.bulkSupplierText||''}</textarea>
+        <button class="btn-main" onclick="bulkAddSuppliers()">批量添加</button>
+      </details>
+      <hr class="receipt-divider">
+      ${state.suppliers.length? `
+        ${vizLegend([{color:'var(--green)',label:'已付'},{color:'var(--rust)',label:'欠款'}])}
+        ${(()=>{
+          const ranked = state.suppliers.map(s=>({s, t:supplierTotals(s.id)})).sort((a,b)=>a.s.name.localeCompare(b.s.name,'zh'));
+          const top = ranked.slice(0,3);
+          const rest = ranked.slice(3);
+          return `
+            ${top.map(x=>supplierCardHtml(x.s,x.t)).join('')}
+            ${rest.length? `<details class="subtle-form">
+              <summary>还有 ${rest.length} 家供应商 ▾</summary>
+              <div style="margin-top:8px">${rest.map(x=>supplierCardHtml(x.s,x.t)).join('')}</div>
+            </details>` : ''}
+          `;
+        })()}
+      ` : `<div class="empty">还没有供应商，先在上面添加一个</div>`}
+    </div>
+  `;
+}
 function renderPaymentSectionHtml(){
   const draft = captureFormValues(['paySupplier','payDate','payAmount','payNote']);
-  const supplierDraft = captureFormValues(['supTitle','supPhone','bulkSupplierText']);
   return `
     <div class="card">
       <h3>供应商付款</h3>
@@ -3779,38 +3819,6 @@ function renderPaymentSectionHtml(){
           <button class="btn-danger-text" onclick="deleteImportBatch('${b.id}')">删除整批</button>
         </div>`).join('')}
       ` : ''}
-    </div>
-
-    <div class="card">
-      <h3>供应商 <span class="n">${state.suppliers.length} 家</span></h3>
-      <div class="grid2">
-        <div><label>供应商名称</label><input id="supTitle" placeholder="例：新鲜蔬果行" autocomplete="off" value="${supplierDraft.supTitle||''}"></div>
-        <div><label>联系电话（选填）</label><input autocomplete="off" id="supPhone" placeholder="012-3456789" value="${supplierDraft.supPhone||''}"></div>
-      </div>
-      <button class="btn-main" onclick="addSupplier()">+ 添加供应商</button>
-      <hr class="receipt-divider">
-      <details class="subtle-form">
-        <summary>批量添加供应商（一次贴一整份名单）</summary>
-        <label style="margin-top:8px">每行一个名字，前面的编号会自动去掉，已存在的名字会自动跳过</label>
-        <textarea id="bulkSupplierText" rows="6" style="width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px; font-family:inherit; font-size:13.5px;" placeholder="99 SPEED MART SDN BHD&#10;AH LOCK TRADING&#10;...">${supplierDraft.bulkSupplierText||''}</textarea>
-        <button class="btn-main" onclick="bulkAddSuppliers()">批量添加</button>
-      </details>
-      <hr class="receipt-divider">
-      ${state.suppliers.length? `
-        ${vizLegend([{color:'var(--green)',label:'已付'},{color:'var(--rust)',label:'欠款'}])}
-        ${(()=>{
-          const ranked = state.suppliers.map(s=>({s, t:supplierTotals(s.id)})).sort((a,b)=>a.s.name.localeCompare(b.s.name,'zh'));
-          const top = ranked.slice(0,3);
-          const rest = ranked.slice(3);
-          return `
-            ${top.map(x=>supplierCardHtml(x.s,x.t)).join('')}
-            ${rest.length? `<details class="subtle-form">
-              <summary>还有 ${rest.length} 家供应商 ▾</summary>
-              <div style="margin-top:8px">${rest.map(x=>supplierCardHtml(x.s,x.t)).join('')}</div>
-            </details>` : ''}
-          `;
-        })()}
-      ` : `<div class="empty">还没有供应商，先在上面添加一个</div>`}
     </div>
 
     <div class="card">
@@ -4564,6 +4572,42 @@ function ingredientEditFormHtml(ing){
       </div>
     </div>`;
 }
+let ingredientPurchaseHistoryExpandedIds = new Set(); // 食材管理页——已经点开"查看采购记录"展开列表的食材id
+function toggleIngredientPurchaseHistory(id, expand){
+  if(expand) ingredientPurchaseHistoryExpandedIds.add(id); else ingredientPurchaseHistoryExpandedIds.delete(id);
+  refreshIngredientLinkRow(id);
+}
+/* 找出所有采购单里，品名跟这个食材对得上（忽略大小写/头尾空格）的每一笔——
+   给食材管理页用，让使用者在食材列表就能直接看到"这个东西是从哪几张Invoice买的"，
+   不用跑去采购页一张一张翻。按日期新到旧排序。 */
+function ingredientPurchaseRecords(name){
+  const key = (name||'').trim().toLowerCase();
+  if(!key) return [];
+  const out = [];
+  (state.purchases||[]).forEach(pu=>{
+    (pu.items||[]).forEach(item=>{
+      if((item.name||'').trim().toLowerCase()!==key) return;
+      out.push({date:pu.date, invoiceNumber:pu.invoiceNumber, supplierId:pu.supplierId, purchaseId:pu.id, qty:item.qty, unit:item.unit, unitPrice:item.unitPrice, totalCost:item.totalCost});
+    });
+  });
+  out.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  return out;
+}
+function ingredientPurchaseHistoryHtml(ing){
+  const records = ingredientPurchaseRecords(ing.name);
+  if(!records.length) return '';
+  const expanded = ingredientPurchaseHistoryExpandedIds.has(ing.id);
+  return `<div class="muted" style="font-size:11.5px; margin-top:6px;">
+      🧾 采购记录 共${records.length}笔　<a href="javascript:void(0)" onclick="toggleIngredientPurchaseHistory('${ing.id}',${expanded?'false':'true'})">${expanded?'收起':'查看'}</a>
+      ${expanded? `<div style="margin-top:6px;">
+        ${records.map(r=>`
+          <div style="display:flex; justify-content:space-between; gap:8px; padding:3px 0; border-bottom:1px dashed var(--border); font-size:11.5px;">
+            <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${r.date}　${r.invoiceNumber?`<span style="color:var(--sky);">Invoice #${r.invoiceNumber}</span>`:'（无Invoice号）'}　${supplierName(r.supplierId)}</span>
+            <span class="mono" style="flex:0 0 auto;">${r.qty}${r.unit||''} · RM${fmtPlain(r.totalCost)}</span>
+          </div>`).join('')}
+      </div>` : ''}
+    </div>`;
+}
 function ingredientLinkRowHtml(ing){
   const linkedIds = ing.productIds||[];
   const addonUsage = ingredientAddonUsage(ing.name);
@@ -4574,6 +4618,7 @@ function ingredientLinkRowHtml(ing){
       ${(addonUsage.length && optionUsage.length)? '<br>' : ''}
       ${optionUsage.length? `🎛️ 也用在选项组：${optionUsage.map(u=>`${u.groupName}→${u.choiceName}（${u.qty||0}${u.unit||''}）`).join('、')}　<a href="javascript:void(0)" onclick="switchToTab('cost'); setProdSubView('options');">去选项组编辑</a>` : ''}
     </div>` : '';
+  const purchaseHistoryHtml = ingredientPurchaseHistoryHtml(ing);
   const infoParts = [];
   if(ing.unit) infoParts.push(`单位 ${ing.unit}`);
   if(ing.unitPrice>0) infoParts.push(`参考单价 RM${fmtPlain(ing.unitPrice)}`);
@@ -4596,11 +4641,13 @@ function ingredientLinkRowHtml(ing){
     return `<div class="supplier-card">${header}
       ${names.length? `<div class="muted" style="font-size:12px; margin-top:6px;">🔗 关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="toggleIngredientLinkRowExpand('${ing.id}',true)">改关联</a></div>` : `<div class="muted" style="font-size:11px; margin-top:6px;"><a href="javascript:void(0)" onclick="toggleIngredientLinkRowExpand('${ing.id}',true)">＋ 也关联到某个产品（按营业额比例分摊或填固定用量）</a></div>`}
       ${otherUsageHtml}
+      ${purchaseHistoryHtml}
     </div>`;
   }
   return `
     <div class="supplier-card">${header}
       ${otherUsageHtml}
+      ${purchaseHistoryHtml}
       ${state.products.length? `<div id="ingProdPicks_${ing.id}" style="margin-top:8px;"></div>` : `<div class="muted" style="font-size:12px; margin-top:8px;">还没有产品，先去"产品"子页签新增</div>`}
       ${linkedIds.length? ingredientQtyLinksHtml(ing) : ''}
       ${(linkedIds.length || hasOtherUsage)? `<button type="button" class="btn-ghost btn-small" style="margin-top:8px;" onclick="toggleIngredientLinkRowExpand('${ing.id}',false)">✓ 收起来</button>` : ''}
@@ -7510,6 +7557,19 @@ function changePosItemQty(orderId, lineId, delta){
 /* 结账：把这一单里的每个品项各自转成一笔销售记录（跟手动记销售用同一套逻辑，
    照样会依产品的食材成本项自动扣库存），结完账把这张"进行中的单"删掉，再叫出打印。
    跟手动记销售一样，不自动生成收支流水（收支页自己手动记）。 */
+/* 选项组/追加选项组设的"扣哪个食材、扣多少"，之前只拿去扣库存，没有算进那笔销售的成本，
+   导致选了要加价的选项（比如"加叉烧"）营收有加，成本却没反应，毛利率看起来比实际高。
+   这里只处理"钱"要不要算进成本，暂时不动库存扣减那段逻辑（库存以后再另外处理）——
+   用当下食材字典记的参考单价去估这份食材值多少钱，找不到食材/没设单价的就当0，
+   不会因为找不到东西而中断结账。 */
+function choiceIngredientUnitCost(name, unit){
+  if(!name) return 0;
+  const ing = findIngredient(name);
+  if(!ing) return 0;
+  const converted = ingredientPriceInUnit(name, unit);
+  if(converted!=null) return converted;
+  return Number(ing.unitPrice)||0;
+}
 function confirmPosCheckout(orderId, payMethod){
   const orderSnapshot = (state.posOrders||[]).find(o=>o.id===orderId);
   if(!orderSnapshot || !orderSnapshot.items.length) return;
@@ -7522,22 +7582,38 @@ function confirmPosCheckout(orderId, payMethod){
       const p = state.products.find(x=>x.id===i.productId);
       const unitCost = p ? productUnitCost(p) : 0;
       const sid = uid();
-      state.sales.push({id:sid, date, productId:i.productId, variantId:i.variantId||null, optionGroupId:i.optionGroupId||null, optionChoiceId:i.optionChoiceId||null, addonGroupId:i.addonGroupId||null, addonChoiceIds:(i.addonChoiceIds||[]), productName:i.name, qty:i.qty, price:i.price, amount:i.price*i.qty, cost:unitCost*i.qty, payMethod, company, posOrderId:orderId, posTableName:tableName});
-      if(p) pushSaleStockDeductions(p, i.qty, date, company, {_saleId:sid});
       // 选了选项组里的哪个选项（比如面包夹料选了Kaya），如果那个选项有设"扣哪个食材"，
-      // 结账时就照这次的份数把食材扣掉，跟产品本身的食材成本项分开算、互不影响
+      // 这份食材的钱要算进这笔销售的成本，跟产品本身的食材成本项分开算、加总起来。
       let primaryChoice = null;
+      let extraUnitCost = 0;
       if(i.optionChoiceId){
         const g = state.optionGroups.find(x=>x.id===i.optionGroupId);
         primaryChoice = g ? g.choices.find(c=>c.id===i.optionChoiceId) : null;
         if(primaryChoice && primaryChoice.ingredientName && Number(primaryChoice.ingredientQty)>0){
-          if(!state.stockAdjustments) state.stockAdjustments = [];
-          state.stockAdjustments.push({id:uid(), date, itemName:primaryChoice.ingredientName, qty:-Math.abs(Number(primaryChoice.ingredientQty)*i.qty), note:`${i.name} ×${i.qty}`, company, _saleId:sid});
+          extraUnitCost += choiceIngredientUnitCost(primaryChoice.ingredientName, primaryChoice.ingredientUnit) * Number(primaryChoice.ingredientQty);
         }
       }
-      // 追加选项组（第二层，比如"加叉烧"、"加蛋"、"加面"）：这次可以同时选好几样，
-      // 逐一处理每一样——有设"额外多扣第一层选项食材的几倍"的（比如"加面"），就回头拿第一层
-      // 选中的那个选项的食材、按倍数多扣；没设倍数的话，就跟第一层一样，扣它自己填的固定食材。
+      // 追加选项组（第二层，比如"加叉烧"、"加蛋"、"加面"）：这次可以同时选好几样，逐一算——
+      // 有设"额外多扣第一层选项食材的几倍"的（比如"加面"），就回头拿第一层选中的那个选项的
+      // 食材、按倍数多算一份钱；没设倍数的话，就跟第一层一样，算它自己填的固定食材的钱。
+      (i.addonChoiceIds||[]).forEach(addonChoiceId=>{
+        const ag = state.optionGroups.find(x=>x.id===i.addonGroupId);
+        const addonChoice = ag ? ag.choices.find(c=>c.id===addonChoiceId) : null;
+        if(!addonChoice) return;
+        if(Number(addonChoice.linkPrimaryExtra)>0 && primaryChoice && primaryChoice.ingredientName && Number(primaryChoice.ingredientQty)>0){
+          const extraQty = Number(primaryChoice.ingredientQty) * Number(addonChoice.linkPrimaryExtra);
+          extraUnitCost += choiceIngredientUnitCost(primaryChoice.ingredientName, primaryChoice.ingredientUnit) * extraQty;
+        } else if(addonChoice.ingredientName && Number(addonChoice.ingredientQty)>0){
+          extraUnitCost += choiceIngredientUnitCost(addonChoice.ingredientName, addonChoice.ingredientUnit) * Number(addonChoice.ingredientQty);
+        }
+      });
+      state.sales.push({id:sid, date, productId:i.productId, variantId:i.variantId||null, optionGroupId:i.optionGroupId||null, optionChoiceId:i.optionChoiceId||null, addonGroupId:i.addonGroupId||null, addonChoiceIds:(i.addonChoiceIds||[]), productName:i.name, qty:i.qty, price:i.price, amount:i.price*i.qty, cost:(unitCost+extraUnitCost)*i.qty, payMethod, company, posOrderId:orderId, posTableName:tableName});
+      if(p) pushSaleStockDeductions(p, i.qty, date, company, {_saleId:sid});
+      // 下面这段是原本的库存扣减逻辑，先不动（库存这块使用者说之后自己重新设置，这次只处理成本）。
+      if(primaryChoice && primaryChoice.ingredientName && Number(primaryChoice.ingredientQty)>0){
+        if(!state.stockAdjustments) state.stockAdjustments = [];
+        state.stockAdjustments.push({id:uid(), date, itemName:primaryChoice.ingredientName, qty:-Math.abs(Number(primaryChoice.ingredientQty)*i.qty), note:`${i.name} ×${i.qty}`, company, _saleId:sid});
+      }
       (i.addonChoiceIds||[]).forEach(addonChoiceId=>{
         const ag = state.optionGroups.find(x=>x.id===i.addonGroupId);
         const addonChoice = ag ? ag.choices.find(c=>c.id===addonChoiceId) : null;
