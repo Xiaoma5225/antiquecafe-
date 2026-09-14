@@ -127,6 +127,10 @@
     display:none; position:fixed; inset:0; z-index:60; background:rgba(43,38,32,0.55);
     align-items:center; justify-content:center; padding:16px;
   }
+  #purchaseDetailOverlay{
+    display:none; position:fixed; inset:0; z-index:60; background:rgba(43,38,32,0.55);
+    align-items:center; justify-content:center; padding:16px;
+  }
   #posVariantOverlay{
     display:none; position:fixed; inset:0; z-index:60; background:rgba(43,38,32,0.55);
     align-items:center; justify-content:center; padding:16px;
@@ -249,12 +253,10 @@
     border:1px solid var(--border); border-radius:10px; padding:8px 12px; margin-bottom:6px; background:#FFFDF9;
   }
   .invoice-pick.active{border-color:var(--green); background:var(--green-dim);}
-  .pur-hist-sub{border-top:1px solid var(--border); padding:8px 0;}
+  .pur-hist-sub{border-top:1px solid var(--border); padding:8px 0; display:flex; justify-content:space-between; align-items:center; gap:8px; cursor:pointer;}
   .pur-hist-sub:first-child{border-top:none; padding-top:0;}
-  .pur-hist-sub summary{display:flex; justify-content:space-between; align-items:center; gap:8px; cursor:pointer; list-style:none;}
-  .pur-hist-sub summary::-webkit-details-marker{display:none;}
-  .phs-chev{color:var(--muted); font-size:10px; transition:transform .15s ease; margin-left:2px;}
-  .pur-hist-sub[open] .phs-chev{transform:rotate(180deg);}
+  .pur-hist-sub:active{background:var(--bg);}
+  .phs-chev{color:var(--muted); font-size:15px; margin-left:2px;}
   .pur-hist-row{border-bottom:1px solid #F0EAdd; padding:9px 0;}
   .pur-hist-row:last-child{border-bottom:none;}
   .pur-hist-row summary{display:flex; justify-content:space-between; align-items:center; gap:8px; cursor:pointer; list-style:none;}
@@ -524,6 +526,7 @@
 </div>
 
 <div id="payPopupOverlay" onclick="closePurchasePayPopup()"></div>
+<div id="purchaseDetailOverlay" onclick="closePurchaseDetailPopup()"></div>
 <div id="posVariantOverlay" onclick="closePosPicker()"></div>
 
 <!-- 点餐结账后打印用的收据，平常隐藏，只在按"打印"时透过 @media print 单独显示这块出来 -->
@@ -1929,46 +1932,87 @@ function purchaseOutstanding(purchaseId){
   const paid = state.payments.filter(pay=>pay.purchaseId===purchaseId).reduce((a,pay)=>a+Number(pay.amount||0),0);
   return Number(pur.totalAmount||0) - paid;
 }
-/* 单一张采购单的展开明细（日期/Invoice/金额/未付徽章的摘要行 + 点开后的品项清单/编辑/删除/付款）——
-   "采购历史"列表跟"供应商"页点开的Invoice清单，共用这同一份，样式跟操作都一致，不用维护两份。 */
+/* 单一张采购单在列表里的摘要行（日期/Invoice/金额/未付徽章）——点了会跳出弹窗看明细/编辑，
+   不再是原地展开。"采购历史"列表跟"供应商"页点开的Invoice清单，共用这同一份，
+   样式跟操作都一致，不用维护两份。 */
 function purchaseHistoryDetailHtml(p){
   const outstanding = purchaseOutstanding(p.id);
   return `
-    <details class="pur-hist-sub">
-      <summary>
-        <div style="display:flex; align-items:baseline; gap:8px; min-width:0; overflow:hidden;">
-          <span class="muted" style="white-space:nowrap;">${p.date}</span>
-          <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--sky);">${p.invoiceNumber?`Invoice #${p.invoiceNumber}`:'（无Invoice号）'}</span>
-        </div>
-        <div style="display:flex; align-items:center; gap:8px; flex:0 0 auto;">
-          <span class="num">${fmtPlain(p.totalAmount)}</span>
-          ${outstanding>0.001? `<span class="pill owe">${Math.abs(outstanding-p.totalAmount)<0.005?'未付':`未付 ${fmtPlain(outstanding)}`}</span>` : `<span class="pill clear">已付</span>`}
-          <span class="phs-chev">▾</span>
-        </div>
-      </summary>
-      <div style="margin-top:8px;">
-        <label style="margin-top:0">整单默认公司${p.items.some(it=>it.company)?'（下面有品项个别设了公司，以品项为准）':''}</label>
-        <select style="${!p.company?'color:var(--rust); border-color:var(--rust);':''}" onchange="updatePurchaseCompany('${p.id}', this.value)">
-          <option value="" ${!p.company?'selected':''}>未选择公司</option>
-          ${COMPANIES.map(c=>`<option value="${c}" ${p.company===c?'selected':''}>${c}</option>`).join('')}
-        </select>
-        <div style="margin-top:8px">
-          ${p.items.map(it=>`
-          <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; font-size:12px; padding:3px 0; border-bottom:1px dashed var(--border);">
-            <span class="muted">${it.name} ×${it.qty}${it.unit||''} [${it.category||'食材'}]</span>
-            <select style="width:auto; flex:0 0 96px; padding:2px 4px; font-size:11px; border-radius:6px;" onchange="updatePurItemCompany('${p.id}','${it.id}', this.value)">
-              <option value="" ${!it.company?'selected':''}>跟随整单</option>
-              ${COMPANIES.map(c=>`<option value="${c}" ${it.company===c?'selected':''}>${companyShort(c)}</option>`).join('')}
-            </select>
-          </div>`).join('')}
-        </div>
-        <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-          <button class="btn-ghost btn-small" onclick="startEditPurchase('${p.id}')">编辑</button>
-          <button class="btn-danger-text" onclick="deletePurchase('${p.id}')">删除</button>
-          ${outstanding>0.001? `<button class="btn-pay-small" style="margin-left:auto;" onclick="openPurchasePayPopup('${p.id}', false)">💰 付款</button>` : ''}
-        </div>
+    <div class="pur-hist-sub" onclick="openPurchaseDetailPopup('${p.id}')">
+      <div style="display:flex; align-items:baseline; gap:8px; min-width:0; overflow:hidden;">
+        <span class="muted" style="white-space:nowrap;">${p.date}</span>
+        <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--sky);">${p.invoiceNumber?`Invoice #${p.invoiceNumber}`:'（无Invoice号）'}</span>
       </div>
-    </details>`;
+      <div style="display:flex; align-items:center; gap:8px; flex:0 0 auto;">
+        <span class="num">${fmtPlain(p.totalAmount)}</span>
+        ${outstanding>0.001? `<span class="pill owe">${Math.abs(outstanding-p.totalAmount)<0.005?'未付':`未付 ${fmtPlain(outstanding)}`}</span>` : `<span class="pill clear">已付</span>`}
+        <span class="phs-chev">›</span>
+      </div>
+    </div>`;
+}
+let purchaseDetailPopupId = null;
+function openPurchaseDetailPopup(id){
+  purchaseDetailPopupId = id;
+  renderPurchaseDetailPopup();
+}
+function closePurchaseDetailPopup(){
+  purchaseDetailPopupId = null;
+  renderPurchaseDetailPopup();
+}
+/* 弹窗里改"整单默认公司"/单一品项公司，跟列表那两个 updatePurchaseCompany/updatePurItemCompany
+   做的事一样（一样用 mutate 存档），只是多一步：存完手动重画一次弹窗本身——mutate() 只会
+   重画当下那个tab，不会自动知道要连弹窗也一起更新，不然改完公司弹窗会看起来卡住没反应。 */
+function updatePurchaseCompanyInPopup(id, company){
+  updatePurchaseCompany(id, company);
+  renderPurchaseDetailPopup();
+}
+function updatePurItemCompanyInPopup(purchaseId, itemId, company){
+  updatePurItemCompany(purchaseId, itemId, company);
+  renderPurchaseDetailPopup();
+}
+function deletePurchaseFromPopup(id){
+  if(!confirm('确定删除这张采购单？')) return;
+  mutate(()=>{ state.purchases = state.purchases.filter(p=>p.id!==id); removeRecipeBatchLogsForPurchase(id); });
+  closePurchaseDetailPopup();
+}
+function renderPurchaseDetailPopup(){
+  const el = document.getElementById('purchaseDetailOverlay');
+  if(!el) return;
+  if(!purchaseDetailPopupId){ el.style.display='none'; el.innerHTML=''; return; }
+  const p = state.purchases.find(x=>x.id===purchaseDetailPopupId);
+  if(!p){ el.style.display='none'; el.innerHTML=''; purchaseDetailPopupId=null; return; }
+  const outstanding = purchaseOutstanding(p.id);
+  el.style.display = 'flex';
+  el.innerHTML = `
+    <div class="pay-sheet" onclick="event.stopPropagation()">
+      <button class="pay-sheet-close" onclick="closePurchaseDetailPopup()">✕</button>
+      <div class="t">${supplierName(p.supplierId)}</div>
+      <div class="amt-line">${p.date}　${p.invoiceNumber?`Invoice #${p.invoiceNumber}`:'（无Invoice号）'}</div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <span class="num" style="font-size:19px;">${fmtPlain(p.totalAmount)}</span>
+        ${outstanding>0.001? `<span class="pill owe">${Math.abs(outstanding-p.totalAmount)<0.005?'未付':`未付 ${fmtPlain(outstanding)}`}</span>` : `<span class="pill clear">已付</span>`}
+      </div>
+      <label style="margin-top:0">整单默认公司${p.items.some(it=>it.company)?'（下面有品项个别设了公司，以品项为准）':''}</label>
+      <select style="${!p.company?'color:var(--rust); border-color:var(--rust);':''}" onchange="updatePurchaseCompanyInPopup('${p.id}', this.value)">
+        <option value="" ${!p.company?'selected':''}>未选择公司</option>
+        ${COMPANIES.map(c=>`<option value="${c}" ${p.company===c?'selected':''}>${c}</option>`).join('')}
+      </select>
+      <div style="margin-top:10px; max-height:38vh; overflow-y:auto;">
+        ${p.items.map(it=>`
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; font-size:12px; padding:5px 0; border-bottom:1px dashed var(--border);">
+          <span class="muted">${it.name} ×${it.qty}${it.unit||''} [${it.category||'食材'}]</span>
+          <select style="width:auto; flex:0 0 96px; padding:2px 4px; font-size:11px; border-radius:6px;" onchange="updatePurItemCompanyInPopup('${p.id}','${it.id}', this.value)">
+            <option value="" ${!it.company?'selected':''}>跟随整单</option>
+            ${COMPANIES.map(c=>`<option value="${c}" ${it.company===c?'selected':''}>${companyShort(c)}</option>`).join('')}
+          </select>
+        </div>`).join('')}
+      </div>
+      <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+        <button class="btn-ghost btn-small" onclick="closePurchaseDetailPopup(); startEditPurchase('${p.id}');">编辑</button>
+        <button class="btn-danger-text" onclick="deletePurchaseFromPopup('${p.id}')">删除</button>
+        ${outstanding>0.001? `<button class="btn-pay-small" style="margin-left:auto;" onclick="closePurchaseDetailPopup(); openPurchasePayPopup('${p.id}', false);">💰 付款</button>` : ''}
+      </div>
+    </div>`;
 }
 function supplierUnpaidInvoices(supplierId){
   return state.purchases.filter(p=>p.supplierId===supplierId)
