@@ -2452,7 +2452,10 @@ function renderPurchase(){
   }
   if(purSubView==='suppliers'){
     el.innerHTML = renderSupplierManagementSectionHtml();
-    wireSuggest('supTitle', state.suppliers.map(s=>s.name).sort((a,b)=>a.localeCompare(b,'zh')));
+    const supplierNames = state.suppliers.map(s=>s.name).sort((a,b)=>a.localeCompare(b,'zh'));
+    wireSuggest('supTitle', supplierNames);
+    wireSuggest('mergeSupFromList', supplierNames);
+    wireSuggest('mergeSupToTarget', supplierNames);
     return;
   }
   if(purSubView==='payment'){
@@ -3795,7 +3798,51 @@ function renderSupplierManagementSectionHtml(){
         })()}
       ` : `<div class="empty">还没有供应商，先在上面添加一个</div>`}
     </div>
+
+    <div class="card">
+      <h3>合并重复供应商</h3>
+      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">同一家供应商有时候会因为打法不一样（比如付款的时候随手打了简称），在App里变成好几个不同的供应商。这里可以把旧名字统一合并成一个：那些供应商名下的采购单、付款记录，全部会改成新名字（这样已购/已付/欠款才不会分散算），旧的重复供应商项目会被删掉。</div>
+      <label>要合并掉的旧名字（可以填好几个，用顿号"、"分开）</label>
+      <input id="mergeSupFromList" placeholder="例：99、99SPEEDMART" autocomplete="off">
+      <label style="margin-top:10px">统一成这个名字（如果这个名字目前还没有供应商，会直接拿旧供应商其中一个改名字延用）</label>
+      <input id="mergeSupToTarget" placeholder="例：99 SPEED MART SDN BHD" autocomplete="off">
+      <button class="btn-line" onclick="mergeSuppliersByName()">🔀 合并</button>
+    </div>
   `;
+}
+/* 合并重复供应商——概念跟"合并重复产品"一样：同一家供应商因为打法不同（比如付款时
+   随手打了简称）在App里变成好几个不同的供应商记录，这里把旧名字统一合并成一个，
+   底下的采购单、付款记录全部改连到合并后的供应商，旧的重复供应商项目删掉。 */
+function mergeSuppliersByName(){
+  const fromRaw = document.getElementById('mergeSupFromList').value.trim();
+  const toName = document.getElementById('mergeSupToTarget').value.trim();
+  if(!fromRaw || !toName){ alert('请填写要合并的旧供应商名字，和统一后的名字'); return; }
+  const fromNames = fromRaw.split(/[、,，]/).map(s=>s.trim()).filter(Boolean);
+  if(!fromNames.length){ alert('请填写要合并的旧供应商名字'); return; }
+  const norm = s => (s||'').trim().toLowerCase();
+  const toNorm = norm(toName);
+  const summary = {purchasesMoved:0, paymentsMoved:0, removedSuppliers:0};
+  mutate(()=>{
+    let target = state.suppliers.find(s=>norm(s.name)===toNorm);
+    let fromSuppliers = state.suppliers.filter(s=> norm(s.name)!==toNorm && fromNames.some(f=>norm(f)===norm(s.name)) );
+    if(!target && fromSuppliers.length){
+      target = fromSuppliers[0];
+      target.name = toName;
+      fromSuppliers = fromSuppliers.slice(1);
+    }
+    if(target && fromSuppliers.length){
+      const removeIds = new Set(fromSuppliers.map(s=>s.id));
+      state.purchases.forEach(p=>{
+        if(removeIds.has(p.supplierId)){ p.supplierId = target.id; summary.purchasesMoved++; }
+      });
+      state.payments.forEach(pay=>{
+        if(removeIds.has(pay.supplierId)){ pay.supplierId = target.id; summary.paymentsMoved++; }
+      });
+      state.suppliers = state.suppliers.filter(s=>!removeIds.has(s.id));
+      summary.removedSuppliers = fromSuppliers.length;
+    }
+  });
+  alert(`合并完成：\n・${summary.purchasesMoved} 张采购单改连到「${toName}」名下\n・${summary.paymentsMoved} 笔付款记录改连到「${toName}」名下\n・${summary.removedSuppliers} 个重复的旧供应商已合并删除`);
 }
 function renderPaymentSectionHtml(){
   const draft = captureFormValues(['paySupplier','payDate','payAmount','payNote']);
