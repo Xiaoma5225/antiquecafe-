@@ -3783,16 +3783,18 @@ function renderSupplierManagementSectionHtml(){
       </details>
       <hr class="receipt-divider">
       ${state.suppliers.length? `
+        <input id="supplierSearchInput" placeholder="🔍 搜索供应商..." autocomplete="off" oninput="filterSupplierList(this.value)" style="margin-bottom:10px;">
+        <div id="supplierSearchEmpty" class="empty" style="display:none;">没有符合的供应商</div>
         ${vizLegend([{color:'var(--green)',label:'已付'},{color:'var(--rust)',label:'欠款'}])}
         ${(()=>{
           const ranked = state.suppliers.map(s=>({s, t:supplierTotals(s.id)})).sort((a,b)=>a.s.name.localeCompare(b.s.name,'zh'));
           const top = ranked.slice(0,3);
           const rest = ranked.slice(3);
           return `
-            ${top.map(x=>supplierCardHtml(x.s,x.t)).join('')}
-            ${rest.length? `<details class="subtle-form">
+            ${top.map(x=>`<div class="supplier-list-item" data-supname="${x.s.name.toLowerCase()}">${supplierCardHtml(x.s,x.t)}</div>`).join('')}
+            ${rest.length? `<details class="subtle-form" id="supplierMoreDetails">
               <summary>还有 ${rest.length} 家供应商 ▾</summary>
-              <div style="margin-top:8px">${rest.map(x=>supplierCardHtml(x.s,x.t)).join('')}</div>
+              <div style="margin-top:8px">${rest.map(x=>`<div class="supplier-list-item" data-supname="${x.s.name.toLowerCase()}">${supplierCardHtml(x.s,x.t)}</div>`).join('')}</div>
             </details>` : ''}
           `;
         })()}
@@ -3843,6 +3845,23 @@ function mergeSuppliersByName(){
     }
   });
   alert(`合并完成：\n・${summary.purchasesMoved} 张采购单改连到「${toName}」名下\n・${summary.paymentsMoved} 笔付款记录改连到「${toName}」名下\n・${summary.removedSuppliers} 个重复的旧供应商已合并删除`);
+}
+/* 供应商页的搜索框——按名字过滤已经画出来的供应商卡片（跟"采购历史"的搜索是同一个做法）。
+   有打字的话，把"还有N家供应商"那个折叠区块强制展开，不然被收起来的那些供应商，
+   就算名字对得上也看不到（<details>没展开，里面的东西对浏览器来说就是隐藏的，
+   光改子元素的display不够）。 */
+function filterSupplierList(q){
+  const query = (q||'').trim().toLowerCase();
+  const moreDetails = document.getElementById('supplierMoreDetails');
+  if(query && moreDetails) moreDetails.open = true;
+  let anyVisible = false;
+  document.querySelectorAll('.supplier-list-item').forEach(el=>{
+    const match = !query || (el.dataset.supname||'').includes(query);
+    el.style.display = match ? '' : 'none';
+    if(match) anyVisible = true;
+  });
+  const emptyEl = document.getElementById('supplierSearchEmpty');
+  if(emptyEl) emptyEl.style.display = (query && !anyVisible) ? '' : 'none';
 }
 function renderPaymentSectionHtml(){
   const draft = captureFormValues(['paySupplier','payDate','payAmount','payNote']);
