@@ -4763,8 +4763,10 @@ function ingredientLinkRowHtml(ing){
         </div>
       </div>`;
   const expanded = ingredientLinkExpandedIds.has(ing.id);
-  // 已经关联好、或已经透过Addon/选项组在用、又没被使用者主动点开的话，只显示一行小结果，不用整块打勾清单一直占地方。
-  if(!expanded && (linkedIds.length || hasOtherUsage)){
+  // 不管这个食材原本有没有关联，默认都先显示收起的一行结果，不要整块打勾清单一直占地方——
+  // 食材一多，如果每一个"还没关联"的都预先展开整套搜索勾选组件，页面会很卡；
+  // 收起来只有点了"＋关联"才会真的初始化那个组件，数量再多也不影响一开始的载入。
+  if(!expanded){
     const names = linkedIds.map(pid=>{
       const pr=state.products.find(x=>x.id===pid); if(!pr) return '';
       const link = ing.qtyLinks && ing.qtyLinks[pid];
@@ -4963,8 +4965,12 @@ function ingredientLinkListHtml(){
   // "食材数量太多、一次列出会很卡"这个保护，分开套用在两个区块——不然像之前那样，
   // 只要"已关联"那边数量一多，连带"还没关联"这个通常没几个、最需要马上看到的区块也一起被挡住，
   // 使用者甚至不知道要搜什么名字才能看到自己还没关联哪些。
-  const unlinkedTooMany = !q && unlinked.length>40;
-  const linkedTooMany = !q && linked.length>40;
+  // 之前每一行不管有没有关联，预设都会展开整套搜索勾选组件，数量一多页面会很卡，所以设了
+  // 40个的门槛、逼你先搜索。现在改成默认都收起来（见 ingredientLinkRowHtml），收起的行很轻量，
+  // 数量再多也不影响载入速度，所以这个门槛可以大幅放宽——只挡真的极端的量，不然"还没关联"
+  // 这种本来就是要一次浏览、不见得知道该搜什么名字的清单，被卡住反而找不到要修的东西。
+  const unlinkedTooMany = !q && unlinked.length>300;
+  const linkedTooMany = !q && linked.length>300;
   return `
     <div class="card" style="border-top-color:var(--rust);">
       <h3>⚠️ 还没关联的食材 <span class="n">${unlinked.length} 个</span></h3>
