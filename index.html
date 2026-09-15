@@ -4961,25 +4961,36 @@ function ingredientOptionUsage(name){
 function ingredientLinkListHtml(){
   const occupied = recipeOccupiedIngredientNames();
   const q = (ingredientLinkSearchQuery||'').trim().toLowerCase();
-  let list = (state.ingredients||[]).filter(ing=>ing.name && !occupied.has(ing.name.trim().toLowerCase()));
-  if(q){
-    list = list.filter(ing=>ing.name.toLowerCase().includes(q));
-  } else if(list.length > 40){
-    return `<div class="card"><div class="muted" style="font-size:12.5px; line-height:1.6; padding:4px 0;">食材共 ${list.length} 个，数量比较多——请在上面搜索框输入食材名称来查看（一次列出全部会很卡，所以先请你搜索缩小范围）。</div></div>`;
-  }
-  list = list.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh'));
+  const fullList = (state.ingredients||[]).filter(ing=>ing.name && !occupied.has(ing.name.trim().toLowerCase()));
   const isTracked = ing=> (ing.productIds && ing.productIds.length) || ingredientAddonUsage(ing.name).length || ingredientOptionUsage(ing.name).length;
-  const unlinked = list.filter(ing=>!isTracked(ing));
-  const linked = list.filter(ing=>isTracked(ing));
+  let unlinked = fullList.filter(ing=>!isTracked(ing));
+  let linked = fullList.filter(isTracked);
+  if(q){
+    unlinked = unlinked.filter(ing=>ing.name.toLowerCase().includes(q));
+    linked = linked.filter(ing=>ing.name.toLowerCase().includes(q));
+  }
+  unlinked = unlinked.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh'));
+  linked = linked.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh'));
+  // "食材数量太多、一次列出会很卡"这个保护，分开套用在两个区块——不然像之前那样，
+  // 只要"已关联"那边数量一多，连带"还没关联"这个通常没几个、最需要马上看到的区块也一起被挡住，
+  // 使用者甚至不知道要搜什么名字才能看到自己还没关联哪些。
+  const unlinkedTooMany = !q && unlinked.length>40;
+  const linkedTooMany = !q && linked.length>40;
   return `
     <div class="card" style="border-top-color:var(--rust);">
       <h3>⚠️ 还没关联的食材 <span class="n">${unlinked.length} 个</span></h3>
       <div class="muted" style="font-size:12px; margin-bottom:8px;">这些食材目前既没有关联到任何产品，也没有在Addon消耗对照/选项组里被用到，成本算不进任何地方——勾选下面的产品名字就能关联。</div>
-      ${unlinked.length? unlinked.map(ing=>`<div id="ingRow_${ing.id}">${ingredientLinkRowHtml(ing)}</div>`).join('') : `<div class="empty">都关联好了，没有遗漏的食材 👍</div>`}
+      ${unlinkedTooMany
+        ? `<div class="muted" style="font-size:12.5px; line-height:1.6; padding:4px 0;">共 ${unlinked.length} 个，数量比较多——请在上面搜索框输入食材名称来查看（一次列出全部会很卡，所以先请你搜索缩小范围）。</div>`
+        : (unlinked.length? unlinked.map(ing=>`<div id="ingRow_${ing.id}">${ingredientLinkRowHtml(ing)}</div>`).join('') : `<div class="empty">都关联好了，没有遗漏的食材 👍</div>`)
+      }
     </div>
     <div class="card">
       <h3>已关联/已在用的食材 <span class="n">${linked.length} 个</span></h3>
-      ${linked.length? linked.map(ing=>`<div id="ingRow_${ing.id}">${ingredientLinkRowHtml(ing)}</div>`).join('') : `<div class="empty">还没有已关联的食材</div>`}
+      ${linkedTooMany
+        ? `<div class="muted" style="font-size:12.5px; line-height:1.6; padding:4px 0;">共 ${linked.length} 个，数量比较多——请在上面搜索框输入食材名称来查看（一次列出全部会很卡，所以先请你搜索缩小范围）。</div>`
+        : (linked.length? linked.map(ing=>`<div id="ingRow_${ing.id}">${ingredientLinkRowHtml(ing)}</div>`).join('') : `<div class="empty">还没有已关联的食材</div>`)
+      }
     </div>
   `;
 }
