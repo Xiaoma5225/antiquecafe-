@@ -347,13 +347,19 @@
   nav.bottom button[data-tab="pos"]{display:none;}
 
   /* 顶部导航"产品"按钮的下拉——桌面版鼠标移过去就展开（见下面 hover 那条 media query），
-     iPad/手机没有"悬停"这回事，改成点一下展开/收起（由 handleProductNavClick 控制 .open class）。 */
+     iPad/手机没有"悬停"这回事，改成点一下展开/收起（由 handleProductNavClick 控制 .open class）。
+     下拉框跟按钮之间以前留了4px的margin当间距，结果鼠标从按钮往下移到下拉选单的路上，
+     会先经过这4px"两边都不算"的空隙——一离开按钮的hover范围、还没进到下拉选单，
+     :hover就先断了，选单就在鼠标移下去的半路上消失。改成用padding-top留间距
+     （撑在选单自己的方框里面，不是靠外面的margin），方框本身紧贴着按钮、中间没有缝，
+     鼠标全程都踩在"算数"的范围内，不会半路断开。 */
   .nav-dropdown{position:relative; display:flex; flex:1;}
   .nav-dropdown > button{flex:1; width:100%;}
   .nav-dropdown .dropdown-menu{
     display:none; position:absolute; top:100%; left:50%; transform:translateX(-50%);
     background:var(--paper); border:1px solid var(--border); border-radius:12px;
-    box-shadow:0 6px 20px rgba(43,38,32,0.18); min-width:170px; z-index:40; padding:6px; margin-top:4px;
+    box-shadow:0 6px 20px rgba(43,38,32,0.18); min-width:170px; z-index:40; padding:6px;
+    margin-top:0; padding-top:10px;
   }
   .nav-dropdown.open .dropdown-menu{display:block;}
   /* 用两层 class 选择器（.nav-dropdown .dropdown-menu button）故意让specificity高过
