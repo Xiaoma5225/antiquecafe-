@@ -519,10 +519,10 @@
 <div id="accountBadge" class="account-badge" style="display:none;" onclick="toggleAccountMenu()" title="账号"></div>
 <div id="accountMenu" style="display:none;">
   <div class="card" style="margin:0; box-shadow:0 6px 24px rgba(43,38,32,0.18); padding:8px;">
-    <button class="btn-line" style="width:100%; padding:8px 10px;" onclick="toggleAccountMenu(); switchToTab('export');">📤 导出数据</button>
-    <button class="btn-line" style="width:100%; padding:8px 10px;" onclick="toggleAccountMenu(); switchToTab('settings');">⚙️ 设置</button>
+    <button class="btn-line" style="width:100%; padding:8px 10px;" onclick="toggleAccountMenu(); switchToTab('export');">导出数据</button>
+    <button class="btn-line" style="width:100%; padding:8px 10px;" onclick="toggleAccountMenu(); switchToTab('settings');">设置</button>
     <hr class="receipt-divider" style="margin:4px 0;">
-    <button class="btn-line" style="width:100%; padding:8px 10px; color:var(--rust);" onclick="toggleAccountMenu(); doLogout();">🚪 登出</button>
+    <button class="btn-line" style="width:100%; padding:8px 10px; color:var(--rust);" onclick="toggleAccountMenu(); doLogout();">登出</button>
   </div>
 </div>
 
@@ -608,7 +608,7 @@
 </main>
 </div>
 
-<button id="backupFab" onclick="toggleBackupPanel()" title="数据备份">💾</button>
+<button id="backupFab" onclick="toggleBackupPanel()" title="数据备份"></button>
 <div id="backupPanel" style="display:none;">
   <div class="card" style="margin:0; box-shadow:0 6px 24px rgba(43,38,32,0.18);">
     <h3 style="display:flex; justify-content:space-between; align-items:center;">
@@ -617,20 +617,20 @@
     </h3>
     <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:10px;" id="backupPanelDesc"></div>
     <div class="grid2">
-      <button class="btn-ghost" onclick="exportData()">⬇ 导出备份</button>
+      <button class="btn-ghost" onclick="exportData()">导出备份</button>
       <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
-        ⬆ 导入备份
+        导入备份
         <input type="file" accept=".json" style="display:none" onchange="importData(this)">
       </label>
     </div>
     <hr class="receipt-divider">
     <div class="muted" style="font-size:11.5px; margin-bottom:8px;">清空之前批量导入的数据（供应商、成本项不受影响）</div>
     <div class="grid2">
-      <button class="btn-ghost" onclick="clearAllPurchases()">🗑 清空采购单</button>
-      <button class="btn-ghost" onclick="clearAllSales()">🗑 清空销售记录</button>
+      <button class="btn-ghost" onclick="clearAllPurchases()">清空采购单</button>
+      <button class="btn-ghost" onclick="clearAllSales()">清空销售记录</button>
     </div>
-    <button class="btn-ghost" style="width:100%; margin-top:8px;" onclick="removeSalesCashflow()">🗑 清除销售自动生成的收支流水（保留销售记录）</button>
-    <button class="btn-ghost" style="width:100%; margin-top:8px;" onclick="removeDuplicateSales()">🧹 清除重复销售记录（同一笔重复出现的只保留1笔）</button>
+    <button class="btn-ghost" style="width:100%; margin-top:8px;" onclick="removeSalesCashflow()">清除销售自动生成的收支流水（保留销售记录）</button>
+    <button class="btn-ghost" style="width:100%; margin-top:8px;" onclick="removeDuplicateSales()">清除重复销售记录（同一笔重复出现的只保留1笔）</button>
   </div>
 </div>
 </div>
@@ -1055,7 +1055,7 @@ function loadState(){
             document.getElementById('loginScreen').style.display = 'none';
             document.getElementById('appBody').style.display = 'block';
             const badge = document.getElementById('accountBadge');
-            badge.textContent = '👤';
+            badge.textContent = '';
             badge.title = `${user.email} · 点一下登出`;
             badge.style.display = 'flex';
             applyRolePermissions();
@@ -1257,7 +1257,7 @@ function scheduleRenderAfterSync(){
     if(changed1 || changed2 || changed3 || changed4 || changed5) saveState();
     renderAll();
     applyInitialHashRouteOnce();
-    setSyncStatus('云同步：已连接 ✓（共享账本）');
+    setSyncStatus('云同步：已连接 （共享账本）');
   }, 200);
 }
 function initCloudSync(user){
@@ -1278,7 +1278,7 @@ function initCloudSync(user){
       .finally(()=>{
         attachMetaListener(sharedRef);
         attachSubcollectionListeners();
-        setSyncStatus('云同步：已连接 ✓（共享账本）');
+        setSyncStatus('云同步：已连接 （共享账本）');
       });
   }catch(e){
     console.error(e);
@@ -2023,7 +2023,7 @@ function renderPurchaseDetailPopup(){
   el.style.display = 'flex';
   el.innerHTML = `
     <div class="pay-sheet" onclick="event.stopPropagation()">
-      <button class="pay-sheet-close" onclick="closePurchaseDetailPopup()">✕</button>
+      <button class="pay-sheet-close" onclick="closePurchaseDetailPopup()"></button>
       <div class="t">${supplierName(p.supplierId)}</div>
       <div class="amt-line">${p.date}　${p.invoiceNumber?`Invoice #${p.invoiceNumber}`:'（无Invoice号）'}</div>
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
@@ -2048,7 +2048,7 @@ function renderPurchaseDetailPopup(){
       <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
         <button class="btn-ghost btn-small" onclick="closePurchaseDetailPopup(); startEditPurchase('${p.id}');">编辑</button>
         <button class="btn-danger-text" onclick="deletePurchaseFromPopup('${p.id}')">删除</button>
-        ${outstanding>0.001? `<button class="btn-pay-small" style="margin-left:auto;" onclick="closePurchaseDetailPopup(); openPurchasePayPopup('${p.id}', false);">💰 付款</button>` : ''}
+        ${outstanding>0.001? `<button class="btn-pay-small" style="margin-left:auto;" onclick="closePurchaseDetailPopup(); openPurchasePayPopup('${p.id}', false);">付款</button>` : ''}
       </div>
     </div>`;
 }
@@ -2061,7 +2061,7 @@ function supplierUnpaidInvoices(supplierId){
 /* ---------------- 采购付款弹窗 ----------------
    两个入口共用同一个组件：
    1) 新增采购单存好之后自动跳出来，askStatus=true，先问"未付款/已付款"，选了已付款才展开金额+方式。
-   2) 采购记录列表里，未付清的发票旁边有个「💰 付款」按钮，askStatus=false，直接展开金额+方式（默认现金）。
+   2) 采购记录列表里，未付清的发票旁边有个「付款」按钮，askStatus=false，直接展开金额+方式（默认现金）。
    两种情况下采购单本身都已经存进 state 了，这个弹窗只负责另外补一笔付款记录，取消/不选都不影响已存的采购单。 */
 let payPopupState = null;
 function openPurchasePayPopup(purchaseId, askStatus){
@@ -2124,7 +2124,7 @@ function renderPayPopup(){
   el.style.display='flex';
   el.innerHTML = `
     <div class="pay-sheet" onclick="event.stopPropagation()">
-      <button type="button" class="pay-sheet-close" onclick="closePurchasePayPopup()">✕</button>
+      <button type="button" class="pay-sheet-close" onclick="closePurchasePayPopup()"></button>
       <div class="t">这笔采购 RM${fmtPlain(pu.totalAmount)}</div>
       <div class="amt-line">${supplierName(pu.supplierId)} · ${pu.date}</div>
       ${s.askStatus ? `
@@ -2146,7 +2146,7 @@ function renderPayPopup(){
       ` : showAmountBlock ? `
       <div style="display:flex; gap:8px; margin-top:14px;">
         <button class="btn-ghost" style="flex:1;" onclick="closePurchasePayPopup()">取消</button>
-        <button class="btn-main" style="flex:1; margin-top:0;" onclick="confirmPurchasePayPopup()">✅ 确认付款</button>
+        <button class="btn-main" style="flex:1; margin-top:0;" onclick="confirmPurchasePayPopup()">确认付款</button>
       </div>` : ''}
     </div>
   `;
@@ -2259,7 +2259,7 @@ function renderHome(){
   const monthProfit = monthIncome - monthExpense;
   el.innerHTML = `
     <div class="greet-card">
-      <div class="hi">${greetingText()}，掌柜 👋</div>
+      <div class="hi">${greetingText()}，掌柜 </div>
       <div class="date">${todayFullLabel()}</div>
       <div class="snap-row">
         <div class="snap-item"><div class="l">本月收入</div><div class="v">RM ${fmtPlain(monthIncome)}</div></div>
@@ -2269,10 +2269,10 @@ function renderHome(){
     <div class="card">
       <h3>快捷入口</h3>
       <div class="tile-grid">
-        <div class="tile" onclick="goToTab('pos')"><div class="circ" style="background:var(--gold-dim); color:var(--gold);">🧾</div><div class="lbl">点餐</div></div>
-        <div class="tile" onclick="goToTab('purchase')"><div class="circ" style="background:var(--rust-dim); color:var(--rust);">🛒</div><div class="lbl">采购</div></div>
-        <div class="tile" onclick="quickRecordIncome()"><div class="circ" style="background:var(--green-dim); color:var(--green);">💰</div><div class="lbl">记录收入</div></div>
-        <div class="tile" onclick="quickRecordExpense()"><div class="circ" style="background:var(--teal-dim); color:var(--teal);">🧾</div><div class="lbl">记录支出</div></div>
+        <div class="tile" onclick="goToTab('pos')"><div class="circ" style="background:var(--gold-dim); color:var(--gold);"></div><div class="lbl">点餐</div></div>
+        <div class="tile" onclick="goToTab('purchase')"><div class="circ" style="background:var(--rust-dim); color:var(--rust);"></div><div class="lbl">采购</div></div>
+        <div class="tile" onclick="quickRecordIncome()"><div class="circ" style="background:var(--green-dim); color:var(--green);"></div><div class="lbl">记录收入</div></div>
+        <div class="tile" onclick="quickRecordExpense()"><div class="circ" style="background:var(--teal-dim); color:var(--teal);"></div><div class="lbl">记录支出</div></div>
       </div>
     </div>
   `;
@@ -2304,8 +2304,8 @@ function renderOverview(){
     <div class="card">
       <h3>快捷操作</h3>
       <div class="grid2">
-        <button class="btn-main" style="margin-top:0" onclick="goToTab('purchase')">🛒 记一笔采购</button>
-        <button class="btn-main" style="margin-top:0; background:var(--rust)" onclick="quickRecordIncome()">💰 记录收入</button>
+        <button class="btn-main" style="margin-top:0" onclick="goToTab('purchase')">记一笔采购</button>
+        <button class="btn-main" style="margin-top:0; background:var(--rust)" onclick="quickRecordIncome()">记录收入</button>
       </div>
     </div>
 
@@ -2362,7 +2362,7 @@ function renderOverview(){
       ${oweList.length? `<table>
         <tr><th>供应商</th><th class="num">欠款</th></tr>
         ${oweList.map(x=>`<tr><td>${x.s.name}</td><td class="num" style="color:var(--rust)">${fmt(x.t.owe)}</td></tr>`).join('')}
-      </table>` : `<div class="empty">目前没有欠款，很干净 👍</div>`}
+      </table>` : `<div class="empty">目前没有欠款，很干净 </div>`}
     </div>
 
     <div class="card">
@@ -2557,7 +2557,7 @@ function renderSupplierDebtSectionHtml(){
                 <span>${x.p.invoiceNumber? 'Invoice #'+x.p.invoiceNumber : x.p.date} <span class="muted">· ${x.p.date}</span></span>
                 <span class="num" style="color:var(--rust)">${fmtPlain(x.outstanding)}</span>
               </div>`).join('')}
-            <button class="btn-pay-small" style="margin-top:6px;" onclick="event.stopPropagation(); openPurchasePayPopup('${unpaid[0].p.id}', false)">💰 去付款</button>
+            <button class="btn-pay-small" style="margin-top:6px;" onclick="event.stopPropagation(); openPurchasePayPopup('${unpaid[0].p.id}', false)">去付款</button>
           </div>` : `<div class="muted" style="font-size:11.5px; margin-top:6px;">这家目前没有欠款</div>`) : ''}
         </div>`;
       }).join('') : `<div class="empty">还没有供应商</div>`}
@@ -2611,7 +2611,7 @@ function renderPurchase(){
   const supplierInputVal = editingPurchase ? supplierName(editingPurchase.supplierId) : (draft.purSupplier||'');
   el.innerHTML = `
     <div class="card">
-      <h3>${editingPurchase? '✏️ 编辑采购单' : '新增采购单'}</h3>
+      <h3>${editingPurchase? '编辑采购单' : '新增采购单'}</h3>
       <label>公司</label>
       <div class="btn-group" id="purCompanyGroup">
         ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${purCompany===c?'active':''}" data-val="${c}" onclick="setPurCompany('${c}')">${c}</button>`).join('')}
@@ -2637,9 +2637,9 @@ function renderPurchase(){
       <h3>批量导入采购单（CSV）</h3>
       <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">先下载模板，按格式填好每一项采购（供应商没有会自动新建；关联产品要跟"成本"页里的产品名一模一样，可以填多个、用"、"分开，用来自动算成本），再上传回来，系统会按"公司+供应商+Invoice号+日期"自动把同一单的品项合并成一张采购单。</div>
       <div style="display:flex; flex-direction:column; align-items:stretch; gap:8px; margin-left:auto; max-width:240px;">
-        <button class="btn-ghost" onclick="downloadPurchaseImportTemplate()">⬇ 下载CSV模板</button>
+        <button class="btn-ghost" onclick="downloadPurchaseImportTemplate()">下载CSV模板</button>
         <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
-          ⬆ 上传采购单（可多选）
+          上传采购单（可多选）
           <input type="file" accept=".csv" multiple style="display:none" onchange="importPurchasesReport(this)">
         </label>
       </div>
@@ -2718,7 +2718,7 @@ function renderPurchase(){
         <button type="button" class="btn-toggle ${!purHistoryFilterCompany?'active':''}" onclick="setPurHistoryFilterCompany('')">全部</button>
         ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${purHistoryFilterCompany===c?'active':''}" onclick="setPurHistoryFilterCompany('${c}')">${c}</button>`).join('')}
       </div>
-      <input id="purHistSearchInput" placeholder="🔍 搜索供应商或品名" autocomplete="off" oninput="filterPurHistory(this.value)" style="margin-bottom:10px">
+      <input id="purHistSearchInput" placeholder="搜索供应商或品名" autocomplete="off" oninput="filterPurHistory(this.value)" style="margin-bottom:10px">
       <div id="purHistSearchEmpty" class="empty" style="display:none;">没有找到符合的采购记录</div>
       ${(()=>{
         const groupsMap = new Map();
@@ -2760,7 +2760,7 @@ function renderPurchase(){
     </div>
 
     <div class="card">
-      <div class="muted" style="font-size:12px;">品名打法不一样、要合并成同一个食材？连同 Addon消耗对照、单位换算，现在统一收在 <a href="javascript:void(0)" onclick="switchToTab('cost'); setProdSubView('link');">产品 → 🔗 食材</a> 页面。</div>
+      <div class="muted" style="font-size:12px;">品名打法不一样、要合并成同一个食材？连同 Addon消耗对照、单位换算，现在统一收在 <a href="javascript:void(0)" onclick="switchToTab('cost'); setProdSubView('link');">产品 → 食材</a> 页面。</div>
     </div>
   `;
   renderPurchaseItemRows();
@@ -3300,7 +3300,7 @@ function addonMappingFormHtml(){
   if(!tempAddonMapping) return '';
   return `
     <div class="card">
-      <h3>${tempAddonMapping.id? '✏️ 编辑Addon消耗对照' : '新增Addon消耗对照'}</h3>
+      <h3>${tempAddonMapping.id? '编辑Addon消耗对照' : '新增Addon消耗对照'}</h3>
       <label>Addon选项名称（要跟POS报表里的"Addon"栏一模一样，比如：加央 + 雪油 KAYA BUTTER）</label>
       <input id="addonMapNameText" placeholder="Addon选项名称" autocomplete="off" value="${tempAddonMapping.addonName}" oninput="updateAddonMappingField('addonName', this.value)">
       <label style="margin-top:14px">选一次这个Addon，会耗用哪些食材、各多少</label>
@@ -3396,7 +3396,7 @@ function unitConversionFormHtml(){
   if(!tempUnitConversion) return '';
   return `
     <div class="card">
-      <h3>${tempUnitConversion.id? '✏️ 编辑单位换算' : '新增单位换算'}</h3>
+      <h3>${tempUnitConversion.id? '编辑单位换算' : '新增单位换算'}</h3>
       <label>食材名称（要跟"采购"页记的品名一样）</label>
       <input id="convIngredientName" placeholder="例：酱油" autocomplete="off" value="${tempUnitConversion.ingredientName}" oninput="updateUnitConversionField('ingredientName', this.value)">
       <div class="grid2" style="margin-top:10px">
@@ -3490,8 +3490,8 @@ function recipeFormHtml(){
     ? `这批用料成本 ≈ RM${fmtPlain(total)}　÷${packQty}${tempRecipe.outputUnit||'包'} ≈ 每${tempRecipe.outputUnit||'包'} RM${fmtPlain(total/packQty)}`
     : `这批用料成本 ≈ RM${fmtPlain(total)}（填了"分成幾${tempRecipe.outputUnit||'包'}"之后会算出每${tempRecipe.outputUnit||'包'}成本）`;
   const titleText = tempRecipe.editingLogId
-    ? `✏️ 编辑批次记录「${tempRecipe.outputName}」`
-    : (tempRecipe.recipeId? `📝 记一批「${tempRecipe.outputName}」` : '新增半成品 · 记第一批');
+    ? `编辑批次记录「${tempRecipe.outputName}」`
+    : (tempRecipe.recipeId? `记一批「${tempRecipe.outputName}」` : '新增半成品 · 记第一批');
   return `
     <div class="card">
       <h3>${titleText}</h3>
@@ -3509,7 +3509,7 @@ function recipeFormHtml(){
       <div id="recipeComponentsWrap">${recipeComponentRowsHtml()}</div>
       <button class="btn-line" onclick="addRecipeComponentRow()">+ 添加一样食材</button>
       <div style="margin-top:8px; font-size:13px; color:var(--muted)" id="recipeTotalPreview">${previewText}</div>
-      <button class="btn-main" onclick="submitRecipeBatch()">${tempRecipe.editingLogId? '💾 保存修改' : '✅ 保存这批'}</button>
+      <button class="btn-main" onclick="submitRecipeBatch()">${tempRecipe.editingLogId? '保存修改' : '保存这批'}</button>
       <button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditRecipe()">取消</button>
     </div>
   `;
@@ -3553,8 +3553,8 @@ function renderRecipeSectionHtml(){
           <b>${r.outputName}${r.outputUnit?' ('+r.outputUnit+')':''}</b>
           <div class="muted" style="font-size:11.5px; margin-top:2px;">${logs.length? `已经记录 ${logs.length} 批，加权平均每${r.outputUnit||'包'}成本约 RM${fmtPlain(avg)}` : '还没记录过任何一批'}</div>
           <div style="display:flex; gap:8px; margin-top:8px;">
-            <button class="btn-main" style="flex:1; margin:0; padding:9px 4px;" onclick="startNewRecipeBatchFor('${r.id}')">📝 记一批</button>
-            <button class="btn-ghost btn-small" onclick="startEditRecipeField('${r.id}')">✏️ 编辑</button>
+            <button class="btn-main" style="flex:1; margin:0; padding:9px 4px;" onclick="startNewRecipeBatchFor('${r.id}')">记一批</button>
+            <button class="btn-ghost btn-small" onclick="startEditRecipeField('${r.id}')">编辑</button>
             <button class="btn-danger-text" onclick="deleteRecipe('${r.id}')">删除</button>
           </div>
         </div>`;
@@ -3767,7 +3767,7 @@ function optionGroupFormHtml(){
   if(!tempOptionGroup) return '';
   return `
     <div class="card">
-      <h3>${tempOptionGroup.id? '✏️ 编辑选项组' : '新增选项组'}</h3>
+      <h3>${tempOptionGroup.id? '编辑选项组' : '新增选项组'}</h3>
       <label>选项组名称（比如：面包夹料）</label>
       <input id="ogName" autocomplete="off" value="${tempOptionGroup.name}" oninput="updateOptionGroupField('name', this.value)">
       <label style="margin-top:14px">选项（顾客点餐时会看到的选择，比如 Kaya、Butter、Kaya Butter…）</label>
@@ -3792,9 +3792,9 @@ function renderOptionGroupSectionHtml(){
       <h3>批量导入选项组（CSV）</h3>
       <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">一次要设好几个选项（比如面类选择一次设6个）不想一个个打的话，可以用这个：先下载模板，填好每一行（同一个"选项组名称"的行会自动归成一组），再上传回来。如果系统里已经有同名的选项组，会把这些选项直接加进那一组里（不会清掉原本已有的选项）；没有的话会新建一组。</div>
       <div style="display:flex; flex-direction:column; align-items:stretch; gap:8px; margin-left:auto; max-width:240px;">
-        <button class="btn-ghost" onclick="downloadOptionGroupImportTemplate()">⬇ 下载CSV模板</button>
+        <button class="btn-ghost" onclick="downloadOptionGroupImportTemplate()">下载CSV模板</button>
         <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
-          ⬆ 上传选项组（可多选）
+          上传选项组（可多选）
           <input type="file" accept=".csv" multiple style="display:none" onchange="importOptionGroupsReport(this)">
         </label>
       </div>
@@ -3869,7 +3869,7 @@ function renderSupplierManagementSectionHtml(){
       </details>
       <hr class="receipt-divider">
       ${state.suppliers.length? `
-        <input id="supplierSearchInput" placeholder="🔍 搜索供应商..." autocomplete="off" oninput="filterSupplierList(this.value)" style="margin-bottom:10px;">
+        <input id="supplierSearchInput" placeholder="搜索供应商..." autocomplete="off" oninput="filterSupplierList(this.value)" style="margin-bottom:10px;">
         <div id="supplierSearchEmpty" class="empty" style="display:none;">没有符合的供应商</div>
         ${vizLegend([{color:'var(--green)',label:'已付'},{color:'var(--rust)',label:'欠款'}])}
         ${(()=>{
@@ -3894,7 +3894,7 @@ function renderSupplierManagementSectionHtml(){
       <input id="mergeSupFromList" placeholder="例：99、99SPEEDMART" autocomplete="off">
       <label style="margin-top:10px">统一成这个名字（如果这个名字目前还没有供应商，会直接拿旧供应商其中一个改名字延用）</label>
       <input id="mergeSupToTarget" placeholder="例：99 SPEED MART SDN BHD" autocomplete="off">
-      <button class="btn-line" onclick="mergeSuppliersByName()">🔀 合并</button>
+      <button class="btn-line" onclick="mergeSuppliersByName()">合并</button>
     </div>
   `;
 }
@@ -3974,9 +3974,9 @@ function renderPaymentSectionHtml(){
       <h3>批量导入付款记录（CSV）</h3>
       <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">格式跟"导出付款记录"一样：日期,供应商,Invoice号,金额,付款方式,备注。供应商没有会自动新建。Invoice号支持正式发票号，也支持"29/7"这种日期式参考（没有正式发票号、用送货日期对同供应商的采购单）；一行可以填多个参考用"、"分开（这时金额要填这笔转账的总额），系统会依序分给对上的采购单，分不完或对不到的部分不会被丢掉，会在这个供应商名下多开一笔"超额付款"记录，备注会写清楚哪些参考没对上。只填一个参考时，金额可以留空，自动抓那张采购单还欠多少。每笔付款都会自动生成一笔对应的"供应商付款"收支流水。</div>
       <div style="display:flex; flex-direction:column; align-items:stretch; gap:8px; margin-left:auto; max-width:240px;">
-        <button class="btn-ghost" onclick="downloadPaymentImportTemplate()">⬇ 下载CSV模板</button>
+        <button class="btn-ghost" onclick="downloadPaymentImportTemplate()">下载CSV模板</button>
         <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
-          ⬆ 上传付款记录（可多选）
+          上传付款记录（可多选）
           <input type="file" accept=".csv" multiple style="display:none" onchange="importPaymentsReport(this)">
         </label>
       </div>
@@ -4019,7 +4019,7 @@ function renderPaymentSectionHtml(){
           const restNote = isOverpay ? pay.note.replace('超额付款','').replace(/^\s*·\s*|\s*·\s*$/g,'').trim() : pay.note;
           return `<tr>
             <td class="muted">${pay.date}</td>
-            <td>${supplierName(pay.supplierId)}${pur&&pur.invoiceNumber?`<div class="muted" style="font-size:11px">Invoice #${pur.invoiceNumber}</div>`:''}${pay.payMethod?`<div class="muted" style="font-size:11px">${pay.payMethod}</div>`:''}${isOverpay?`<div style="font-size:14px; font-weight:700; color:var(--rust); margin-top:2px;">⚠ 超额付款 RM${fmtPlain(pay.amount)}</div>${restNote?`<div class="muted" style="font-size:11px">${restNote}</div>`:''}`:(pay.note?`<div class="muted" style="font-size:11px">${pay.note}</div>`:'')}</td>
+            <td>${supplierName(pay.supplierId)}${pur&&pur.invoiceNumber?`<div class="muted" style="font-size:11px">Invoice #${pur.invoiceNumber}</div>`:''}${pay.payMethod?`<div class="muted" style="font-size:11px">${pay.payMethod}</div>`:''}${isOverpay?`<div style="font-size:14px; font-weight:700; color:var(--rust); margin-top:2px;">超额付款 RM${fmtPlain(pay.amount)}</div>${restNote?`<div class="muted" style="font-size:11px">${restNote}</div>`:''}`:(pay.note?`<div class="muted" style="font-size:11px">${pay.note}</div>`:'')}</td>
             <td class="num">${fmtPlain(pay.amount)}</td>
             <td><button class="btn-danger-text" onclick="deletePayment('${pay.id}')">删</button></td>
           </tr>`;
@@ -4047,7 +4047,7 @@ function purItemInfoHtml(row){
     const parts = [];
     if(ing.unit) parts.push(`单位 ${ing.unit}`);
     if(ing.unitPrice>0) parts.push(`参考单价 RM${fmtPlain(ing.unitPrice)}`);
-    return parts.length ? `<div class="muted" style="font-size:11px; margin-bottom:4px;">💡 系统记得这个食材 · ${parts.join(' · ')}</div>` : '';
+    return parts.length ? `<div class="muted" style="font-size:11px; margin-bottom:4px;">系统记得这个食材 · ${parts.join(' · ')}</div>` : '';
   })();
   const linkHtml = (()=>{
     /* 「这个食材属于哪个产品」原本统一在「产品→食材关联」那个子页签管理，要先保存这张采购单、
@@ -4061,7 +4061,7 @@ function purItemInfoHtml(row){
     const linkedIds = ing && ing.productIds ? ing.productIds.filter(Boolean) : [];
     if(linkedIds.length){
       const names = linkedIds.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean);
-      return `<div class="muted" style="font-size:11px; margin-bottom:6px;">🔗 关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="goToIngredientLinkTab('${row.name.replace(/'/g,"\\'")}')">改关联</a></div>`;
+      return `<div class="muted" style="font-size:11px; margin-bottom:6px;">关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="goToIngredientLinkTab('${row.name.replace(/'/g,"\\'")}')">改关联</a></div>`;
     }
     const picked = row.productIds||[];
     const newFlag = ing ? '' : '🆕 新食材，';
@@ -4072,9 +4072,9 @@ function purItemInfoHtml(row){
       return `<div class="muted" style="font-size:11px; margin-bottom:6px; color:var(--green);">🆕 将关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="setPurItemPickerOpen('${row.id}',true)">改选</a></div>`;
     }
     return `
-      <div class="muted" style="font-size:11px; margin-bottom:4px; color:var(--rust);">⚠️ ${newFlag}还没关联产品，勾选这个算给哪个产品的成本（保存这张单会一起生效）：</div>
+      <div class="muted" style="font-size:11px; margin-bottom:4px; color:var(--rust);">${newFlag}还没关联产品，勾选这个算给哪个产品的成本（保存这张单会一起生效）：</div>
       ${state.products.length? `<div id="purProdPicks_${row.id}" style="margin-bottom:6px;"></div>` : `<div class="muted" style="font-size:12px; margin-bottom:6px;">还没有产品，先去"产品"子页签新增</div>`}
-      ${picked.length? `<button type="button" class="btn-ghost btn-small" style="margin-bottom:6px;" onclick="setPurItemPickerOpen('${row.id}',false)">✓ 挑好了，收起来</button>` : ''}
+      ${picked.length? `<button type="button" class="btn-ghost btn-small" style="margin-bottom:6px;" onclick="setPurItemPickerOpen('${row.id}',false)">挑好了，收起来</button>` : ''}
     `;
   })();
   return hintHtml + linkHtml;
@@ -4184,8 +4184,8 @@ function setPurItemPickerOpen(rowId, open){
   renderPurchaseItemRows();
 }
 /* 勾选/取消勾选"这个食材算给哪个产品的成本"——之前只更新了资料本身（chips 那块靠
-   mpToggle 自己会立刻刷新，看得到勾选变化），但外层"⚠️ 还没关联产品"那段提示文字、
-   还有勾完之后才会出现的"✓ 挑好了，收起来"按钮，都是整个品项列表重画的时候才会
+   mpToggle 自己会立刻刷新，看得到勾选变化），但外层"还没关联产品"那段提示文字、
+   还有勾完之后才会出现的"挑好了，收起来"按钮，都是整个品项列表重画的时候才会
    重新判断要不要显示——不整个重画一次的话，勾了老半天，提示文字还是停在"还没关联"，
    收起来的按钮也一直不出现，勾选跟画面对不起来。所以这里勾完也要重画一次这一格的
    品项列表（跟"类别"改掉要重画是同一个道理）。 */
@@ -4318,7 +4318,7 @@ function submitPurchase(){
   renderPurchase();
   /* 新增（不是编辑）的采购单存好之后，跳一个付款状态弹窗问"这笔付了没"——买菜很多时候是
      当场用现金给钱的，选"已付款"就能一次过把付款也记了，不用再切去"付款"页重新选供应商/invoice。
-     编辑既有采购单不会跳这个（不然改个数量就被追问付款状态，太烦），要补付款用列表里的"💰 付款"按钮。 */
+     编辑既有采购单不会跳这个（不然改个数量就被追问付款状态，太烦），要补付款用列表里的"付款"按钮。 */
   if(newlyCreatedId) openPurchasePayPopup(newlyCreatedId, true);
 }
 function startEditPurchase(id){
@@ -4424,7 +4424,7 @@ function onPaySupplierInput(){
       `).join('')}
     </div>
     <div id="payInvoiceSelSummary" class="muted" style="font-size:12px; margin:4px 0;"></div>
-    <button type="button" class="btn-line" onclick="clearPayInvoice()">✕ 不指定 invoice，笼统还款</button>
+    <button type="button" class="btn-line" onclick="clearPayInvoice()">不指定 invoice，笼统还款</button>
   `;
   updatePayInvoiceSelSummary();
 }
@@ -4685,7 +4685,7 @@ function toggleIngredientLinkRowExpand(ingredientId, expand){
   refreshIngredientLinkRow(ingredientId);
 }
 /* 编辑食材以前是在那一行底下直接展开一个内嵌表单，现在改成在「食材」页sub-tab那排
-   临时多长出一个「✏️ 编辑：某某 ✕」的tab，切过去整页显示编辑表单；保存/取消/关掉✕
+   临时多长出一个「编辑：某某 」的tab，切过去整页显示编辑表单；保存/取消/关掉
    都会让这个临时tab消失，回到「食材列表」——所以这里改成整页重画（renderIngredients），
    不再只重画那一行（原本的 refreshIngredientLinkRow 只更新单一行，装不下"多一个tab"这件事）。 */
 function startEditIngredientField(id){
@@ -4743,7 +4743,7 @@ function wireIngredientLinkPicker(ing){
 function ingredientEditFormHtml(ing){
   return `
     <div class="card">
-      <h3>✏️ 编辑食材</h3>
+      <h3>编辑食材</h3>
       <label style="margin-top:0;">食材名称</label>
       <input id="ingEditName_${ing.id}" autocomplete="off" value="${ing.name.replace(/"/g,'&quot;')}">
       <div class="grid2" style="margin-top:8px;">
@@ -4783,7 +4783,7 @@ function ingredientPurchaseHistoryHtml(ing){
   if(!records.length) return '';
   const expanded = ingredientPurchaseHistoryExpandedIds.has(ing.id);
   return `<div class="muted" style="font-size:11.5px; margin-top:6px;">
-      🧾 采购记录 共${records.length}笔　<a href="javascript:void(0)" onclick="toggleIngredientPurchaseHistory('${ing.id}',${expanded?'false':'true'})">${expanded?'收起':'查看'}</a>
+      采购记录 共${records.length}笔　<a href="javascript:void(0)" onclick="toggleIngredientPurchaseHistory('${ing.id}',${expanded?'false':'true'})">${expanded?'收起':'查看'}</a>
       ${expanded? `<div style="margin-top:6px;">
         ${records.map(r=>`
           <div style="display:flex; justify-content:space-between; gap:8px; padding:3px 0; border-bottom:1px dashed var(--border); font-size:11.5px; cursor:pointer;" onclick="openPurchaseDetailPopup('${r.purchaseId}')">
@@ -4799,9 +4799,9 @@ function ingredientLinkRowHtml(ing){
   const optionUsage = ingredientOptionUsage(ing.name);
   const hasOtherUsage = addonUsage.length>0 || optionUsage.length>0;
   const otherUsageHtml = hasOtherUsage ? `<div class="muted" style="font-size:11.5px; margin-top:6px; line-height:1.5;">
-      ${addonUsage.length? `🧾 也用在Addon选项：${addonUsage.map(u=>`${u.addonName}（${u.qty||0}${u.unit||''}/次）`).join('、')}` : ''}
+      ${addonUsage.length? `也用在Addon选项：${addonUsage.map(u=>`${u.addonName}（${u.qty||0}${u.unit||''}/次）`).join('、')}` : ''}
       ${(addonUsage.length && optionUsage.length)? '<br>' : ''}
-      ${optionUsage.length? `🎛️ 也用在选项组：${optionUsage.map(u=>`${u.groupName}→${u.choiceName}（${u.qty||0}${u.unit||''}）`).join('、')}　<a href="javascript:void(0)" onclick="switchToTab('cost'); setProdSubView('options');">去选项组编辑</a>` : ''}
+      ${optionUsage.length? `也用在选项组：${optionUsage.map(u=>`${u.groupName}→${u.choiceName}（${u.qty||0}${u.unit||''}）`).join('、')}　<a href="javascript:void(0)" onclick="switchToTab('cost'); setProdSubView('options');">去选项组编辑</a>` : ''}
     </div>` : '';
   const purchaseHistoryHtml = ingredientPurchaseHistoryHtml(ing);
   const infoParts = [];
@@ -4812,7 +4812,7 @@ function ingredientLinkRowHtml(ing){
         <b>${ing.name}</b>
         <div style="display:flex; align-items:center; gap:8px; flex:0 0 auto;">
           ${infoParts.length? `<span class="muted" style="font-size:11px; text-align:right;">${infoParts.join(' · ')}</span>` : ''}
-          <a href="javascript:void(0)" style="font-size:11px; white-space:nowrap;" onclick="startEditIngredientField('${ing.id}')">✏️ 编辑</a>
+          <a href="javascript:void(0)" style="font-size:11px; white-space:nowrap;" onclick="startEditIngredientField('${ing.id}')">编辑</a>
         </div>
       </div>`;
   const expanded = ingredientLinkExpandedIds.has(ing.id);
@@ -4826,7 +4826,7 @@ function ingredientLinkRowHtml(ing){
       return (link && Number(link.qty)>0) ? `${pr.name}（${link.qty}${link.unit||''}/份）` : pr.name;
     }).filter(Boolean);
     return `<div class="supplier-card">${header}
-      ${names.length? `<div class="muted" style="font-size:12px; margin-top:6px;">🔗 关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="toggleIngredientLinkRowExpand('${ing.id}',true)">改关联</a></div>` : `<div class="muted" style="font-size:11px; margin-top:6px;"><a href="javascript:void(0)" onclick="toggleIngredientLinkRowExpand('${ing.id}',true)">＋ 也关联到某个产品（按营业额比例分摊或填固定用量）</a></div>`}
+      ${names.length? `<div class="muted" style="font-size:12px; margin-top:6px;">关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="toggleIngredientLinkRowExpand('${ing.id}',true)">改关联</a></div>` : `<div class="muted" style="font-size:11px; margin-top:6px;"><a href="javascript:void(0)" onclick="toggleIngredientLinkRowExpand('${ing.id}',true)">＋ 也关联到某个产品（按营业额比例分摊或填固定用量）</a></div>`}
       ${otherUsageHtml}
       ${purchaseHistoryHtml}
     </div>`;
@@ -4837,7 +4837,7 @@ function ingredientLinkRowHtml(ing){
       ${purchaseHistoryHtml}
       ${state.products.length? `<div id="ingProdPicks_${ing.id}" style="margin-top:8px;"></div>` : `<div class="muted" style="font-size:12px; margin-top:8px;">还没有产品，先去"产品"子页签新增</div>`}
       ${linkedIds.length? ingredientQtyLinksHtml(ing) : ''}
-      ${(linkedIds.length || hasOtherUsage)? `<button type="button" class="btn-ghost btn-small" style="margin-top:8px;" onclick="toggleIngredientLinkRowExpand('${ing.id}',false)">✓ 收起来</button>` : ''}
+      ${(linkedIds.length || hasOtherUsage)? `<button type="button" class="btn-ghost btn-small" style="margin-top:8px;" onclick="toggleIngredientLinkRowExpand('${ing.id}',false)">收起来</button>` : ''}
     </div>`;
 }
 /* 每个关联产品可以选填"用量"：填了的话，这个食材对这个产品的成本改用「用量 × 参考单价」
@@ -4877,7 +4877,7 @@ function qtyLinkPreviewText(ing, qty, unit){
     return `= RM${fmtPlain(q*converted)} / 份${(!sameUnit && unit)? '（已按单位换算折算）' : ''}`;
   }
   if(unit && ing.unit && !sameUnit){
-    return `⚠️ 单位跟食材参考单位（${ing.unit}）不一样，还没设换算比例，暂时照 RM${fmtPlain(ing.unitPrice||0)}/${ing.unit} 直接乘，可能不准 ≈ RM${fmtPlain(q*Number(ing.unitPrice||0))} / 份——去"采购→单位换算"设好比例会更准`;
+    return `单位跟食材参考单位（${ing.unit}）不一样，还没设换算比例，暂时照 RM${fmtPlain(ing.unitPrice||0)}/${ing.unit} 直接乘，可能不准 ≈ RM${fmtPlain(q*Number(ing.unitPrice||0))} / 份——去"采购→单位换算"设好比例会更准`;
   }
   return `= RM${fmtPlain(q*Number(ing.unitPrice||0))} / 份`;
 }
@@ -4918,7 +4918,7 @@ function mpInit(wrapId, getProducts, getPicked, toggle){
     el.innerHTML = `
       <div id="${wrapId}_chips"></div>
       <div class="suggest-wrap">
-        <input id="${wrapId}_input" placeholder="🔍 搜索并勾选产品..." autocomplete="off"
+        <input id="${wrapId}_input" placeholder="搜索并勾选产品..." autocomplete="off"
           oninput="mpSetQuery('${wrapId}', this.value)" onfocus="mpSetOpen('${wrapId}', true)">
         <div class="suggest-dropdown" id="${wrapId}_dropdown"></div>
       </div>
@@ -4964,7 +4964,7 @@ function mpRenderParts(wrapId){
   dropEl.style.maxHeight = '200px';
   dropEl.innerHTML = matches.length? matches.map(p=>`
       <div class="suggest-item" style="display:flex; align-items:center; gap:6px;" onmousedown="event.preventDefault(); mpToggle('${wrapId}','${p.id}',${pickedSet.has(p.id)?'false':'true'})">
-        <span style="width:14px; color:var(--green); font-weight:700;">${pickedSet.has(p.id)?'✓':''}</span>${p.name}
+        <span style="width:14px; color:var(--green); font-weight:700;">${pickedSet.has(p.id)?'':''}</span>${p.name}
       </div>`).join('') : `<div class="suggest-item muted">没有符合的产品</div>`;
 }
 document.addEventListener('click', (e)=>{
@@ -5026,11 +5026,11 @@ function ingredientLinkListHtml(){
   const linkedTooMany = !q && linked.length>300;
   return `
     <div class="card" style="border-top-color:var(--rust);">
-      <h3>⚠️ 还没关联的食材 <span class="n">${unlinked.length} 个</span></h3>
+      <h3>还没关联的食材 <span class="n">${unlinked.length} 个</span></h3>
       <div class="muted" style="font-size:12px; margin-bottom:8px;">这些食材目前既没有关联到任何产品，也没有在Addon消耗对照/选项组里被用到，成本算不进任何地方——勾选下面的产品名字就能关联。</div>
       ${unlinkedTooMany
         ? `<div class="muted" style="font-size:12.5px; line-height:1.6; padding:4px 0;">共 ${unlinked.length} 个，数量比较多——请在上面搜索框输入食材名称来查看（一次列出全部会很卡，所以先请你搜索缩小范围）。</div>`
-        : (unlinked.length? unlinked.map(ing=>`<div id="ingRow_${ing.id}">${ingredientLinkRowHtml(ing)}</div>`).join('') : `<div class="empty">都关联好了，没有遗漏的食材 👍</div>`)
+        : (unlinked.length? unlinked.map(ing=>`<div id="ingRow_${ing.id}">${ingredientLinkRowHtml(ing)}</div>`).join('') : `<div class="empty">都关联好了，没有遗漏的食材 </div>`)
       }
     </div>
     <div class="card">
@@ -5059,10 +5059,10 @@ function renderIngredients(){
   // 食材列表/合并品项名称/Addon消耗对照/单位换算 这4个子分页现在从顶部导航「食材」按钮那边
   // 用下拉选单切换（见 jumpIngSubView / handleIngredientsNavClick），不再重复画一排一样的按钮；
   // 但"正在编辑某个食材"这个临时状态是下拉选单没有的信息，所以编辑中还是会在最上面留一个
-  // 「✏️ 编辑：食材名 ✕」提示，点✕取消编辑、回到食材列表。
+  // 「编辑：食材名 」提示，点取消编辑、回到食材列表。
   const ingSubTabHtml = editingIng
     ? `<div class="btn-group" style="margin-bottom:14px;">
-         <button type="button" class="btn-toggle active" style="display:inline-flex; align-items:center; gap:6px;">✏️ 编辑：${editingIng.name}<span role="button" style="cursor:pointer; font-weight:700;" onclick="event.stopPropagation(); cancelEditIngredientField('${editingIng.id}')">✕</span></button>
+         <button type="button" class="btn-toggle active" style="display:inline-flex; align-items:center; gap:6px;">编辑：${editingIng.name}<span role="button" style="cursor:pointer; font-weight:700;" onclick="event.stopPropagation(); cancelEditIngredientField('${editingIng.id}')"></span></button>
        </div>`
     : '';
   if(editingIng){
@@ -5108,8 +5108,8 @@ function renderIngredientLinkSectionHtml(){
   return `
     <div class="card">
       <h3>食材管理 <span class="n">${(state.ingredients||[]).length} 个食材</span></h3>
-      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">这里统一管理所有食材——每个食材右上角有个"✏️ 编辑"，可以直接改名称、单位、参考单价，不用跑去改某一张采购单（改名称会连着采购记录、库存记录、半成品配方、Addon消耗对照、选项组、单位换算这些一起更新，不是只改这里）。也可以在这里管理"哪个食材算给哪个产品的成本"：关联好产品之后，每个产品可以选填"用量"——填了就变成固定成本（用量×这个食材的参考单价，参考单价会跟着最新采购自动更新）；不填的话，这个食材的采购花费会照关联产品各自的营业额比例自动分摊，改一次所有历史采购单都会一起用新的设定重新算成本，不用回去一张一张改旧单据。半成品配方本身用到的原料/用料不会出现在这里（它们的成本走配方那边自动算），但配方做出来、还没被任何产品用到的半成品会出现在下面提醒你。</div>
-      <input id="ingredientLinkSearchInput" placeholder="🔍 搜索食材名称..." value="${ingredientLinkSearchQuery.replace(/"/g,'&quot;')}" oninput="filterIngredientLinkList(this.value)">
+      <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">这里统一管理所有食材——每个食材右上角有个"编辑"，可以直接改名称、单位、参考单价，不用跑去改某一张采购单（改名称会连着采购记录、库存记录、半成品配方、Addon消耗对照、选项组、单位换算这些一起更新，不是只改这里）。也可以在这里管理"哪个食材算给哪个产品的成本"：关联好产品之后，每个产品可以选填"用量"——填了就变成固定成本（用量×这个食材的参考单价，参考单价会跟着最新采购自动更新）；不填的话，这个食材的采购花费会照关联产品各自的营业额比例自动分摊，改一次所有历史采购单都会一起用新的设定重新算成本，不用回去一张一张改旧单据。半成品配方本身用到的原料/用料不会出现在这里（它们的成本走配方那边自动算），但配方做出来、还没被任何产品用到的半成品会出现在下面提醒你。</div>
+      <input id="ingredientLinkSearchInput" placeholder="搜索食材名称..." value="${ingredientLinkSearchQuery.replace(/"/g,'&quot;')}" oninput="filterIngredientLinkList(this.value)">
     </div>
     <div id="ingredientLinkListWrap">${ingredientLinkListHtml()}</div>
   `;
@@ -5125,7 +5125,7 @@ function renderMergeIngredientNameSectionHtml(){
       <input id="mergeItemFromList" placeholder="例：猪肝、Pork Liver" autocomplete="off">
       <label style="margin-top:10px">统一成这个品名</label>
       <input id="mergeItemToTarget" placeholder="例：猪肝" autocomplete="off">
-      <button class="btn-line" onclick="mergePurchaseItemNames()">🔀 合并</button>
+      <button class="btn-line" onclick="mergePurchaseItemNames()">合并</button>
     </div>
   `;
 }
@@ -5279,15 +5279,15 @@ function renderCost(){
     <div class="card">
       <h3>产品成本一览 <span class="n">${state.products.length} 项</span></h3>
       <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">下面这颗按钮会拿 POS 系统导出的官方菜单（共 ${POS_MENU.length} 项）去补现有产品的分类/编号/所属公司，不会动已经填好的食材成本和售价，也不会删掉任何产品；菜单里有、但这里还没建档的产品会自动新增（售价照抄 POS，食材成本留空待填）。</div>
-      <button class="btn-line" onclick="syncPosMenu()">📋 从 POS 官方菜单同步餐品</button>
-      ${state.products.length? `<input autocomplete="off" id="costSearchInput" placeholder="🔍 搜索产品名称..." value="${costSearchQuery.replace(/"/g,'&quot;')}" oninput="filterCostProducts(this.value)" style="margin-top:10px; margin-bottom:10px;">
+      <button class="btn-line" onclick="syncPosMenu()">从 POS 官方菜单同步餐品</button>
+      ${state.products.length? `<input autocomplete="off" id="costSearchInput" placeholder="搜索产品名称..." value="${costSearchQuery.replace(/"/g,'&quot;')}" oninput="filterCostProducts(this.value)" style="margin-top:10px; margin-bottom:10px;">
       <select id="costCategoryFilterSelect" onchange="setCostCategoryFilter(this.value)" style="margin-bottom:10px;">
         <option value="">全部分类（${state.products.length}）</option>
         ${categoryOptions.map(c=>`<option value="${c.replace(/"/g,'&quot;')}" ${costCategoryFilter===c?'selected':''}>${c}（${state.products.filter(x=>(x.category||'')===c).length}）</option>`).join('')}
       </select>
       <div id="costSearchEmpty" class="empty" style="display:none;">没有找到符合的产品</div>` : ''}
       ${displayProducts.length? displayProducts.map(p=>{
-        const tagsLine = (p.category||p.code||p.company) ? `<div class="muted" style="font-size:11px; margin:2px 0 6px;">${p.category?`📂 ${p.category}`:''}${p.code?`　#${p.code}`:''}${p.company?`　🏢 ${p.company}`:''}</div>` : '';
+        const tagsLine = (p.category||p.code||p.company) ? `<div class="muted" style="font-size:11px; margin:2px 0 6px;">${p.category?`${p.category}`:''}${p.code?`　#${p.code}`:''}${p.company?`　${p.company}`:''}</div>` : '';
         const spend = productIngredientSpend(p.id);
         const qtySold = productQtySold(p.id);
         const usingRealData = spend>0 && qtySold>0;
@@ -5353,7 +5353,7 @@ function renderCost(){
           <label style="font-size:11.5px; color:var(--muted);">共同食材（份量抓不准、按采购分摊的）</label>
           ${(p.sharedIngredients&&p.sharedIngredients.length)?`<div class="muted" style="font-size:11px; margin:2px 0;">${p.sharedIngredients.join('、')}</div>`:`<div class="muted" style="font-size:11px; margin:2px 0;">还没设，点上面「编辑」可以加</div>`}
           ${b.items.length? `<details style="margin-bottom:4px;">
-            <summary style="cursor:pointer; font-size:11px; color:var(--muted);">👉 累计分摊成本 ${fmtPlain(b.allocatedCost)} 具体是哪些采购（点开看）</summary>
+            <summary style="cursor:pointer; font-size:11px; color:var(--muted);">累计分摊成本 ${fmtPlain(b.allocatedCost)} 具体是哪些采购（点开看）</summary>
             <div style="font-size:11px; color:var(--muted); margin-top:4px;">
               ${b.items.map(it=>`
               <div style="padding:4px 0; border-bottom:1px dashed var(--border);">
@@ -5361,7 +5361,7 @@ function renderCost(){
                 <div style="padding-left:8px; margin-top:1px;">→ 本产品分到 ${(it.share*100).toFixed(1)}% = ${fmtPlain(it.allocated)}${it.coSharers.length?`（跟 ${it.coSharers.join('、')} 共用这一项）`:'（这一项只有本产品在用，全部算它的）'}</div>
               </div>`).join('')}
             </div>
-          </details>` : (p.sharedIngredients&&p.sharedIngredients.length? `<div class="muted" style="font-size:11px; margin-bottom:4px;">⚠️ 还没有任何采购记录匹配到这个共同食材名字，分摊成本暂时是 RM0——去"采购"页把品名对上</div>` : '')}
+          </details>` : (p.sharedIngredients&&p.sharedIngredients.length? `<div class="muted" style="font-size:11px; margin-bottom:4px;">还没有任何采购记录匹配到这个共同食材名字，分摊成本暂时是 RM0——去"采购"页把品名对上</div>` : '')}
           <hr class="receipt-divider">
           ${p.price>0 ? vizBar([{value:fixedUnitCost,color:'var(--rust)'},{value:Math.max(unitProfit,0),color:'var(--green)'}], p.price) : ''}
           <table>
@@ -5390,9 +5390,9 @@ function renderCost(){
   }
   const productSubTabHtml = `
     <div class="btn-group" style="margin-bottom:14px;">
-      <button type="button" class="btn-toggle ${productSubView==='form'?'active':''}" onclick="setProductSubView('form')">📝 ${editingProduct?'编辑产品':'新增产品'}</button>
-      <button type="button" class="btn-toggle ${productSubView==='mergeNames'?'active':''}" onclick="setProductSubView('mergeNames')">🔀 合并重复产品</button>
-      <button type="button" class="btn-toggle ${productSubView==='mergeVariants'?'active':''}" onclick="setProductSubView('mergeVariants')">📐 合并成规格</button>
+      <button type="button" class="btn-toggle ${productSubView==='form'?'active':''}" onclick="setProductSubView('form')">${editingProduct?'编辑产品':'新增产品'}</button>
+      <button type="button" class="btn-toggle ${productSubView==='mergeNames'?'active':''}" onclick="setProductSubView('mergeNames')">合并重复产品</button>
+      <button type="button" class="btn-toggle ${productSubView==='mergeVariants'?'active':''}" onclick="setProductSubView('mergeVariants')">合并成规格</button>
     </div>`;
   if(productSubView==='mergeNames'){
     el.innerHTML = productSubTabHtml + `
@@ -5403,7 +5403,7 @@ function renderCost(){
       <input id="mergeFromList" placeholder="例：Strawberry Jam、strawberry jam、add strawberry jam" autocomplete="off">
       <label style="margin-top:10px">统一成这个名字（如果这个名字目前还没有产品，会直接拿旧产品其中一个改名字延用，食材成本不会丢）</label>
       <input id="mergeToTarget" placeholder="例：STRAWBERRY JAM ONE BOTTLE" autocomplete="off">
-      <button class="btn-line" onclick="mergeProductsByName()">🔀 合并</button>
+      <button class="btn-line" onclick="mergeProductsByName()">合并</button>
     </div>
     `;
     const mergeNames = state.products.map(p=>p.name).sort((a,b)=>a.localeCompare(b,'zh'));
@@ -5420,7 +5420,7 @@ function renderCost(){
       <input id="mvTarget" placeholder="例：小段玉米 Sliced Corn" autocomplete="off">
       <div id="mvRowsWrap" style="margin-top:10px;"></div>
       <button class="btn-line" onclick="addMergeVariantRow()">+ 再加一个旧产品</button>
-      <button class="btn-main" style="margin-top:10px;" onclick="mergeProductsIntoVariants()">🔀 合并成规格</button>
+      <button class="btn-main" style="margin-top:10px;" onclick="mergeProductsIntoVariants()">合并成规格</button>
     </div>
     `;
     renderMergeVariantRows();
@@ -5432,7 +5432,7 @@ function renderCost(){
   // 默认：'form' 新增/编辑产品
   el.innerHTML = productSubTabHtml + `
     <div class="card">
-      <h3>${editingProduct? `✏️ 编辑产品：${editingProduct.name}` : '新增菜品 / 产品'}</h3>
+      <h3>${editingProduct? `编辑产品：${editingProduct.name}` : '新增菜品 / 产品'}</h3>
       <div class="grid2">
         <div><label>产品名称</label><input id="prodTitle" placeholder="例：招牌炒河粉" autocomplete="off" value="${editingProduct?editingProduct.name:(draft.prodTitle||'')}"></div>
         <div><label>售价</label><input id="prodPrice" type="text" inputmode="decimal" step="0.01" placeholder="0.00" value="${editingProduct?editingProduct.price:(draft.prodPrice||'')}"></div>
@@ -6086,9 +6086,9 @@ function renderSales(){
       <h3>批量导入销售报告</h3>
       <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">先下载模板，按格式填好每一笔销售（产品名称要跟"成本"页里的一模一样），再上传回来，系统会一次帮你新增好。</div>
       <div style="display:flex; flex-direction:column; align-items:stretch; gap:8px; margin-left:auto; max-width:240px;">
-        <button class="btn-ghost" onclick="downloadSalesImportTemplate()">⬇ 下载CSV模板</button>
+        <button class="btn-ghost" onclick="downloadSalesImportTemplate()">下载CSV模板</button>
         <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
-          ⬆ 上传销售报告（可多选）
+          上传销售报告（可多选）
           <input type="file" accept=".csv" multiple style="display:none" onchange="importSalesReport(this)">
         </label>
       </div>
@@ -6110,9 +6110,9 @@ function renderSales(){
       <h3>批量导入Addon报表</h3>
       <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">POS系统的"Addon"报表是跟"产品销售"报表分开导出的（甜度、辣度、面包酱料、加蛋加虾这些加料选项）。先下载模板，把报表里每个Addon选项汇总成一行（数量、金额都合计好），再上传回来：系统会把这部分营收计进销售统计，并按"采购"页「Addon消耗」设好的对照，自动扣掉对应食材的库存。</div>
       <div style="display:flex; flex-direction:column; align-items:stretch; gap:8px; margin-left:auto; max-width:240px;">
-        <button class="btn-ghost" onclick="downloadAddonImportTemplate()">⬇ 下载CSV模板</button>
+        <button class="btn-ghost" onclick="downloadAddonImportTemplate()">下载CSV模板</button>
         <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
-          ⬆ 上传Addon报表（可多选）
+          上传Addon报表（可多选）
           <input type="file" accept=".csv" multiple style="display:none" onchange="importAddonReport(this)">
         </label>
       </div>
@@ -7213,7 +7213,7 @@ function renderExport(){
           <b>${r.title}</b>
           <div class="muted" style="font-size:12px">${r.n} ${r.unit}</div>
         </div>
-        <button class="btn-ghost" onclick="${r.fn}()">⬇ 导出 CSV</button>
+        <button class="btn-ghost" onclick="${r.fn}()">导出 CSV</button>
       </div>
     </div>`).join('')}
     <div class="card">
@@ -7222,7 +7222,7 @@ function renderExport(){
           <b>完整数据备份</b>
           <div class="muted" style="font-size:12px">包含全部原始数据（JSON），换设备用"导入备份"载入</div>
         </div>
-        <button class="btn-ghost" onclick="exportData()">⬇ 导出 JSON</button>
+        <button class="btn-ghost" onclick="exportData()">导出 JSON</button>
       </div>
     </div>
   `;
@@ -7238,7 +7238,7 @@ function renderSettings(){
       <h3>设置</h3>
       <label>目前登录的账号</label>
       <div style="padding:9px 10px; border:1px solid var(--border); border-radius:8px; background:#F9FAFB; color:var(--muted); font-size:14.5px;">${user? user.email : (cloudConfigured? '未登录' : '仅本机存储，未使用登录')}</div>
-      ${user ? `<div class="muted" style="font-size:11.5px; margin-top:6px;">${isAdmin()?'🔑 超级管理员 · 全部权限':(currentUserRole==='full'?'✅ 全部权限':'🧾 权限：只能看点餐')}</div>` : ''}
+      ${user ? `<div class="muted" style="font-size:11.5px; margin-top:6px;">${isAdmin()?'超级管理员 · 全部权限':(currentUserRole==='full'?'全部权限':'权限：只能看点餐')}</div>` : ''}
     </div>
     ${user ? `
     <div class="card">
@@ -7255,7 +7255,7 @@ function renderSettings(){
       <div id="permAdminBox" class="muted" style="font-size:12.5px;">载入中…</div>
     </div>` : ''}
     <div class="card">
-      <button class="btn-ghost" style="width:100%; color:var(--rust); border-color:var(--rust);" onclick="doLogout()">🚪 登出</button>
+      <button class="btn-ghost" style="width:100%; color:var(--rust); border-color:var(--rust);" onclick="doLogout()">登出</button>
     </div>
   `;
   if(isAdmin()) renderPermissionsAdmin();
@@ -7547,8 +7547,8 @@ function posListScreenHtml(){
   const orderByTable = {}; openDineIn.forEach(o=>{ orderByTable[o.tableId]=o; });
   return `
     <div class="pos-mode-row">
-      <button type="button" class="btn-toggle ${posMode==='dine-in'?'active':''}" onclick="setPosMode('dine-in')">🍽 堂食</button>
-      <button type="button" class="btn-toggle ${posMode==='takeaway'?'active':''}" onclick="setPosMode('takeaway')">🥡 外带</button>
+      <button type="button" class="btn-toggle ${posMode==='dine-in'?'active':''}" onclick="setPosMode('dine-in')">堂食</button>
+      <button type="button" class="btn-toggle ${posMode==='takeaway'?'active':''}" onclick="setPosMode('takeaway')">外带</button>
     </div>
     <div class="pos-company-row">
       ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${posCompany===c?'active':''}" onclick="setPosCompany('${c}')">${c}</button>`).join('')}
@@ -7556,7 +7556,7 @@ function posListScreenHtml(){
     ${posMode==='dine-in' ? `
     <div class="card">
       <h3 style="justify-content:space-between">选桌号 <span class="n">${posCompany}</span>
-        <button type="button" class="btn-line" style="font-size:12px; margin-left:auto;" onclick="togglePosManageTables()">${posManagingTables?'完成':'⚙ 管理桌号'}</button>
+        <button type="button" class="btn-line" style="font-size:12px; margin-left:auto;" onclick="togglePosManageTables()">${posManagingTables?'完成':'管理桌号'}</button>
       </h3>
       <div class="pos-table-grid">
         ${tables.map(t=>{
@@ -7564,7 +7564,7 @@ function posListScreenHtml(){
           const tap = posManagingTables ? '' : (o? `openPosOrder('${o.id}')` : `startDineInOrder('${t.id}')`);
           return `
           <div class="pos-table-tile ${o?'occupied':''}" onclick="${tap}">
-            ${posManagingTables? `<span class="tdel" onclick="event.stopPropagation(); deletePosTable('${t.id}')">✕</span>` : ''}
+            ${posManagingTables? `<span class="tdel" onclick="event.stopPropagation(); deletePosTable('${t.id}')"></span>` : ''}
             <div class="tname">${t.name}</div>
             <div class="tsub">${o? (posOrderItemCount(o)+'件 · RM '+fmtPlain(posOrderTotal(o))) : '空'}</div>
           </div>`;
@@ -7676,7 +7676,7 @@ function posOrderScreenHtml(order){
     <div class="card pos-cart-card${posCartOpen?' open':''}" id="posCartCard">
       <div class="pos-cart-head">
         <h3 style="margin:0;">已点 <span class="n">${posOrderItemCount(order)} 件</span></h3>
-        <button type="button" class="pos-cart-close" onclick="togglePosCart(false)">✕</button>
+        <button type="button" class="pos-cart-close" onclick="togglePosCart(false)"></button>
       </div>
       ${(order.items||[]).length? order.items.map(i=>`
         <div class="pos-cart-line">
@@ -7696,7 +7696,7 @@ function posOrderScreenHtml(order){
     </div>
     </div>
     <button type="button" class="pos-cart-fab" onclick="togglePosCart(true)" style="${posCartOpen?'display:none;':''}">
-      <span>🛒</span><span class="badge">${posOrderItemCount(order)} · RM ${fmtPlain(total)}</span>
+      <span></span><span class="badge">${posOrderItemCount(order)} · RM ${fmtPlain(total)}</span>
     </button>
     <div id="posCartFabOverlay" onclick="togglePosCart(false)" style="${posCartOpen?'display:block;':'display:none;'}"></div>
   `;
@@ -7777,7 +7777,7 @@ function renderPosPicker(){
     el.style.display = 'flex';
     el.innerHTML = `
       <div class="pay-sheet" onclick="event.stopPropagation()">
-        <button type="button" class="pay-sheet-close" onclick="closePosPicker()">✕</button>
+        <button type="button" class="pay-sheet-close" onclick="closePosPicker()"></button>
         <div class="t">${p.name}</div>
         <div class="amt-line">选一个规格</div>
         <div class="pos-variant-list">
@@ -7796,7 +7796,7 @@ function renderPosPicker(){
     el.style.display = 'flex';
     el.innerHTML = `
       <div class="pay-sheet" onclick="event.stopPropagation()">
-        <button type="button" class="pay-sheet-close" onclick="closePosPicker()">✕</button>
+        <button type="button" class="pay-sheet-close" onclick="closePosPicker()"></button>
         <div class="t">${p.name}</div>
         <div class="amt-line">选一个${g.name}</div>
         <div class="pos-variant-list">
@@ -7816,16 +7816,16 @@ function renderPosPicker(){
   el.style.display = 'flex';
   el.innerHTML = `
     <div class="pay-sheet" onclick="event.stopPropagation()">
-      <button type="button" class="pay-sheet-close" onclick="closePosPicker()">✕</button>
+      <button type="button" class="pay-sheet-close" onclick="closePosPicker()"></button>
       <div class="t">${p.name}</div>
       <div class="amt-line">${ag.name}（追加，可以勾好几样，不用的话直接按"完成"）</div>
       <div class="pos-variant-list">
         ${ag.choices.map(c=>`
           <button type="button" class="pos-variant-opt ${picked.includes(c.id)?'active':''}" onclick="posPickerToggleAddon('${c.id}')" style="${picked.includes(c.id)?'border-color:var(--green); background:var(--green-dim);':''}">
-            <span>${picked.includes(c.id)?'✓ ':''}${c.name}</span><span class="mono">${c.priceAdd? (c.priceAdd>0?'+':'')+'RM '+fmtPlain(c.priceAdd) : ''}</span>
+            <span>${picked.includes(c.id)?'':''}${c.name}</span><span class="mono">${c.priceAdd? (c.priceAdd>0?'+':'')+'RM '+fmtPlain(c.priceAdd) : ''}</span>
           </button>`).join('')}
       </div>
-      <button type="button" class="btn-main" style="margin-top:14px;" onclick="posPickerConfirmAddon()">✓ 完成${picked.length?`（已选 ${picked.length} 样）`:''}</button>
+      <button type="button" class="btn-main" style="margin-top:14px;" onclick="posPickerConfirmAddon()">完成${picked.length?`（已选 ${picked.length} 样）`:''}</button>
     </div>
   `;
 }
