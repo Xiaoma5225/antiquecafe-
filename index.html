@@ -858,7 +858,8 @@ let state = {
   optionGroups: [] // 共用的"选项组"（比如"面包夹料"14选1），可以同时挂在好几个产品上；每个 {id, name, choices:[{id,name,priceAdd,ingredientName,ingredientQty,ingredientUnit}]}
 };
 let loaded = false;
-let recentActivityFilterDate = '';
+let recentActivityFilterFrom = '';
+let recentActivityFilterTo = '';
 let overviewMonthFilter = '';
 let overviewDateFilter = '';
 let overviewViewMode = 'month'; // 'month' 或 'day'
@@ -2258,8 +2259,8 @@ function renderOverview(){
     .sort((a,b)=>b.t.owe-a.t.owe).slice(0,5);
 
   const dailyTotals = buildDailyTotals();
-  const filteredDaily = recentActivityFilterDate
-    ? dailyTotals.filter(d=>d.date===recentActivityFilterDate)
+  const filteredDaily = (recentActivityFilterFrom || recentActivityFilterTo)
+    ? dailyTotals.filter(d=>(!recentActivityFilterFrom || d.date>=recentActivityFilterFrom) && (!recentActivityFilterTo || d.date<=recentActivityFilterTo))
     : dailyTotals.slice(0,10);
 
   el.innerHTML = `
@@ -2330,9 +2331,10 @@ function renderOverview(){
     <div class="card">
       <h3>最近动态 <span class="n">每日收支</span></h3>
       <div class="grid2" style="margin-bottom:10px">
-        <div><label>按日期查看</label><input type="date" id="recentActDate" value="${recentActivityFilterDate}" onchange="setRecentActivityFilter(this.value); this.blur();"></div>
-        <div style="display:flex; align-items:flex-end;"><button class="btn-ghost" style="width:100%" onclick="setRecentActivityFilter('')">最近10天</button></div>
+        <div><label>从</label><input type="date" id="recentActFrom" value="${recentActivityFilterFrom}" onchange="setRecentActivityFilter(this.value, undefined); this.blur();"></div>
+        <div><label>到</label><input type="date" id="recentActTo" value="${recentActivityFilterTo}" onchange="setRecentActivityFilter(undefined, this.value); this.blur();"></div>
       </div>
+      <button class="btn-ghost" style="width:100%; margin-bottom:10px;" onclick="setRecentActivityFilter('','')">${(recentActivityFilterFrom||recentActivityFilterTo)?'清除筛选（回到最近10天）':'最近10天'}</button>
       ${filteredDaily.length? `
         ${vizLegend([{color:'var(--green)',label:'收入'},{color:'var(--rust)',label:'支出'}])}
         ${(()=>{ const maxVal = Math.max(...filteredDaily.map(d=>Math.max(d.in,d.out)), 1);
@@ -2349,7 +2351,7 @@ function renderOverview(){
               </div>
             </div>`).join('');
         })()}
-      ` : `<div class="empty">${recentActivityFilterDate? '这天没有收支记录' : '还没有任何记录，从"采购"或"销售"页开始记吧'}</div>`}
+      ` : `<div class="empty">${(recentActivityFilterFrom||recentActivityFilterTo)? '这段日期没有收支记录' : '还没有任何记录，从"采购"或"销售"页开始记吧'}</div>`}
     </div>
   `;
 }
@@ -2362,8 +2364,9 @@ function buildDailyTotals(){
   });
   return Object.values(map).sort((a,b)=> b.date.localeCompare(a.date));
 }
-function setRecentActivityFilter(val){
-  recentActivityFilterDate = val;
+function setRecentActivityFilter(from, to){
+  if(from!==undefined) recentActivityFilterFrom = from;
+  if(to!==undefined) recentActivityFilterTo = to;
   renderOverview();
 }
 function setOverviewMonth(val){
@@ -2457,7 +2460,8 @@ function renderOverviewPickerPopup(mode, mk, selDate){
 /* ================= 采购 Tab（含供应商）================= */
 let tempPurchaseItems = [{id:uid(), name:'', category:'食材', company:'', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
 let currentSupplierHistory = []; // 目前填的这个供应商，之前拿过哪些品项（品名/类别/单位/单价），给"点一下自动加一行"用
-let purHistoryFilterDate = '';
+let purHistoryFilterFrom = '';
+let purHistoryFilterTo = '';
 let purHistoryFilterCompany = '';
 let purHistorySearchQuery = '';
 let purCompany = COMPANIES[0];
@@ -2476,7 +2480,8 @@ let tempAddonMapping = null; // 目前正在新增/编辑的 Addon 消耗对照�
 let tempUnitConversion = null; // 目前正在新增/编辑的 单位换算 草稿，null 表示没在编辑
 let payPayMethod = PAY_METHODS[0];
 let payPurchaseIds = [];
-let payHistoryFilterDate = '';
+let payHistoryFilterFrom = todayStr();
+let payHistoryFilterTo = todayStr();
 
 /* ---- 供应商欠款明细页：从首页"供应商欠款"卡片点进来，按字母顺序列出每一家供应商，
    点开可以看是哪几张发票还没付清。 ---- */
@@ -2549,7 +2554,7 @@ function renderPurchase(){
   }
   const editingPurchase = editingPurchaseId ? state.purchases.find(x=>x.id===editingPurchaseId) : null;
   const draft = editingPurchase ? {} : captureFormValues(['purSupplier','purDate','purInvoiceNumber']);
-  let filteredPurchases = purHistoryFilterDate ? state.purchases.filter(p=>p.date===purHistoryFilterDate) : state.purchases;
+  let filteredPurchases = (purHistoryFilterFrom||purHistoryFilterTo) ? state.purchases.filter(p=>(!purHistoryFilterFrom || p.date>=purHistoryFilterFrom) && (!purHistoryFilterTo || p.date<=purHistoryFilterTo)) : state.purchases;
   if(purHistoryFilterCompany) filteredPurchases = filteredPurchases.filter(p=>(p.items||[]).some(it=>effCompany(it,p)===purHistoryFilterCompany));
   const mkP = monthKey(todayKey());
   const catTotals = {};
@@ -2582,7 +2587,7 @@ function renderPurchase(){
         </div>
         <div><label>采购日期</label><input type="date" id="purDate" value="${editingPurchase? editingPurchase.date : (draft.purDate||todayStr())}" onchange="this.blur()"></div>
       </div>
-      <label>Invoice 号码</label><input id="purInvoiceNumber" placeholder="例：INV-00123" autocomplete="off" value="${editingPurchase? (editingPurchase.invoiceNumber||'') : (draft.purInvoiceNumber||'')}">
+      <label>Invoice 号码</label><input id="purInvoiceNumber" placeholder="例：INV-00123" autocomplete="off" style="text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()" value="${editingPurchase? (editingPurchase.invoiceNumber||'') : (draft.purInvoiceNumber||'')}">
       <div id="purSupplierHistoryBox">${supplierHistoryBoxHtml()}</div>
       <label style="margin-top:14px">品项明细（同一供应商可一次拿多个不同产品）</label>
       <div id="purItemsWrap"></div>
@@ -2595,7 +2600,7 @@ function renderPurchase(){
     <div class="card">
       <h3>批量导入采购单（CSV）</h3>
       <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">先下载模板，按格式填好每一项采购（供应商没有会自动新建；关联产品要跟"成本"页里的产品名一模一样，可以填多个、用"、"分开，用来自动算成本），再上传回来，系统会按"公司+供应商+Invoice号+日期"自动把同一单的品项合并成一张采购单。</div>
-      <div class="grid2">
+      <div style="display:flex; flex-direction:column; align-items:stretch; gap:8px; margin-left:auto; max-width:240px;">
         <button class="btn-ghost" onclick="downloadPurchaseImportTemplate()">⬇ 下载CSV模板</button>
         <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
           ⬆ 上传采购单（可多选）
@@ -2668,9 +2673,10 @@ function renderPurchase(){
     <div class="card">
       <h3>采购历史</h3>
       <div class="grid2" style="margin-bottom:10px">
-        <div><label>按日期查看</label><input type="date" id="purHistDate" value="${purHistoryFilterDate}" onchange="setPurHistoryFilter(this.value); this.blur();"></div>
-        <div style="display:flex; align-items:flex-end;"><button class="btn-ghost" style="width:100%" onclick="setPurHistoryFilter('')">显示全部</button></div>
+        <div><label>从</label><input type="date" id="purHistFrom" value="${purHistoryFilterFrom}" onchange="setPurHistoryFilter(this.value, undefined); this.blur();"></div>
+        <div><label>到</label><input type="date" id="purHistTo" value="${purHistoryFilterTo}" onchange="setPurHistoryFilter(undefined, this.value); this.blur();"></div>
       </div>
+      <button class="btn-ghost" style="width:100%; margin-bottom:10px;" onclick="setPurHistoryFilter('','')">显示全部</button>
       <label>按公司筛选</label>
       <div class="btn-group" style="margin-bottom:10px">
         <button type="button" class="btn-toggle ${!purHistoryFilterCompany?'active':''}" onclick="setPurHistoryFilterCompany('')">全部</button>
@@ -2691,7 +2697,7 @@ function renderPurchase(){
           return {supplierId, list:sorted, total, outstanding, latestDate: sorted[0]? sorted[0].date : ''};
         });
         groups.sort((a,b)=> (b.latestDate||'').localeCompare(a.latestDate||''));
-        if(!groups.length) return `<div class="empty">${purHistoryFilterDate||purHistoryFilterCompany? '没有符合条件的采购记录' : '还没有采购记录'}</div>`;
+        if(!groups.length) return `<div class="empty">${(purHistoryFilterFrom||purHistoryFilterTo||purHistoryFilterCompany)? '没有符合条件的采购记录' : '还没有采购记录'}</div>`;
         return `<div>
         ${groups.map(g=>{
           const itemNames = g.list.flatMap(p=>(p.items||[]).map(it=>it.name)).join(' ').toLowerCase().replace(/"/g,'&quot;');
@@ -3749,7 +3755,7 @@ function renderOptionGroupSectionHtml(){
     <div class="card">
       <h3>批量导入选项组（CSV）</h3>
       <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">一次要设好几个选项（比如面类选择一次设6个）不想一个个打的话，可以用这个：先下载模板，填好每一行（同一个"选项组名称"的行会自动归成一组），再上传回来。如果系统里已经有同名的选项组，会把这些选项直接加进那一组里（不会清掉原本已有的选项）；没有的话会新建一组。</div>
-      <div class="grid2">
+      <div style="display:flex; flex-direction:column; align-items:stretch; gap:8px; margin-left:auto; max-width:240px;">
         <button class="btn-ghost" onclick="downloadOptionGroupImportTemplate()">⬇ 下载CSV模板</button>
         <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
           ⬆ 上传选项组（可多选）
@@ -3781,8 +3787,9 @@ function renderOptionGroupSectionHtml(){
   return html;
 }
 
-function setPurHistoryFilter(val){
-  purHistoryFilterDate = val;
+function setPurHistoryFilter(from, to){
+  if(from!==undefined) purHistoryFilterFrom = from;
+  if(to!==undefined) purHistoryFilterTo = to;
   renderPurchase();
 }
 function setPurHistoryFilterCompany(val){
@@ -3930,7 +3937,7 @@ function renderPaymentSectionHtml(){
     <div class="card">
       <h3>批量导入付款记录（CSV）</h3>
       <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">格式跟"导出付款记录"一样：日期,供应商,Invoice号,金额,付款方式,备注。供应商没有会自动新建。Invoice号支持正式发票号，也支持"29/7"这种日期式参考（没有正式发票号、用送货日期对同供应商的采购单）；一行可以填多个参考用"、"分开（这时金额要填这笔转账的总额），系统会依序分给对上的采购单，分不完或对不到的部分不会被丢掉，会在这个供应商名下多开一笔"超额付款"记录，备注会写清楚哪些参考没对上。只填一个参考时，金额可以留空，自动抓那张采购单还欠多少。每笔付款都会自动生成一笔对应的"供应商付款"收支流水。</div>
-      <div class="grid2">
+      <div style="display:flex; flex-direction:column; align-items:stretch; gap:8px; margin-left:auto; max-width:240px;">
         <button class="btn-ghost" onclick="downloadPaymentImportTemplate()">⬇ 下载CSV模板</button>
         <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
           ⬆ 上传付款记录（可多选）
@@ -3958,13 +3965,14 @@ function renderPaymentSectionHtml(){
           <span class="muted" style="font-size:12px;">共 ${state.payments.length} 笔 ▾</span>
         </summary>
       <div class="grid2" style="margin:10px 0;">
-        <div><label>按日期查看</label><input type="date" id="payHistDate" value="${payHistoryFilterDate}" onchange="setPayHistoryFilterDate(this.value); this.blur();"></div>
-        <div style="display:flex; align-items:flex-end;"><button class="btn-ghost" style="width:100%" onclick="setPayHistoryFilterDate('')">显示全部</button></div>
+        <div><label>从</label><input type="date" id="payHistFrom" value="${payHistoryFilterFrom}" onchange="setPayHistoryFilterDate(this.value, undefined); this.blur();"></div>
+        <div><label>到</label><input type="date" id="payHistTo" value="${payHistoryFilterTo}" onchange="setPayHistoryFilterDate(undefined, this.value); this.blur();"></div>
       </div>
+      <button class="btn-ghost" style="width:100%; margin-bottom:10px;" onclick="setPayHistoryFilterDate('','')">显示全部</button>
       ${(()=>{
-        const filteredPayments = payHistoryFilterDate ? state.payments.filter(p=>p.date===payHistoryFilterDate) : state.payments;
+        const filteredPayments = (payHistoryFilterFrom||payHistoryFilterTo) ? state.payments.filter(p=>(!payHistoryFilterFrom || p.date>=payHistoryFilterFrom) && (!payHistoryFilterTo || p.date<=payHistoryFilterTo)) : state.payments;
         const total = filteredPayments.reduce((a,p)=>a+Number(p.amount||0),0);
-        if(!filteredPayments.length) return `<div class="empty">${payHistoryFilterDate? '这天没有付款记录' : '还没有付款记录'}</div>`;
+        if(!filteredPayments.length) return `<div class="empty">${(payHistoryFilterFrom||payHistoryFilterTo)? '这段日期没有付款记录' : '还没有付款记录'}</div>`;
         return `
         <div class="muted" style="font-size:12.5px; margin-bottom:8px;">共 ${filteredPayments.length} 笔・合计 <b class="mono">RM${fmtPlain(total)}</b></div>
         <table>
@@ -3986,8 +3994,9 @@ function renderPaymentSectionHtml(){
     </div>
   `;
 }
-function setPayHistoryFilterDate(val){
-  payHistoryFilterDate = val;
+function setPayHistoryFilterDate(from, to){
+  if(from!==undefined) payHistoryFilterFrom = from;
+  if(to!==undefined) payHistoryFilterTo = to;
   renderPurchase();
 }
 
@@ -6013,6 +6022,8 @@ function mergeProductsIntoVariants(){
 /* ================= 销售 Tab ================= */
 let saleCompany = COMPANIES[0];
 let saleHistoryFilterCompany = '';
+let saleHistoryFilterFrom = todayStr();
+let saleHistoryFilterTo = todayStr();
 function renderSales(){
   const el = document.getElementById('tab-sales');
   const draft = captureFormValues(['saleProduct','saleQty','salePrice','saleDate','salePayMethod']);
@@ -6052,7 +6063,7 @@ function renderSales(){
     <div class="card">
       <h3>批量导入销售报告</h3>
       <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">先下载模板，按格式填好每一笔销售（产品名称要跟"成本"页里的一模一样），再上传回来，系统会一次帮你新增好。</div>
-      <div class="grid2">
+      <div style="display:flex; flex-direction:column; align-items:stretch; gap:8px; margin-left:auto; max-width:240px;">
         <button class="btn-ghost" onclick="downloadSalesImportTemplate()">⬇ 下载CSV模板</button>
         <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
           ⬆ 上传销售报告（可多选）
@@ -6076,7 +6087,7 @@ function renderSales(){
     <div class="card">
       <h3>批量导入Addon报表</h3>
       <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">POS系统的"Addon"报表是跟"产品销售"报表分开导出的（甜度、辣度、面包酱料、加蛋加虾这些加料选项）。先下载模板，把报表里每个Addon选项汇总成一行（数量、金额都合计好），再上传回来：系统会把这部分营收计进销售统计，并按"采购"页「Addon消耗」设好的对照，自动扣掉对应食材的库存。</div>
-      <div class="grid2">
+      <div style="display:flex; flex-direction:column; align-items:stretch; gap:8px; margin-left:auto; max-width:240px;">
         <button class="btn-ghost" onclick="downloadAddonImportTemplate()">⬇ 下载CSV模板</button>
         <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
           ⬆ 上传Addon报表（可多选）
@@ -6143,10 +6154,22 @@ function renderSales(){
     </div>
 
     <div class="card">
-      <h3>销售记录</h3>
-      ${salesInScope.length? `<table>
+      <details>
+        <summary style="cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center;">
+          <h3 style="margin:0;">销售记录</h3>
+          <span class="muted" style="font-size:12px;">共 ${salesInScope.length} 笔 ▾</span>
+        </summary>
+      <div class="grid2" style="margin:10px 0;">
+        <div><label>从</label><input type="date" id="saleHistFrom" value="${saleHistoryFilterFrom}" onchange="setSaleHistoryFilterDate(this.value, undefined); this.blur();"></div>
+        <div><label>到</label><input type="date" id="saleHistTo" value="${saleHistoryFilterTo}" onchange="setSaleHistoryFilterDate(undefined, this.value); this.blur();"></div>
+      </div>
+      <button class="btn-ghost" style="width:100%; margin-bottom:10px;" onclick="setSaleHistoryFilterDate('','')">显示全部</button>
+      ${(()=>{
+        const filteredSales = (saleHistoryFilterFrom||saleHistoryFilterTo) ? salesInScope.filter(s=>(!saleHistoryFilterFrom || s.date>=saleHistoryFilterFrom) && (!saleHistoryFilterTo || s.date<=saleHistoryFilterTo)) : salesInScope;
+        if(!filteredSales.length) return `<div class="empty">${(saleHistoryFilterFrom||saleHistoryFilterTo||saleHistoryFilterCompany)? '没有符合条件的销售记录' : '还没有销售记录'}</div>`;
+        return `<table>
         <tr><th>日期</th><th>产品</th><th class="num">数量</th><th style="white-space:nowrap">收款</th><th class="num">金额</th><th></th></tr>
-        ${salesInScope.slice().reverse().map(s=>`
+        ${filteredSales.slice().reverse().map(s=>`
           <tr>
             <td class="muted">${s.date}</td>
             <td>${s.productName}${s.company?`<div class="muted" style="font-size:11px">${s.company}</div>`:''}</td>
@@ -6155,7 +6178,9 @@ function renderSales(){
             <td class="num">${fmtPlain(s.amount)}</td>
             <td><button class="btn-danger-text" onclick="deleteSale('${s.id}')">删</button></td>
           </tr>`).join('')}
-      </table>` : `<div class="empty">${saleHistoryFilterCompany? '这间公司还没有销售记录' : '还没有销售记录'}</div>`}
+      </table>`;
+      })()}
+      </details>
     </div>
   `;
   wireSalePreview();
@@ -6168,6 +6193,11 @@ function setSaleCompany(val){
 }
 function setSaleHistoryFilterCompany(val){
   saleHistoryFilterCompany = val;
+  renderSales();
+}
+function setSaleHistoryFilterDate(from, to){
+  if(from!==undefined) saleHistoryFilterFrom = from;
+  if(to!==undefined) saleHistoryFilterTo = to;
   renderSales();
 }
 function onSaleProductChange(){
@@ -6690,6 +6720,10 @@ let cfCategory = EXPENSE_CATEGORIES[0];
 let cfPayMethod = PAY_METHODS[0];
 let cfCompany = COMPANIES[0];
 let cfHistoryFilterCompany = '';
+let cfHistoryFilterFromIn = todayStr();
+let cfHistoryFilterToIn = todayStr();
+let cfHistoryFilterFromOut = todayStr();
+let cfHistoryFilterToOut = todayStr();
 
 let editingCashflowIds = null;
 let editCashflowCompany = '';
@@ -6845,7 +6879,6 @@ function renderCash(){
   const now = splitBalances(null);
   const lastMonthEnd = lastMonthEndDateStr();
   const lastMonth = splitBalances(lastMonthEnd);
-  const cashflowInScope = cfHistoryFilterCompany ? state.cashflow.filter(c=>cashflowCompany(c)===cfHistoryFilterCompany) : state.cashflow;
   el.innerHTML = `
     <div class="card">
       <h3>手动记一笔收支</h3>
@@ -6880,53 +6913,107 @@ function renderCash(){
     </div>
 
     <div class="card">
-      <h3>收支流水</h3>
-      <label>按公司筛选</label>
-      <div class="btn-group" style="margin-bottom:10px">
+      <label>按公司筛选（同时套用在下面收入/支出两份流水）</label>
+      <div class="btn-group" style="margin-bottom:0;">
         <button type="button" class="btn-toggle ${!cfHistoryFilterCompany?'active':''}" onclick="setCfHistoryFilterCompany('')">全部</button>
         ${COMPANIES.map(c=>`<button type="button" class="btn-toggle ${cfHistoryFilterCompany===c?'active':''}" onclick="setCfHistoryFilterCompany('${c}')">${c}</button>`).join('')}
       </div>
-      ${cashflowInScope.length? `<table>
+    </div>
+
+    <div class="card">
+      <details>
+        <summary style="cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center;">
+          <h3 style="margin:0; color:var(--green);">收入流水</h3>
+          <span class="muted" style="font-size:12px;">共 ${state.cashflow.filter(c=>c.type==='in' && (!cfHistoryFilterCompany || cashflowCompany(c)===cfHistoryFilterCompany)).length} 笔 ▾</span>
+        </summary>
+      <div class="grid2" style="margin:10px 0;">
+        <div><label>从</label><input type="date" id="cfHistFromIn" value="${cfHistoryFilterFromIn}" onchange="setCfHistoryFilterDateIn(this.value, undefined); this.blur();"></div>
+        <div><label>到</label><input type="date" id="cfHistToIn" value="${cfHistoryFilterToIn}" onchange="setCfHistoryFilterDateIn(undefined, this.value); this.blur();"></div>
+      </div>
+      <button class="btn-ghost" style="width:100%; margin-bottom:10px;" onclick="setCfHistoryFilterDateIn('','')">显示全部</button>
+      ${(()=>{
+        let scope = state.cashflow.filter(c=>c.type==='in');
+        if(cfHistoryFilterCompany) scope = scope.filter(c=>cashflowCompany(c)===cfHistoryFilterCompany);
+        if(cfHistoryFilterFromIn||cfHistoryFilterToIn) scope = scope.filter(c=>(!cfHistoryFilterFromIn || c.date>=cfHistoryFilterFromIn) && (!cfHistoryFilterToIn || c.date<=cfHistoryFilterToIn));
+        if(!scope.length) return `<div class="empty">${(cfHistoryFilterFromIn||cfHistoryFilterToIn||cfHistoryFilterCompany)? '没有符合条件的收入记录' : '还没有收入记录'}</div>`;
+        // 同一次「记一笔收支」如果同时填了 Cash+TNG+FoodPanda，会拆成好几笔流水（用 groupId 串起来）。
+        // 老数据没有 groupId（这个功能是后来才加的），退而求其次：同一天、同一间公司、同样的收入、
+        // 备注也一样的话，也当成同一组合并显示（纯粹显示层面的智能合并，不改数据本身）。
+        const groupsMap = new Map();
+        const order = [];
+        scope.forEach(c=>{
+          const key = c.groupId || (!c.auto ? `heur|${c.date}|${cashflowCompany(c)}|${(c.note||'').trim()}` : c.id);
+          if(!groupsMap.has(key)){ groupsMap.set(key, []); order.push(key); }
+          groupsMap.get(key).push(c);
+        });
+        const groups = order.map(key=>groupsMap.get(key));
+        return `<table>
         <tr><th>日期</th><th>类别</th><th class="num">金额</th><th></th></tr>
-        ${(()=>{
-          // 同一次「记一笔收支」如果同时填了 Cash+TNG+FoodPanda，会拆成好几笔流水（用 groupId 串起来）。
-          // 老数据没有 groupId（这个功能是后来才加的），退而求其次：同一天、同一间公司、同样的收入、
-          // 备注也一样的话，也当成同一组合并显示（纯粹显示层面的智能合并，不改数据本身）。
-          // 只对「收入」且不是系统自动生成（如供应商付款）的记录做这个退而求其次的判断，
-          // 支出本来就是一笔一个金额，不会有这种「同一次填好几个」的情况，不需要合并。
-          const groupsMap = new Map();
-          const order = [];
-          cashflowInScope.forEach(c=>{
-            const key = c.groupId || (c.type==='in' && !c.auto
-              ? `heur|${c.date}|${cashflowCompany(c)}|${(c.note||'').trim()}`
-              : c.id);
-            if(!groupsMap.has(key)){ groupsMap.set(key, []); order.push(key); }
-            groupsMap.get(key).push(c);
-          });
-          const groups = order.map(key=>groupsMap.get(key));
-          return groups.slice().reverse().map(group=>{
-            const first = group[0];
-            const total = group.reduce((a,g)=>a+Number(g.amount||0),0);
-            const ids = group.map(g=>g.id).join(',');
-            if(editingCashflowIds===ids) return cashflowEditRowHtml(ids, group);
-            const companyLine = cashflowCompany(first)?`<div class="muted" style="font-size:11px">${cashflowCompany(first)}</div>`:'';
-            const noteLine = first.note?`<div class="muted" style="font-size:11px">${first.note}</div>`:'';
-            const categoryCell = group.length>1
-              ? `${group.map(g=>`<div class="muted" style="font-size:11px">${g.category} ${fmtPlain(g.amount)}</div>`).join('')}${companyLine}${noteLine}`
-              : `${first.category}${first.payMethod?` <span class="muted" style="font-size:11px">· ${first.payMethod}</span>`:''}${companyLine}${noteLine}`;
-            return `
+        ${groups.slice().reverse().map(group=>{
+          const first = group[0];
+          const total = group.reduce((a,g)=>a+Number(g.amount||0),0);
+          const ids = group.map(g=>g.id).join(',');
+          if(editingCashflowIds===ids) return cashflowEditRowHtml(ids, group);
+          const companyLine = cashflowCompany(first)?`<div class="muted" style="font-size:11px">${cashflowCompany(first)}</div>`:'';
+          const noteLine = first.note?`<div class="muted" style="font-size:11px">${first.note}</div>`:'';
+          const categoryCell = group.length>1
+            ? `${group.map(g=>`<div class="muted" style="font-size:11px">${g.category} ${fmtPlain(g.amount)}</div>`).join('')}${companyLine}${noteLine}`
+            : `${first.category}${first.payMethod?` <span class="muted" style="font-size:11px">· ${first.payMethod}</span>`:''}${companyLine}${noteLine}`;
+          return `
           <tr>
             <td class="muted">${first.date}</td>
             <td>${categoryCell}</td>
-            <td class="num" style="color:${first.type==='in'?'var(--green)':'var(--rust)'}">${first.type==='in'?'+':'-'}${fmtPlain(total)}</td>
+            <td class="num" style="color:var(--green)">+${fmtPlain(total)}</td>
             <td style="white-space:nowrap;">
               <button class="btn-ghost btn-small" onclick="startEditCashflow('${ids}')">改</button>
               ${first.auto? '' : `<button class="btn-danger-text" onclick="deleteCashflow('${ids}')">删</button>`}
             </td>
           </tr>`;
-          }).join('');
-        })()}
-      </table>` : `<div class="empty">${cfHistoryFilterCompany? '这间公司还没有相关流水' : '还没有收支记录'}</div>`}
+        }).join('')}
+      </table>`;
+      })()}
+      </details>
+    </div>
+
+    <div class="card">
+      <details>
+        <summary style="cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center;">
+          <h3 style="margin:0; color:var(--rust);">支出流水</h3>
+          <span class="muted" style="font-size:12px;">共 ${state.cashflow.filter(c=>c.type==='out' && (!cfHistoryFilterCompany || cashflowCompany(c)===cfHistoryFilterCompany)).length} 笔 ▾</span>
+        </summary>
+      <div class="grid2" style="margin:10px 0;">
+        <div><label>从</label><input type="date" id="cfHistFromOut" value="${cfHistoryFilterFromOut}" onchange="setCfHistoryFilterDateOut(this.value, undefined); this.blur();"></div>
+        <div><label>到</label><input type="date" id="cfHistToOut" value="${cfHistoryFilterToOut}" onchange="setCfHistoryFilterDateOut(undefined, this.value); this.blur();"></div>
+      </div>
+      <button class="btn-ghost" style="width:100%; margin-bottom:10px;" onclick="setCfHistoryFilterDateOut('','')">显示全部</button>
+      ${(()=>{
+        let scope = state.cashflow.filter(c=>c.type==='out');
+        if(cfHistoryFilterCompany) scope = scope.filter(c=>cashflowCompany(c)===cfHistoryFilterCompany);
+        if(cfHistoryFilterFromOut||cfHistoryFilterToOut) scope = scope.filter(c=>(!cfHistoryFilterFromOut || c.date>=cfHistoryFilterFromOut) && (!cfHistoryFilterToOut || c.date<=cfHistoryFilterToOut));
+        if(!scope.length) return `<div class="empty">${(cfHistoryFilterFromOut||cfHistoryFilterToOut||cfHistoryFilterCompany)? '没有符合条件的支出记录' : '还没有支出记录'}</div>`;
+        // 支出本来就是一笔一个金额，不会有「同一次填好几个」的情况，不需要像收入那样合并显示。
+        return `<table>
+        <tr><th>日期</th><th>类别</th><th class="num">金额</th><th></th></tr>
+        ${scope.slice().reverse().map(first=>{
+          const ids = first.id;
+          if(editingCashflowIds===ids) return cashflowEditRowHtml(ids, [first]);
+          const companyLine = cashflowCompany(first)?`<div class="muted" style="font-size:11px">${cashflowCompany(first)}</div>`:'';
+          const noteLine = first.note?`<div class="muted" style="font-size:11px">${first.note}</div>`:'';
+          const categoryCell = `${first.category}${first.payMethod?` <span class="muted" style="font-size:11px">· ${first.payMethod}</span>`:''}${companyLine}${noteLine}`;
+          return `
+          <tr>
+            <td class="muted">${first.date}</td>
+            <td>${categoryCell}</td>
+            <td class="num" style="color:var(--rust)">-${fmtPlain(first.amount)}</td>
+            <td style="white-space:nowrap;">
+              <button class="btn-ghost btn-small" onclick="startEditCashflow('${ids}')">改</button>
+              ${first.auto? '' : `<button class="btn-danger-text" onclick="deleteCashflow('${ids}')">删</button>`}
+            </td>
+          </tr>`;
+        }).join('')}
+      </table>`;
+      })()}
+      </details>
     </div>
   `;
   renderCfBodyWrap(draft);
@@ -6939,6 +7026,16 @@ function setCfCompany(val){
 }
 function setCfHistoryFilterCompany(val){
   cfHistoryFilterCompany = val;
+  renderCash();
+}
+function setCfHistoryFilterDateIn(from, to){
+  if(from!==undefined) cfHistoryFilterFromIn = from;
+  if(to!==undefined) cfHistoryFilterToIn = to;
+  renderCash();
+}
+function setCfHistoryFilterDateOut(from, to){
+  if(from!==undefined) cfHistoryFilterFromOut = from;
+  if(to!==undefined) cfHistoryFilterToOut = to;
   renderCash();
 }
 /* 收支表单主体：收入可以同时填 Cash / TNG / FoodPanda 几个金额，一次保存会拆成对应几笔流水；
@@ -7233,6 +7330,8 @@ function submitChangePassword(){
    实际用量要靠自己记出入库来维持准确。 */
 let invFilterCompany = '';
 let invSearchText = '';
+let stockAdjHistFrom = todayStr();
+let stockAdjHistTo = todayStr();
 let stockAdjCompany = '';
 let stockAdjType = 'out';
 
@@ -7317,10 +7416,23 @@ function renderInventory(){
     </div>
 
     <div class="card">
-      <h3>出入库调整记录</h3>
-      ${(state.stockAdjustments&&state.stockAdjustments.length)? `<table>
+      <details>
+        <summary style="cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center;">
+          <h3 style="margin:0;">出入库调整记录</h3>
+          <span class="muted" style="font-size:12px;">共 ${(state.stockAdjustments||[]).length} 笔 ▾</span>
+        </summary>
+      <div class="grid2" style="margin:10px 0;">
+        <div><label>从</label><input type="date" id="stockAdjHistFrom" value="${stockAdjHistFrom}" onchange="setStockAdjHistFilter(this.value, undefined); this.blur();"></div>
+        <div><label>到</label><input type="date" id="stockAdjHistTo" value="${stockAdjHistTo}" onchange="setStockAdjHistFilter(undefined, this.value); this.blur();"></div>
+      </div>
+      <button class="btn-ghost" style="width:100%; margin-bottom:10px;" onclick="setStockAdjHistFilter('','')">显示全部</button>
+      ${(()=>{
+        let scope = state.stockAdjustments||[];
+        if(stockAdjHistFrom||stockAdjHistTo) scope = scope.filter(a=>(!stockAdjHistFrom || a.date>=stockAdjHistFrom) && (!stockAdjHistTo || a.date<=stockAdjHistTo));
+        if(!scope.length) return `<div class="empty">${(stockAdjHistFrom||stockAdjHistTo)? '这段日期没有出入库调整记录' : '还没有出入库调整记录'}</div>`;
+        return `<table>
         <tr><th>日期</th><th>品名</th><th class="num">数量</th><th>备注</th><th></th></tr>
-        ${state.stockAdjustments.slice().reverse().map(a=>`
+        ${scope.slice().reverse().map(a=>`
           <tr>
             <td class="muted">${a.date}</td>
             <td>${a.itemName}${a.company?`<div class="muted" style="font-size:11px">${a.company}</div>`:''}</td>
@@ -7328,7 +7440,9 @@ function renderInventory(){
             <td class="muted" style="font-size:12px">${a.note||''}</td>
             <td><button class="btn-danger-text" onclick="deleteStockAdjustment('${a.id}')">删</button></td>
           </tr>`).join('')}
-      </table>` : `<div class="empty">还没有出入库调整记录</div>`}
+      </table>`;
+      })()}
+      </details>
     </div>
   `;
   wireSuggest('stockAdjItemText', rows.map(r=>r.name));
@@ -7337,6 +7451,11 @@ function renderInventory(){
 }
 function setInvFilterCompany(val){ invFilterCompany = val; renderInventory(); }
 function setInvSearchText(val){ invSearchText = val; renderInventory(); }
+function setStockAdjHistFilter(from, to){
+  if(from!==undefined) stockAdjHistFrom = from;
+  if(to!==undefined) stockAdjHistTo = to;
+  renderInventory();
+}
 function setStockAdjCompany(val){
   stockAdjCompany = val;
   document.querySelectorAll('#stockAdjCompanyGroup .btn-toggle').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
