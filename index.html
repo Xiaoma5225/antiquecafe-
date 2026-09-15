@@ -27,26 +27,26 @@
        会把原生控件（datalist建议清单、日期选择器、select下拉、数字上下箭头）自己套上深色配色，
        结果就是文字变成白色、但底色还是我们自己浅色的卡片，变成"白底白字"看不清。 */
     color-scheme: light;
-    --bg:#FAF6EE;
+    --bg:#F7F8FA;
     --paper:#FFFFFF;
-    --ink:#2B2620;
-    --muted:#2B2620;
-    --border:#E6DECE;
-    --green:#1F6F5C;
-    --green-dim:#E4EEEA;
-    --rust:#AE4A31;
-    --rust-dim:#F5E6E0;
-    --gold:#C9932E;
-    --gold-dim:#FBF0DA;
-    --teal:#2A8C8C;
-    --teal-dim:#DFF0EF;
-    --plum:#7B5EA7;
-    --plum-dim:#EDE6F5;
-    --sky:#3E7CB1;
-    --sky-dim:#E1EDF6;
-    --coral:#E0714A;
-    --coral-dim:#FBE6DC;
-    --shadow: 0 1px 2px rgba(43,38,32,0.06), 0 4px 14px rgba(43,38,32,0.05);
+    --ink:#1A1D23;
+    --muted:#6B7280;
+    --border:#E2E5EA;
+    --green:#15803D;
+    --green-dim:#F0FDF4;
+    --rust:#B91C1C;
+    --rust-dim:#FEF2F2;
+    --gold:#B45309;
+    --gold-dim:#FEF3E2;
+    --teal:#0F766E;
+    --teal-dim:#EFFBF9;
+    --plum:#6D28D9;
+    --plum-dim:#F3EEFC;
+    --sky:#2563EB;
+    --sky-dim:#EFF6FF;
+    --coral:#C2410C;
+    --coral-dim:#FEF1E8;
+    --shadow: 0 1px 2px rgba(17,20,26,0.04), 0 2px 8px rgba(17,20,26,0.04);
   }
   *{box-sizing:border-box;}
   body{
@@ -85,22 +85,11 @@
   @keyframes fade{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:translateY(0);}}
 
   .card{
-    background:var(--paper); border:1px solid var(--border); border-radius:14px;
+    background:var(--paper); border:1px solid var(--border); border-radius:10px;
     padding:16px; margin-bottom:14px; box-shadow:var(--shadow);
-    border-top:3px solid var(--gold);
   }
-  .card h3{margin:0 0 12px; font-size:15.5px; font-weight:600; display:flex; align-items:center; gap:8px;}
+  .card h3{margin:0 0 12px; font-size:15px; font-weight:500; display:flex; align-items:center; gap:8px;}
   .card h3 .n{color:var(--muted); font-weight:500; font-size:12px;}
-  /* 每个分页给自己的一个主色调，卡片顶边用那个颜色，逛起来比较有层次感、不会每一页都长一样 */
-  #tab-purchase .card{border-top-color:var(--rust);}
-  #tab-cost .card{border-top-color:var(--sky);}
-  #tab-sales .card{border-top-color:var(--coral);}
-  #tab-inventory .card{border-top-color:var(--plum);}
-  #tab-cash .card{border-top-color:var(--teal);}
-  #tab-overview .card{border-top-color:var(--green);}
-  #tab-export .card, #tab-settings .card{border-top-color:var(--gold);}
-  #tab-home .card{border-top-color:var(--green);}
-  #tab-pos .card{border-top-color:var(--gold);}
 
   /* 首页：问候语卡 + 图标磁贴快捷入口 */
   .greet-card{
@@ -116,7 +105,7 @@
   .tile-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:10px;}
   .tile{
     display:flex; flex-direction:column; align-items:center; gap:8px; cursor:pointer;
-    padding:14px 4px 12px; border-radius:14px; background:#FFFDF9; border:1px solid var(--border);
+    padding:14px 4px 12px; border-radius:14px; background:#F9FAFB; border:1px solid var(--border);
   }
   .tile:active{opacity:.8;}
   .tile .circ{width:46px; height:46px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:22px;}
@@ -138,7 +127,7 @@
   .pos-variant-list{display:flex; flex-direction:column; gap:8px; margin-top:10px;}
   .pos-variant-opt{
     display:flex; justify-content:space-between; align-items:center; width:100%;
-    padding:12px 14px; border:1px solid var(--border); border-radius:10px; background:#FFFDF9; font-size:14.5px;
+    padding:12px 14px; border:1px solid var(--border); border-radius:10px; background:#F9FAFB; font-size:14.5px;
   }
   .pos-variant-opt:active{background:var(--gold-dim);}
   .pay-sheet{
@@ -164,7 +153,7 @@
   label:first-of-type{margin-top:0;}
   input, select{
     width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px;
-    font-size:14.5px; font-family:inherit; background:#FFFDF9; color:var(--ink);
+    font-size:14.5px; font-family:inherit; background:#F9FAFB; color:var(--ink);
   }
   input[type=checkbox]{width:16px; height:16px; flex:0 0 16px; padding:0; border:1px solid var(--border); background:#fff; accent-color:var(--green);}
   input:focus, select:focus{outline:none; border-color:var(--green);}
@@ -189,7 +178,7 @@
     font-size:14px; font-weight:600; padding:10px 14px;
     display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box;
   }
-  .btn-main{background:linear-gradient(135deg, #26886F, var(--green)); color:#fff; width:100%; margin-top:12px;}
+  .btn-main{background:var(--green); color:#fff; width:100%; margin-top:12px;}
   .btn-main:active{opacity:.85;}
   .btn-ghost{background:transparent; border:1px solid var(--border); color:var(--ink);}
   .btn-line{background:none; border:none; color:var(--green); font-size:13px; padding:4px 0; text-align:left;}
@@ -198,15 +187,15 @@
 
   .btn-group{display:flex; flex-wrap:wrap; gap:8px;}
   .btn-toggle{
-    background:#FFFDF9; border:1px solid var(--border); color:var(--ink);
-    padding:8px 14px; font-size:13.5px; font-weight:500; border-radius:20px;
+    background:#F9FAFB; border:1px solid var(--border); color:var(--ink);
+    padding:8px 14px; font-size:13.5px; font-weight:500; border-radius:8px;
   }
-  .btn-toggle.active{background:var(--green); border-color:var(--green); color:#fff; font-weight:600;}
+  .btn-toggle.active{background:var(--sky); border-color:var(--sky); color:#fff; font-weight:600;}
   .btn-toggle.out.active{background:var(--rust); border-color:var(--rust);}
 
   .item-row{display:grid; grid-template-columns:1.4fr 0.7fr 0.55fr 0.9fr auto; gap:6px; margin-bottom:6px; align-items:center;}
   .item-row input{padding:8px;}
-  .pi-card{border:1px solid var(--border); border-radius:10px; padding:8px 10px; margin-bottom:8px; background:#FFFDF9;}
+  .pi-card{border:1px solid var(--border); border-radius:10px; padding:8px 10px; margin-bottom:8px; background:#F9FAFB;}
   .pi-top{display:flex; gap:8px; align-items:center; margin-bottom:6px;}
   .pi-top input{flex:1; padding:8px;}
   .pi-bottom{display:grid; grid-template-columns:repeat(4,1fr); gap:6px;}
@@ -243,14 +232,14 @@
   .opt-choice-chips{display:grid; grid-template-columns:repeat(auto-fill, minmax(150px,1fr)); gap:6px; margin-top:8px;}
   .opt-choice-chip{
     display:flex; align-items:center; gap:4px; padding:4px 10px; border-radius:10px; min-width:0;
-    background:#FFFDF9; border:1px solid var(--border); font-size:11.5px; color:var(--ink); overflow:hidden;
+    background:#F9FAFB; border:1px solid var(--border); font-size:11.5px; color:var(--ink); overflow:hidden;
   }
   .opt-choice-chip .occ-name{overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;}
   .opt-choice-chip b{flex:0 0 auto; color:var(--green); font-weight:700; font-size:11px; white-space:nowrap;}
   .supplier-card .row{display:flex; justify-content:space-between; align-items:center;}
   .invoice-pick{
     display:flex; justify-content:space-between; align-items:center; cursor:pointer;
-    border:1px solid var(--border); border-radius:10px; padding:8px 12px; margin-bottom:6px; background:#FFFDF9;
+    border:1px solid var(--border); border-radius:10px; padding:8px 12px; margin-bottom:6px; background:#F9FAFB;
   }
   .invoice-pick.active{border-color:var(--green); background:var(--green-dim);}
   .pur-hist-sub{border-top:1px solid var(--border); padding:8px 0; display:flex; justify-content:space-between; align-items:center; gap:8px; cursor:pointer;}
@@ -307,7 +296,7 @@
   tr:last-child td{border-bottom:none;}
   .num{font-family:'IBM Plex Mono',monospace; text-align:right; white-space:nowrap;}
   .muted{color:var(--muted);}
-  .pill{display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600;}
+  .pill{display:inline-block; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:500;}
   .pill.owe{background:var(--rust-dim); color:var(--rust);}
   .pill.clear{background:var(--green-dim); color:var(--green);}
 
@@ -339,7 +328,7 @@
   nav.bottom button[data-tab="overview"] .ic{background:var(--green-dim);}
   nav.bottom button[data-tab="pos"] .ic{background:var(--gold-dim);}
   nav.bottom button[data-tab="ingredients"] .ic{background:var(--sky-dim);}
-  nav.bottom button.active{color:var(--green); background:var(--green-dim);}
+  nav.bottom button.active{color:var(--sky); background:var(--sky-dim);}
   nav.bottom button.active .ic{transform:scale(1.1);}
   /* 点餐已经搬去首页当入口卡片，全权限帐号的导航不再占位置显示；只有"点餐限定权限"帐号
      （applyRolePermissions 判定 currentUserRole!=='full'）才会把这颗按钮显示回来，
@@ -378,7 +367,7 @@
 
   .picker-field{
     width:100%; padding:9px 10px; border:1px solid var(--border); border-radius:8px;
-    background:#FFFDF9; color:var(--ink); font-size:14.5px; cursor:pointer;
+    background:#F9FAFB; color:var(--ink); font-size:14.5px; cursor:pointer;
     display:flex; justify-content:space-between; align-items:center;
   }
   .picker-popup{
@@ -423,7 +412,7 @@
   .pos-table-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:10px;}
   .pos-table-tile{
     position:relative; border-radius:12px; padding:14px 8px; text-align:center; cursor:pointer;
-    background:#FFFDF9; border:1px solid var(--border); min-height:64px;
+    background:#F9FAFB; border:1px solid var(--border); min-height:64px;
     display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
   }
   .pos-table-tile:active{opacity:.8;}
@@ -434,7 +423,7 @@
   .pos-table-tile .tdel{position:absolute; top:2px; right:4px; font-size:11px; color:var(--muted); padding:4px 6px;}
   .pos-order-row{
     display:flex; justify-content:space-between; align-items:center; cursor:pointer;
-    padding:12px 10px; border:1px solid var(--border); border-radius:10px; margin-bottom:8px; background:#FFFDF9;
+    padding:12px 10px; border:1px solid var(--border); border-radius:10px; margin-bottom:8px; background:#F9FAFB;
   }
   .pos-order-row:active{opacity:.8;}
   .pos-order-row .oname{font-weight:600; font-size:14px;}
@@ -449,7 +438,7 @@
   .pos-cat-tabs .btn-toggle{flex:0 0 auto; padding:7px 12px; font-size:12.5px;}
   .pos-menu-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:8px;}
   .pos-menu-item{
-    text-align:left; background:#FFFDF9; border:1px solid var(--border); border-radius:10px;
+    text-align:left; background:#F9FAFB; border:1px solid var(--border); border-radius:10px;
     padding:10px; cursor:pointer;
   }
   .pos-menu-item:active{opacity:.75; background:var(--gold-dim);}
@@ -7185,7 +7174,7 @@ function renderSettings(){
     <div class="card">
       <h3>设置</h3>
       <label>目前登录的账号</label>
-      <div style="padding:9px 10px; border:1px solid var(--border); border-radius:8px; background:#FFFDF9; color:var(--muted); font-size:14.5px;">${user? user.email : (cloudConfigured? '未登录' : '仅本机存储，未使用登录')}</div>
+      <div style="padding:9px 10px; border:1px solid var(--border); border-radius:8px; background:#F9FAFB; color:var(--muted); font-size:14.5px;">${user? user.email : (cloudConfigured? '未登录' : '仅本机存储，未使用登录')}</div>
       ${user ? `<div class="muted" style="font-size:11.5px; margin-top:6px;">${isAdmin()?'🔑 超级管理员 · 全部权限':(currentUserRole==='full'?'✅ 全部权限':'🧾 权限：只能看点餐')}</div>` : ''}
     </div>
     ${user ? `
