@@ -104,12 +104,11 @@
   .greet-card .snap-item .v{font-family:'IBM Plex Mono',monospace; font-size:14px; font-weight:600; margin-top:2px;}
   .tile-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:10px;}
   .tile{
-    display:flex; flex-direction:column; align-items:center; gap:8px; cursor:pointer;
-    padding:14px 4px 12px; border-radius:14px; background:#F9FAFB; border:1px solid var(--border);
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    padding:20px 4px; border-radius:10px; background:#F9FAFB; border:1px solid var(--border);
   }
   .tile:active{opacity:.8;}
-  .tile .circ{width:46px; height:46px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:22px;}
-  .tile .lbl{font-size:12.5px; font-weight:600;}
+  .tile .lbl{font-size:13.5px; font-weight:500;}
 
   /* 采购付款弹窗：提交采购单之后问"付款了没"，或从采购记录里补记付款 */
   #payPopupOverlay{
@@ -277,7 +276,7 @@
   #backupFab{
     position:fixed; right:14px; bottom:88px; z-index:40;
     width:44px; height:44px; border-radius:50%;
-    background:var(--ink); color:#F5EFE2; font-size:19px;
+    background:var(--ink); color:#F5EFE2; font-size:11px; font-weight:500;
     display:flex; align-items:center; justify-content:center;
     box-shadow:0 3px 10px rgba(0,0,0,0.25); padding:0;
   }
@@ -608,7 +607,7 @@
 </main>
 </div>
 
-<button id="backupFab" onclick="toggleBackupPanel()" title="数据备份"></button>
+<button id="backupFab" onclick="toggleBackupPanel()" title="数据备份">备份</button>
 <div id="backupPanel" style="display:none;">
   <div class="card" style="margin:0; box-shadow:0 6px 24px rgba(43,38,32,0.18);">
     <h3 style="display:flex; justify-content:space-between; align-items:center;">
@@ -2023,7 +2022,7 @@ function renderPurchaseDetailPopup(){
   el.style.display = 'flex';
   el.innerHTML = `
     <div class="pay-sheet" onclick="event.stopPropagation()">
-      <button class="pay-sheet-close" onclick="closePurchaseDetailPopup()"></button>
+      <button class="pay-sheet-close" onclick="closePurchaseDetailPopup()">×</button>
       <div class="t">${supplierName(p.supplierId)}</div>
       <div class="amt-line">${p.date}　${p.invoiceNumber?`Invoice #${p.invoiceNumber}`:'（无Invoice号）'}</div>
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
@@ -2124,7 +2123,7 @@ function renderPayPopup(){
   el.style.display='flex';
   el.innerHTML = `
     <div class="pay-sheet" onclick="event.stopPropagation()">
-      <button type="button" class="pay-sheet-close" onclick="closePurchasePayPopup()"></button>
+      <button type="button" class="pay-sheet-close" onclick="closePurchasePayPopup()">×</button>
       <div class="t">这笔采购 RM${fmtPlain(pu.totalAmount)}</div>
       <div class="amt-line">${supplierName(pu.supplierId)} · ${pu.date}</div>
       ${s.askStatus ? `
@@ -2269,10 +2268,10 @@ function renderHome(){
     <div class="card">
       <h3>快捷入口</h3>
       <div class="tile-grid">
-        <div class="tile" onclick="goToTab('pos')"><div class="circ" style="background:var(--gold-dim); color:var(--gold);"></div><div class="lbl">点餐</div></div>
-        <div class="tile" onclick="goToTab('purchase')"><div class="circ" style="background:var(--rust-dim); color:var(--rust);"></div><div class="lbl">采购</div></div>
-        <div class="tile" onclick="quickRecordIncome()"><div class="circ" style="background:var(--green-dim); color:var(--green);"></div><div class="lbl">记录收入</div></div>
-        <div class="tile" onclick="quickRecordExpense()"><div class="circ" style="background:var(--teal-dim); color:var(--teal);"></div><div class="lbl">记录支出</div></div>
+        <div class="tile" onclick="goToTab('pos')"><div class="lbl">点餐</div></div>
+        <div class="tile" onclick="goToTab('purchase')"><div class="lbl">采购</div></div>
+        <div class="tile" onclick="quickRecordIncome()"><div class="lbl">记录收入</div></div>
+        <div class="tile" onclick="quickRecordExpense()"><div class="lbl">记录支出</div></div>
       </div>
     </div>
   `;
@@ -5062,7 +5061,7 @@ function renderIngredients(){
   // 「编辑：食材名 」提示，点取消编辑、回到食材列表。
   const ingSubTabHtml = editingIng
     ? `<div class="btn-group" style="margin-bottom:14px;">
-         <button type="button" class="btn-toggle active" style="display:inline-flex; align-items:center; gap:6px;">编辑：${editingIng.name}<span role="button" style="cursor:pointer; font-weight:700;" onclick="event.stopPropagation(); cancelEditIngredientField('${editingIng.id}')"></span></button>
+         <button type="button" class="btn-toggle active" style="display:inline-flex; align-items:center; gap:6px;">编辑：${editingIng.name}<span role="button" style="cursor:pointer; font-weight:700;" onclick="event.stopPropagation(); cancelEditIngredientField('${editingIng.id}')">×</span></button>
        </div>`
     : '';
   if(editingIng){
@@ -7564,7 +7563,7 @@ function posListScreenHtml(){
           const tap = posManagingTables ? '' : (o? `openPosOrder('${o.id}')` : `startDineInOrder('${t.id}')`);
           return `
           <div class="pos-table-tile ${o?'occupied':''}" onclick="${tap}">
-            ${posManagingTables? `<span class="tdel" onclick="event.stopPropagation(); deletePosTable('${t.id}')"></span>` : ''}
+            ${posManagingTables? `<span class="tdel" onclick="event.stopPropagation(); deletePosTable('${t.id}')">×</span>` : ''}
             <div class="tname">${t.name}</div>
             <div class="tsub">${o? (posOrderItemCount(o)+'件 · RM '+fmtPlain(posOrderTotal(o))) : '空'}</div>
           </div>`;
@@ -7676,7 +7675,7 @@ function posOrderScreenHtml(order){
     <div class="card pos-cart-card${posCartOpen?' open':''}" id="posCartCard">
       <div class="pos-cart-head">
         <h3 style="margin:0;">已点 <span class="n">${posOrderItemCount(order)} 件</span></h3>
-        <button type="button" class="pos-cart-close" onclick="togglePosCart(false)"></button>
+        <button type="button" class="pos-cart-close" onclick="togglePosCart(false)">×</button>
       </div>
       ${(order.items||[]).length? order.items.map(i=>`
         <div class="pos-cart-line">
@@ -7696,7 +7695,7 @@ function posOrderScreenHtml(order){
     </div>
     </div>
     <button type="button" class="pos-cart-fab" onclick="togglePosCart(true)" style="${posCartOpen?'display:none;':''}">
-      <span></span><span class="badge">${posOrderItemCount(order)} · RM ${fmtPlain(total)}</span>
+      <span class="badge">${posOrderItemCount(order)} · RM ${fmtPlain(total)}</span>
     </button>
     <div id="posCartFabOverlay" onclick="togglePosCart(false)" style="${posCartOpen?'display:block;':'display:none;'}"></div>
   `;
@@ -7777,7 +7776,7 @@ function renderPosPicker(){
     el.style.display = 'flex';
     el.innerHTML = `
       <div class="pay-sheet" onclick="event.stopPropagation()">
-        <button type="button" class="pay-sheet-close" onclick="closePosPicker()"></button>
+        <button type="button" class="pay-sheet-close" onclick="closePosPicker()">×</button>
         <div class="t">${p.name}</div>
         <div class="amt-line">选一个规格</div>
         <div class="pos-variant-list">
@@ -7796,7 +7795,7 @@ function renderPosPicker(){
     el.style.display = 'flex';
     el.innerHTML = `
       <div class="pay-sheet" onclick="event.stopPropagation()">
-        <button type="button" class="pay-sheet-close" onclick="closePosPicker()"></button>
+        <button type="button" class="pay-sheet-close" onclick="closePosPicker()">×</button>
         <div class="t">${p.name}</div>
         <div class="amt-line">选一个${g.name}</div>
         <div class="pos-variant-list">
@@ -7816,7 +7815,7 @@ function renderPosPicker(){
   el.style.display = 'flex';
   el.innerHTML = `
     <div class="pay-sheet" onclick="event.stopPropagation()">
-      <button type="button" class="pay-sheet-close" onclick="closePosPicker()"></button>
+      <button type="button" class="pay-sheet-close" onclick="closePosPicker()">×</button>
       <div class="t">${p.name}</div>
       <div class="amt-line">${ag.name}（追加，可以勾好几样，不用的话直接按"完成"）</div>
       <div class="pos-variant-list">
