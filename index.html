@@ -953,13 +953,6 @@ function fmt(n){
   return 'RM ' + n.toLocaleString('en-MY',{minimumFractionDigits:2, maximumFractionDigits:2});
 }
 function fmtPlain(n){ return (Number(n)||0).toLocaleString('en-MY',{minimumFractionDigits:2, maximumFractionDigits:2}); }
-/* 马来西亚现金找零的"四舍五入到最接近的5分"规则（1分/5分硬币已经停用）——
-   只套用在整张采购单的"本单总金额"上，不动每一项品名各自的总价（那些还是精确到分）。
-   例：12.32 → 12.30，12.33 → 12.35。 */
-function roundToNearest5Sen(amount){
-  const n = Number(amount)||0;
-  return Math.round(Math.round(n*20)/20*100)/100;
-}
 function vizBar(segments, maxOverride){
   const total = maxOverride || segments.reduce((a,s)=>a+Math.max(Number(s.value)||0,0),0) || 1;
   return `<div class="viz-bar">${segments.map(s=>`<div class="seg" style="width:${Math.min(100,Math.max(0,Number(s.value)||0)/total*100)}%; background:${s.color};"></div>`).join('')}</div>`;
@@ -2466,6 +2459,7 @@ let purHistoryFilterCompany = '';
 let purHistorySearchQuery = '';
 let purCompany = COMPANIES[0];
 let editingPurchaseId = null;
+let purTotalManuallyEdited = false; // 本单总金额有没有被手动改过（改过就不再跟着品项自动重算）
 /* ---- 半成品配方（比如"腌肉碎"：买肉碎/五花肉这类原料回来，先加工/配料才变成半成品）----
    放在"产品"页里当一个子页签。逻辑很单纯，不碰你的采购单：配方 = "原料名"（比如"肉碎"）+
    每单位原料要配的用料清单（比如每1kg肉碎要配 蒜蓉0.05kg、生抽0.1L...）+ 包出来的成品叫什么。
@@ -2592,7 +2586,9 @@ function renderPurchase(){
       <label style="margin-top:14px">品项明细（同一供应商可一次拿多个不同产品）</label>
       <div id="purItemsWrap"></div>
       <button class="btn-line" onclick="addPurchaseItemRow()">+ 添加一项</button>
-      <div style="margin-top:8px; font-size:13px; color:var(--muted)">本单总金额（已按大马找零规则四舍五入到最接近的5分）：<b class="mono" id="purTotalPreview">RM 0.00</b></div>
+      <label style="margin-top:8px;">本单总金额（默认是各项目加总，如果发票上实际数字不一样，可以直接改这里）</label>
+      <input type="text" inputmode="decimal" step="0.01" id="purTotalPreview" oninput="purTotalManuallyEdited=true;">
+      ${purTotalManuallyEdited? `<div class="muted" style="font-size:11px; margin-top:2px;">已手动改过，不会再跟着品项自动重算——想改回自动加总，把这格清空或按"取消"重来。</div>` : ''}
       <button class="btn-main" onclick="submitPurchase()">${editingPurchase?'保存修改':'保存采购单'}</button>
       ${editingPurchase?`<button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditPurchase()">取消编辑</button>`:''}
     </div>
@@ -4073,11 +4069,9 @@ function purItemInfoHtml(row){
     return parts.length ? `<div class="muted" style="font-size:11px; margin-bottom:4px;">💡 系统记得这个食材 · ${parts.join(' · ')}</div>` : '';
   })();
   const linkHtml = (()=>{
-    /* 「这个食材属于哪个产品」原本统一在「产品→食材关联」那个子页签管理，要先保存这张采购单、
-       跳过去搜索才能设。现在改成：只要这个食材还没关联任何产品（不管是全新食材，还是已经在
-       字典里但还没设关联的），就直接在这里勾选——勾好的选择存在这一行草稿的 productIds 里，
-       等这张采购单真的保存/提交时会一起生效教进食材字典，不用先保存再跳页找。
-       已经关联好的食材，还是照旧只显示结果+"改关联"连结（改关联本来就该去那个统一管理的页面）。
+    /* "这个食材属于哪个产品"以前在这里也能直接搜索勾选，但现在"食材"页本身已经有更完整的
+       关联功能（可以设固定用量、按营业额分摊等等），这里再放一份搜索勾选变成重复功能，
+       拿掉了——采购单这边只负责显示目前的关联状态、给一个连结跳过去设定，不再自己处理勾选。
        只有「食材」类别才需要关联产品算成本——清洁用品、水电费这些其他类别不需要，不用显示这块。 */
     if(!row.name || row.category!=='食材') return '';
     const ing = findIngredient(row.name);
@@ -4086,19 +4080,10 @@ function purItemInfoHtml(row){
       const names = linkedIds.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean);
       return `<div class="muted" style="font-size:11px; margin-bottom:6px;">🔗 关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="goToIngredientLinkTab('${row.name.replace(/'/g,"\\'")}')">改关联</a></div>`;
     }
-    const picked = row.productIds||[];
-    const newFlag = ing ? '' : '🆕 新食材，';
-    // 已经挑好至少1个产品、又还没收起来看的话，就先只显示一行小结果，
-    // 不用整块打勾清单一直占着地方——点"改选"才会再打开。
-    if(picked.length && !row.pickerOpen){
-      const names = picked.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean);
-      return `<div class="muted" style="font-size:11px; margin-bottom:6px; color:var(--green);">🆕 将关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="setPurItemPickerOpen('${row.id}',true)">改选</a></div>`;
+    if(ing){
+      return `<div class="muted" style="font-size:11px; margin-bottom:6px;">还没关联产品——去"食材"页可以设定算给哪个产品的成本　<a href="javascript:void(0)" onclick="goToIngredientLinkTab('${row.name.replace(/'/g,"\\'")}')">现在就去设定</a></div>`;
     }
-    return `
-      <div class="muted" style="font-size:11px; margin-bottom:4px; color:var(--rust);">⚠️ ${newFlag}还没关联产品，勾选这个算给哪个产品的成本（保存这张单会一起生效）：</div>
-      ${state.products.length? `<div id="purProdPicks_${row.id}" style="margin-bottom:6px;"></div>` : `<div class="muted" style="font-size:12px; margin-bottom:6px;">还没有产品，先去"产品"子页签新增</div>`}
-      ${picked.length? `<button type="button" class="btn-ghost btn-small" style="margin-bottom:6px;" onclick="setPurItemPickerOpen('${row.id}',false)">✓ 挑好了，收起来</button>` : ''}
-    `;
+    return `<div class="muted" style="font-size:11px; margin-bottom:6px;">🆕 新食材——保存这张采购单之后，可以去"食材"页设定算给哪个产品的成本</div>`;
   })();
   return hintHtml + linkHtml;
 }
@@ -4111,9 +4096,17 @@ function refreshPurItemInfo(rowId){
   const el = document.getElementById('purItemInfo_'+rowId);
   if(!el) return;
   el.innerHTML = purItemInfoHtml(row);
-  if(document.getElementById('purProdPicks_'+rowId)){
-    mpInit('purProdPicks_'+rowId, ()=>state.products.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')), ()=> row.productIds||[], (id,checked)=>togglePurItemProductPick(rowId, id, checked));
-  }
+}
+/* 本单总金额默认是各品项总价加总，实时跟着重算——除非使用者自己在那格手动打了不一样的数字
+   （比如现金交易、供应商发票本身抓了零头），这时候尊重使用者打的数字，不再自动覆盖回去，
+   直到清空那格或取消整张单重来。这样"要不要抓零头"完全由使用者自己判断，系统不用猜、
+   也不会因为猜错了把不该抓零头的正式发票金额悄悄改掉。 */
+function updatePurTotalPreview(){
+  const el = document.getElementById('purTotalPreview');
+  if(!el) return;
+  if(purTotalManuallyEdited) return;
+  const total = tempPurchaseItems.reduce((a,r)=>a+Number(r.total||0),0);
+  el.value = total ? String(Math.round(total*100)/100) : '';
 }
 function renderPurchaseItemRows(){
   const wrap = document.getElementById('purItemsWrap');
@@ -4141,16 +4134,12 @@ function renderPurchaseItemRows(){
       <div class="muted" style="font-size:11px; margin-top:3px;">填了"数量"和"单价"会自动算出总价；不想算就直接填"总价"就好</div>
     </div>
   `).join('');
-  const total = roundToNearest5Sen(tempPurchaseItems.reduce((a,r)=>a+Number(r.total||0),0));
-  document.getElementById('purTotalPreview').textContent = fmt(total);
+  updatePurTotalPreview();
   const ingredientNames = getIngredientNames();
   const unitSuggestions = getUnitSuggestions();
   tempPurchaseItems.forEach(row=>{
     wireSuggest('purItemTitle_'+row.id, ingredientNames);
     wireSuggest('pi_unit_'+row.id, unitSuggestions);
-    if(document.getElementById('purProdPicks_'+row.id)){
-      mpInit('purProdPicks_'+row.id, ()=>state.products.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')), ()=> row.productIds||[], (id,checked)=>togglePurItemProductPick(row.id, id, checked));
-    }
   });
 }
 function updatePurItem(id, field, val){
@@ -4178,8 +4167,7 @@ function updatePurItem(id, field, val){
   if(field==='name'){
     refreshPurItemInfo(id);
   }
-  const total = roundToNearest5Sen(tempPurchaseItems.reduce((a,r)=>a+Number(r.total||0),0));
-  document.getElementById('purTotalPreview').textContent = fmt(total);
+  updatePurTotalPreview();
 }
 function addPurchaseItemRow(){
   tempPurchaseItems.push({id:uid(), name:'', category:'食材', company:'', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''});
@@ -4190,29 +4178,7 @@ function removePurItem(id){
   if(tempPurchaseItems.length===0) tempPurchaseItems=[{id:uid(),name:'',category:'食材',productIds:[],productInput:'',qty:'',unit:'',unitPrice:'',total:''}];
   renderPurchaseItemRows();
 }
-function setPurItemPickerOpen(rowId, open){
-  const row = tempPurchaseItems.find(r=>r.id===rowId);
-  if(!row) return;
-  row.pickerOpen = open;
-  renderPurchaseItemRows();
-}
-/* 勾选/取消勾选"这个食材算给哪个产品的成本"——之前只更新了资料本身（chips 那块靠
-   mpToggle 自己会立刻刷新，看得到勾选变化），但外层"⚠️ 还没关联产品"那段提示文字、
-   还有勾完之后才会出现的"✓ 挑好了，收起来"按钮，都是整个品项列表重画的时候才会
-   重新判断要不要显示——不整个重画一次的话，勾了老半天，提示文字还是停在"还没关联"，
-   收起来的按钮也一直不出现，勾选跟画面对不起来。所以这里勾完也要重画一次这一格的
-   品项列表（跟"类别"改掉要重画是同一个道理）。 */
-function togglePurItemProductPick(rowId, productId, checked){
-  const row = tempPurchaseItems.find(r=>r.id===rowId);
-  if(!row) return;
-  if(!row.productIds) row.productIds = [];
-  if(checked){ if(!row.productIds.includes(productId)) row.productIds.push(productId); }
-  else { row.productIds = row.productIds.filter(id=>id!==productId); }
-  // 勾完保持展开（不要一勾就自动收起来变成摘要行），不然要一次勾好几个产品的时候，
-  // 勾一个就收起来、还要点"改选"才能勾下一个，太麻烦；使用者自己按"收起来"才会收。
-  row.pickerOpen = true;
-  renderPurchaseItemRows();
-}
+
 function autoLinkPurItemIngredient(rowId){
   const row = tempPurchaseItems.find(r=>r.id===rowId);
   if(!row) return;
@@ -4239,9 +4205,7 @@ function autoLinkPurItemIngredient(rowId){
   // 就够了（品名本身打字过程中 updatePurItem 已经会即时重画，这里主要是把自动补的单位/单价
   // 也一起反映出来，同时兜底一次，避免中间哪个环节漏掉重画）。
   refreshPurItemInfo(rowId);
-  const total = roundToNearest5Sen(tempPurchaseItems.reduce((a,r)=>a+Number(r.total||0),0));
-  const totalPreview = document.getElementById('purTotalPreview');
-  if(totalPreview) totalPreview.textContent = fmt(total);
+  updatePurTotalPreview();
 }
 
 function addSupplier(){
@@ -4303,10 +4267,13 @@ function submitPurchase(){
     productIds: (r.productIds||[]).slice(), company: r.company||''
   }));
   if(items.length===0){ alert('请至少填写一项品名和总价'); return; }
-  const totalAmount = roundToNearest5Sen(items.reduce((a,i)=>a+i.totalCost,0));
+  const computedTotal = items.reduce((a,i)=>a+i.totalCost,0);
+  const totalInputVal = document.getElementById('purTotalPreview').value.trim();
+  const totalAmount = totalInputVal!=='' ? Number(totalInputVal) : computedTotal;
   const company = purCompany;
   ['purSupplier','purInvoiceNumber'].forEach(id2=>{ const elx=document.getElementById(id2); if(elx) elx.value=''; });
   const purDateEl = document.getElementById('purDate'); if(purDateEl) purDateEl.value = todayStr();
+  purTotalManuallyEdited = false;
   let newlyCreatedId = null;
   if(editingPurchaseId){
     const targetId = editingPurchaseId;
@@ -4345,12 +4312,21 @@ function startEditPurchase(id){
     qty: i.qty!=null?String(i.qty):'', unit: i.unit||'',
     unitPrice: i.unitPrice?String(i.unitPrice):'', total: i.totalCost!=null?String(i.totalCost):''
   })) : [{id:uid(), name:'', category:'食材', company:'', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
+  // 这张单的总金额如果跟品项加总对不上，代表当初存的时候手动改过（比如现金抓零头）——
+  // 编辑的时候要保留使用者当初那个数字，不能悄悄用重算的加总把它盖掉。
+  const itemsSum = tempPurchaseItems.reduce((a,r)=>a+Number(r.total||0),0);
+  purTotalManuallyEdited = Math.abs(Number(p.totalAmount||0) - itemsSum) > 0.004;
   renderPurchase();
+  if(purTotalManuallyEdited){
+    const totalInput = document.getElementById('purTotalPreview');
+    if(totalInput) totalInput.value = p.totalAmount!=null ? String(p.totalAmount) : '';
+  }
   const supplierInput = document.getElementById('purSupplier');
   if(supplierInput) supplierInput.scrollIntoView({behavior:'smooth', block:'center'});
 }
 function cancelEditPurchase(){
   editingPurchaseId = null;
+  purTotalManuallyEdited = false;
   tempPurchaseItems = [{id:uid(), name:'', category:'食材', company:'', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
   renderPurchase();
 }
@@ -6688,7 +6664,7 @@ function importPurchasesReport(fileInput){
         const pushedPurchases = [];
         purchaseGroups.forEach(g=>{
           const supplierId = findOrCreateSupplierId(g.supplierNameRaw);
-          const totalAmount = roundToNearest5Sen(g.items.reduce((a,i)=>a+Number(i.totalCost||0),0));
+          const totalAmount = g.items.reduce((a,i)=>a+Number(i.totalCost||0),0);
           const itemCompanies = new Set(g.items.map(i=>i.company).filter(Boolean));
           const groupCompany = itemCompanies.size===1 ? Array.from(itemCompanies)[0] : '';
           const newPur = {id:uid(), date:g.date, supplierId, items:g.items, totalAmount, invoiceNumber:g.invoiceNumber, company:groupCompany, importBatch:batchId};
