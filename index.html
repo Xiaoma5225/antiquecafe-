@@ -1504,13 +1504,41 @@ function reconcileIngredients(){
   // （原本是完全不碰，因为那是「产品→食材关联」页的事——但现在采购单也能直接勾选了，
   // 所以这里要把使用者刚勾的选择也算进去，不然勾了也没用）。
   // 顺便更新单位/参考单价成最新一次采购的数据。
+  // 只处理类别是「食材」的品项——厨房消耗品/厨房固定用品/水电费这些采购单也会有自己的
+  // 品项，但那些不是食材，不该跑进食材字典（之前没分类别，"食物夹""拉链袋"这种东西
+  // 也混进了"食材管理"页，才会看起来很奇怪）。
   state.purchases.forEach(pu=>{
     (pu.items||[]).forEach(item=>{
+      if((item.category||'食材') !== '食材') return;
       const existing = findIngredient(item.name);
       const productIds = (existing && existing.userManagedLinks) ? [] : (item.productIds||[]);
       learnIngredientLink(item.name, productIds, {unit: item.unit, unitPrice: item.unitPrice});
     });
   });
+  // 顺便清掉"之前因为没分类别、被误教进来的非食材品项"（比如厨房用具、包材这些）——
+  // 只清没有被使用者手动管理过、也没有真的被拿去关联产品/用在半成品配方/Addon/选项组的那些，
+  // 不会不小心清掉正在用的资料；对不到任何采购记录的（比如半成品配方产出）也不动它，
+  // 只有"这个名字在采购单里出现过、而且全部都是非食材类别"才会被清掉。
+  if(state.ingredients.length){
+    const occupied = recipeOccupiedIngredientNames();
+    const nameCategories = new Map();
+    state.purchases.forEach(pu=>(pu.items||[]).forEach(item=>{
+      if(!item.name) return;
+      const key = item.name.trim().toLowerCase();
+      if(!nameCategories.has(key)) nameCategories.set(key, new Set());
+      nameCategories.get(key).add(item.category || '食材');
+    }));
+    state.ingredients = state.ingredients.filter(ing=>{
+      if(ing.userManagedLinks) return true;
+      if(ing.productIds && ing.productIds.length) return true;
+      const nameKey = ing.name.trim().toLowerCase();
+      if(occupied.has(nameKey)) return true;
+      if(ingredientAddonUsage(ing.name).length || ingredientOptionUsage(ing.name).length) return true;
+      const cats = nameCategories.get(nameKey);
+      if(!cats || !cats.size) return true;
+      return cats.has('食材');
+    });
+  }
   dedupeIngredientEntries();
   return JSON.stringify(state.ingredients) !== before;
 }
