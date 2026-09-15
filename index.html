@@ -312,7 +312,7 @@
   }
   nav.bottom button{
     flex:1; background:none; display:flex; flex-direction:column; align-items:center; gap:2px;
-    color:var(--muted); font-size:10.5px; font-weight:600; padding:6px 2px; border-radius:10px;
+    color:var(--muted); font-size:12px; font-weight:600; padding:8px 2px; border-radius:10px;
   }
   nav.bottom button .ic{
     font-size:15px; width:26px; height:26px; border-radius:50%;
@@ -555,39 +555,39 @@
 <div id="appBody" style="display:none;">
 <div class="layout">
 <nav class="bottom" id="bottomNav">
-  <button data-tab="home" class="active"><span class="ic">🏠</span>首页</button>
-  <button data-tab="pos" id="navPosBtn"><span class="ic">🧾</span>点餐</button>
+  <button data-tab="home" class="active">首页</button>
+  <button data-tab="pos" id="navPosBtn">点餐</button>
   <div class="nav-dropdown" id="navDropdownPurchase">
-    <button data-tab="purchase" onclick="handlePurchaseNavClick(event)"><span class="ic">🛒</span>采购</button>
+    <button data-tab="purchase" onclick="handlePurchaseNavClick(event)">采购</button>
     <div class="dropdown-menu">
-      <button type="button" onclick="jumpPurSubView('main')">🛒 采购单</button>
-      <button type="button" onclick="jumpPurSubView('suppliers')">🏢 供应商</button>
-      <button type="button" onclick="jumpPurSubView('payment')">💳 付款</button>
-      <button type="button" onclick="jumpPurSubView('debt')">📋 欠款</button>
+      <button type="button" onclick="jumpPurSubView('main')">采购单</button>
+      <button type="button" onclick="jumpPurSubView('suppliers')">供应商</button>
+      <button type="button" onclick="jumpPurSubView('payment')">付款</button>
+      <button type="button" onclick="jumpPurSubView('debt')">欠款</button>
     </div>
   </div>
   <div class="nav-dropdown" id="navDropdownCost">
-    <button data-tab="cost" onclick="handleProductNavClick(event)"><span class="ic">🧮</span>产品</button>
+    <button data-tab="cost" onclick="handleProductNavClick(event)">产品</button>
     <div class="dropdown-menu">
-      <button type="button" onclick="jumpProdSubView('product')">🏷️ 产品</button>
-      <button type="button" onclick="jumpProdSubView('cost')">🧮 成本</button>
-      <button type="button" onclick="jumpProdSubView('recipe')">🧑‍🍳 半成品成本</button>
-      <button type="button" onclick="jumpProdSubView('options')">🎛️ 选项组</button>
+      <button type="button" onclick="jumpProdSubView('product')">产品</button>
+      <button type="button" onclick="jumpProdSubView('cost')">成本</button>
+      <button type="button" onclick="jumpProdSubView('recipe')">半成品成本</button>
+      <button type="button" onclick="jumpProdSubView('options')">选项组</button>
     </div>
   </div>
   <div class="nav-dropdown" id="navDropdownIngredients">
-    <button data-tab="ingredients" onclick="handleIngredientsNavClick(event)"><span class="ic">🔗</span>食材</button>
+    <button data-tab="ingredients" onclick="handleIngredientsNavClick(event)">食材</button>
     <div class="dropdown-menu">
-      <a href="#/ingredients/list" onclick="event.preventDefault(); jumpIngSubView('list');">📋 食材列表</a>
-      <a href="#/ingredients/merge" onclick="event.preventDefault(); jumpIngSubView('merge');">🔀 合并品项名称</a>
-      <a href="#/ingredients/addon" onclick="event.preventDefault(); jumpIngSubView('addon');">🧾 Addon消耗对照</a>
-      <a href="#/ingredients/unit" onclick="event.preventDefault(); jumpIngSubView('unit');">📐 单位换算</a>
+      <a href="#/ingredients/list" onclick="event.preventDefault(); jumpIngSubView('list');">食材列表</a>
+      <a href="#/ingredients/merge" onclick="event.preventDefault(); jumpIngSubView('merge');">合并品项名称</a>
+      <a href="#/ingredients/addon" onclick="event.preventDefault(); jumpIngSubView('addon');">Addon消耗对照</a>
+      <a href="#/ingredients/unit" onclick="event.preventDefault(); jumpIngSubView('unit');">单位换算</a>
     </div>
   </div>
-  <button data-tab="sales"><span class="ic">💰</span>销售</button>
-  <button data-tab="inventory"><span class="ic">📦</span>库存</button>
-  <button data-tab="cash"><span class="ic">📒</span>收支</button>
-  <button data-tab="overview"><span class="ic">📊</span>总览</button>
+  <button data-tab="sales">销售</button>
+  <button data-tab="inventory">库存</button>
+  <button data-tab="cash">收支</button>
+  <button data-tab="overview">总览</button>
 </nav>
 
 <main>
@@ -4337,7 +4337,11 @@ function startEditPurchase(id){
   // 编辑的时候要保留使用者当初那个数字，不能悄悄用重算的加总把它盖掉。
   const itemsSum = tempPurchaseItems.reduce((a,r)=>a+Number(r.total||0),0);
   purTotalManuallyEdited = Math.abs(Number(p.totalAmount||0) - itemsSum) > 0.004;
-  renderPurchase();
+  // 光设 purSubView 只对"当下人已经在采购tab"的情况有效——这个弹窗现在到处都能点开
+  // （食材页的采购记录、供应商页…），"编辑"点下去的时候，使用者人可能根本不在"采购"
+  // 这个顶层tab上，只重画#tab-purchase的内容不会让画面切过去，看起来就像按了没反应。
+  // 所以要真的切换tab，不能只靠 renderPurchase() 重画。
+  switchToTab('purchase');
   if(purTotalManuallyEdited){
     const totalInput = document.getElementById('purTotalPreview');
     if(totalInput) totalInput.value = p.totalAmount!=null ? String(p.totalAmount) : '';
