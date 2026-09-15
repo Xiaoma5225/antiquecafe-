@@ -2458,7 +2458,6 @@ function renderOverviewPickerPopup(mode, mk, selDate){
 
 /* ================= 采购 Tab（含供应商）================= */
 let tempPurchaseItems = [{id:uid(), name:'', category:'食材', company:'', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''}];
-let currentSupplierHistory = []; // 目前填的这个供应商，之前拿过哪些品项（品名/类别/单位/单价），给"点一下自动加一行"用
 let purHistoryFilterFrom = '';
 let purHistoryFilterTo = '';
 let purHistoryFilterCompany = '';
@@ -2572,8 +2571,6 @@ function renderPurchase(){
   const catList = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]);
   const catGrandTotal = catList.reduce((a,[,amt])=>a+amt,0) || 1;
   const supplierInputVal = editingPurchase ? supplierName(editingPurchase.supplierId) : (draft.purSupplier||'');
-  const matchedSupplierForHistory = state.suppliers.find(s=>s.name.trim().toLowerCase()===supplierInputVal.trim().toLowerCase());
-  currentSupplierHistory = matchedSupplierForHistory ? supplierPurchaseHistory(matchedSupplierForHistory.id) : [];
   el.innerHTML = `
     <div class="card">
       <h3>${editingPurchase? '✏️ 编辑采购单' : '新增采购单'}</h3>
@@ -2583,12 +2580,11 @@ function renderPurchase(){
       </div>
       <div class="grid2" style="margin-top:10px">
         <div><label>供应商</label>
-          <input id="purSupplier" placeholder="输入或选择供应商" autocomplete="off" value="${supplierInputVal}" onchange="onPurSupplierChange(this.value)">
+          <input id="purSupplier" placeholder="输入或选择供应商" autocomplete="off" value="${supplierInputVal}">
         </div>
         <div><label>采购日期</label><input type="date" id="purDate" value="${editingPurchase? editingPurchase.date : (draft.purDate||todayStr())}" onchange="this.blur()"></div>
       </div>
       <label>Invoice 号码</label><input id="purInvoiceNumber" placeholder="例：INV-00123" autocomplete="off" style="text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()" value="${editingPurchase? (editingPurchase.invoiceNumber||'') : (draft.purInvoiceNumber||'')}">
-      <div id="purSupplierHistoryBox">${supplierHistoryBoxHtml()}</div>
       <label style="margin-top:14px">品项明细（同一供应商可一次拿多个不同产品）</label>
       <div id="purItemsWrap"></div>
       <button class="btn-line" onclick="addPurchaseItemRow()">+ 添加一项</button>
@@ -4002,66 +3998,7 @@ function setPayHistoryFilterDate(from, to){
   renderPurchase();
 }
 
-/* 某个供应商历史上拿过哪些品项——同名品项只留最近一次的类别/单位/单价，按最近日期排前面。
-   用来在"采购"页选好供应商之后，列出常拿的东西，点一下就能加一行，只要填数量。 */
-function supplierPurchaseHistory(supplierId){
-  const map = {};
-  state.purchases.filter(p=>p.supplierId===supplierId).slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(p=>{
-    (p.items||[]).forEach(i=>{
-      if(!i.name) return;
-      const key = i.name.trim().toLowerCase();
-      map[key] = {name:i.name, category:i.category||'食材', unit:i.unit||'', unitPrice:Number(i.unitPrice||0), lastDate:p.date, productIds:purchaseItemProductIds(i)};
-    });
-  });
-  return Object.values(map).sort((a,b)=>a.name.localeCompare(b.name,'zh'));
-}
-function supplierHistoryBoxHtml(){
-  if(!currentSupplierHistory.length) return '';
-  return `<div class="muted" style="font-size:11.5px; margin:10px 0 4px;">💡 这家供应商之前拿过这些，搜索品名点一下自动加一行，只要填数量：</div>
-  <input id="supHistFilterInput" placeholder="🔍 搜索之前拿过的品名..." autocomplete="off" oninput="filterSupplierHistoryChips(this.value)" style="margin-bottom:6px;">
-  <div id="supHistChipsEmpty" class="empty" style="display:none; margin-bottom:6px;">没有符合的品名</div>
-  <div class="btn-group" id="supHistChipsWrap" style="margin-bottom:6px;">
-    ${currentSupplierHistory.map((h,idx)=>`<button type="button" class="btn-toggle btn-small" data-hname="${h.name.toLowerCase().replace(/"/g,'&quot;')}" style="display:none;" onclick="quickAddSupplierItem(${idx})">${h.name}${h.unit?` · ${h.unit}`:''}${h.unitPrice?` · RM${fmtPlain(h.unitPrice)}`:''}</button>`).join('')}
-  </div>`;
-}
-function filterSupplierHistoryChips(q){
-  const wrap = document.getElementById('supHistChipsWrap');
-  if(!wrap) return;
-  const query = (q||'').trim().toLowerCase();
-  let anyVisible = false;
-  wrap.querySelectorAll('button[data-hname]').forEach(btn=>{
-    // 没打字的时候完全不列出来，只有真的打了才显示符合的——不是先摊平全部品名再筛选
-    const match = query && btn.dataset.hname.includes(query);
-    btn.style.display = match ? '' : 'none';
-    if(match) anyVisible = true;
-  });
-  const emptyEl = document.getElementById('supHistChipsEmpty');
-  if(emptyEl) emptyEl.style.display = (query && !anyVisible) ? '' : 'none';
-}
-function onPurSupplierChange(val){
-  const s = state.suppliers.find(x=>x.name.trim().toLowerCase()===val.trim().toLowerCase());
-  currentSupplierHistory = s ? supplierPurchaseHistory(s.id) : [];
-  const box = document.getElementById('purSupplierHistoryBox');
-  if(box) box.innerHTML = supplierHistoryBoxHtml();
-}
-function quickAddSupplierItem(idx){
-  const h = currentSupplierHistory[idx];
-  if(!h) return;
-  // 如果目前有一行完全空白（还没填过），就直接用那一行；不然就新加一行
-  let row = tempPurchaseItems.find(r=>!r.name && r.qty==='' && r.unit==='' && r.unitPrice==='' && r.total==='');
-  if(!row){
-    row = {id:uid(), name:'', category:'食材', company:'', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''};
-    tempPurchaseItems.push(row);
-  }
-  row.name = h.name;
-  row.category = h.category || '食材';
-  row.unit = h.unit || '';
-  row.unitPrice = h.unitPrice ? String(h.unitPrice) : '';
-  row.productIds = (h.productIds||[]).slice();
-  renderPurchaseItemRows();
-  const qtyInput = document.getElementById('pi_qty_'+row.id);
-  if(qtyInput) qtyInput.focus();
-}
+
 /* 品名底下那两块提示（"系统记得这个食材"+"关联到/还没关联产品"）抽成单独一个函数，
    这样可以只重画这一小块、不用把整行(连同输入框本身)都拆掉重建——不然像"类别"那样
    整行重画，遇到"打字打到一半"这种连续输入的情境就会一直抢焦点，没办法打字。 */
@@ -4075,9 +4012,11 @@ function purItemInfoHtml(row){
     return parts.length ? `<div class="muted" style="font-size:11px; margin-bottom:4px;">💡 系统记得这个食材 · ${parts.join(' · ')}</div>` : '';
   })();
   const linkHtml = (()=>{
-    /* "这个食材属于哪个产品"以前在这里也能直接搜索勾选，但现在"食材"页本身已经有更完整的
-       关联功能（可以设固定用量、按营业额分摊等等），这里再放一份搜索勾选变成重复功能，
-       拿掉了——采购单这边只负责显示目前的关联状态、给一个连结跳过去设定，不再自己处理勾选。
+    /* 「这个食材属于哪个产品」原本统一在「产品→食材关联」那个子页签管理，要先保存这张采购单、
+       跳过去搜索才能设。现在改成：只要这个食材还没关联任何产品（不管是全新食材，还是已经在
+       字典里但还没设关联的），就直接在这里勾选——勾好的选择存在这一行草稿的 productIds 里，
+       等这张采购单真的保存/提交时会一起生效教进食材字典，不用先保存再跳页找。
+       已经关联好的食材，还是照旧只显示结果+"改关联"连结（改关联本来就该去那个统一管理的页面）。
        只有「食材」类别才需要关联产品算成本——清洁用品、水电费这些其他类别不需要，不用显示这块。 */
     if(!row.name || row.category!=='食材') return '';
     const ing = findIngredient(row.name);
@@ -4086,10 +4025,19 @@ function purItemInfoHtml(row){
       const names = linkedIds.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean);
       return `<div class="muted" style="font-size:11px; margin-bottom:6px;">🔗 关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="goToIngredientLinkTab('${row.name.replace(/'/g,"\\'")}')">改关联</a></div>`;
     }
-    if(ing){
-      return `<div class="muted" style="font-size:11px; margin-bottom:6px;">还没关联产品——去"食材"页可以设定算给哪个产品的成本　<a href="javascript:void(0)" onclick="goToIngredientLinkTab('${row.name.replace(/'/g,"\\'")}')">现在就去设定</a></div>`;
+    const picked = row.productIds||[];
+    const newFlag = ing ? '' : '🆕 新食材，';
+    // 已经挑好至少1个产品、又还没收起来看的话，就先只显示一行小结果，
+    // 不用整块打勾清单一直占着地方——点"改选"才会再打开。
+    if(picked.length && !row.pickerOpen){
+      const names = picked.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean);
+      return `<div class="muted" style="font-size:11px; margin-bottom:6px; color:var(--green);">🆕 将关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="setPurItemPickerOpen('${row.id}',true)">改选</a></div>`;
     }
-    return `<div class="muted" style="font-size:11px; margin-bottom:6px;">🆕 新食材——保存这张采购单之后，可以去"食材"页设定算给哪个产品的成本</div>`;
+    return `
+      <div class="muted" style="font-size:11px; margin-bottom:4px; color:var(--rust);">⚠️ ${newFlag}还没关联产品，勾选这个算给哪个产品的成本（保存这张单会一起生效）：</div>
+      ${state.products.length? `<div id="purProdPicks_${row.id}" style="margin-bottom:6px;"></div>` : `<div class="muted" style="font-size:12px; margin-bottom:6px;">还没有产品，先去"产品"子页签新增</div>`}
+      ${picked.length? `<button type="button" class="btn-ghost btn-small" style="margin-bottom:6px;" onclick="setPurItemPickerOpen('${row.id}',false)">✓ 挑好了，收起来</button>` : ''}
+    `;
   })();
   return hintHtml + linkHtml;
 }
@@ -4102,6 +4050,9 @@ function refreshPurItemInfo(rowId){
   const el = document.getElementById('purItemInfo_'+rowId);
   if(!el) return;
   el.innerHTML = purItemInfoHtml(row);
+  if(document.getElementById('purProdPicks_'+rowId)){
+    mpInit('purProdPicks_'+rowId, ()=>state.products.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')), ()=> row.productIds||[], (id,checked)=>togglePurItemProductPick(rowId, id, checked));
+  }
 }
 /* 本单总金额默认是各品项总价加总，实时跟着重算——除非使用者自己在那格手动打了不一样的数字
    （比如现金交易、供应商发票本身抓了零头），这时候尊重使用者打的数字，不再自动覆盖回去，
@@ -4146,6 +4097,9 @@ function renderPurchaseItemRows(){
   tempPurchaseItems.forEach(row=>{
     wireSuggest('purItemTitle_'+row.id, ingredientNames);
     wireSuggest('pi_unit_'+row.id, unitSuggestions);
+    if(document.getElementById('purProdPicks_'+row.id)){
+      mpInit('purProdPicks_'+row.id, ()=>state.products.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')), ()=> row.productIds||[], (id,checked)=>togglePurItemProductPick(row.id, id, checked));
+    }
   });
 }
 function updatePurItem(id, field, val){
@@ -4185,6 +4139,29 @@ function removePurItem(id){
   renderPurchaseItemRows();
 }
 
+function setPurItemPickerOpen(rowId, open){
+  const row = tempPurchaseItems.find(r=>r.id===rowId);
+  if(!row) return;
+  row.pickerOpen = open;
+  renderPurchaseItemRows();
+}
+/* 勾选/取消勾选"这个食材算给哪个产品的成本"——之前只更新了资料本身（chips 那块靠
+   mpToggle 自己会立刻刷新，看得到勾选变化），但外层"⚠️ 还没关联产品"那段提示文字、
+   还有勾完之后才会出现的"✓ 挑好了，收起来"按钮，都是整个品项列表重画的时候才会
+   重新判断要不要显示——不整个重画一次的话，勾了老半天，提示文字还是停在"还没关联"，
+   收起来的按钮也一直不出现，勾选跟画面对不起来。所以这里勾完也要重画一次这一格的
+   品项列表（跟"类别"改掉要重画是同一个道理）。 */
+function togglePurItemProductPick(rowId, productId, checked){
+  const row = tempPurchaseItems.find(r=>r.id===rowId);
+  if(!row) return;
+  if(!row.productIds) row.productIds = [];
+  if(checked){ if(!row.productIds.includes(productId)) row.productIds.push(productId); }
+  else { row.productIds = row.productIds.filter(id=>id!==productId); }
+  // 勾完保持展开（不要一勾就自动收起来变成摘要行），不然要一次勾好几个产品的时候，
+  // 勾一个就收起来、还要点"改选"才能勾下一个，太麻烦；使用者自己按"收起来"才会收。
+  row.pickerOpen = true;
+  renderPurchaseItemRows();
+}
 function autoLinkPurItemIngredient(rowId){
   const row = tempPurchaseItems.find(r=>r.id===rowId);
   if(!row) return;
