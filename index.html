@@ -354,18 +354,6 @@
   @media (hover:hover) and (pointer:fine){
     #navToggleBtn{display:none;}
   }
-  @media (hover:none), (pointer:coarse){
-    .nav-dropdown{flex:none; width:100%; display:block;}
-    .nav-dropdown > button{width:100%;}
-    .nav-dropdown .dropdown-menu{
-      position:static; display:none; box-shadow:none; border:none; background:none;
-      margin-top:2px; padding:2px 0 4px 30px; min-width:0;
-    }
-    .nav-dropdown.open .dropdown-menu{display:block;}
-    .nav-dropdown .dropdown-menu button, .nav-dropdown .dropdown-menu a{
-      padding:8px 10px; font-size:13px;
-    }
-  }
 
   /* 顶部导航"产品"按钮的下拉——桌面版鼠标移过去就展开（见下面 hover 那条 media query），
      iPad/手机没有"悬停"这回事，改成点一下展开/收起（由 handleProductNavClick 控制 .open class）。
@@ -399,6 +387,24 @@
   .nav-dropdown .dropdown-menu button:hover, .nav-dropdown .dropdown-menu a:hover{background:var(--sky-dim);}
   @media (hover:hover) and (pointer:fine){
     .nav-dropdown:hover .dropdown-menu{display:block;}
+  }
+  /* 上面那条 .nav-dropdown{display:flex; flex:1;} 是桌面横向导航用的通用规则；触屏设备
+     （手机、没接触控板的iPad）要改成抽屉里的手风琴样式（整块占满宽度、下拉选单变成
+     往下展开的清单，不是悬浮方框）。这条必须写在上面那条通用规则"之后"——CSS选择器
+     specificity一样时，写在后面的赢，之前不小心把这段写在通用规则前面，结果这几个
+     下拉容器在手机上还是吃到 flex:1，在纵向排列的导航抽屉里被拉伸去撑满剩下的高度，
+     变成"采购/产品/食材"这三项之间空出一大截、跟其他项目高度对不齐。 */
+  @media (hover:none), (pointer:coarse){
+    .nav-dropdown{flex:none; width:100%; display:block;}
+    .nav-dropdown > button{width:100%;}
+    .nav-dropdown .dropdown-menu{
+      position:static; display:none; box-shadow:none; border:none; background:none;
+      margin-top:2px; padding:2px 0 4px 30px; min-width:0;
+    }
+    .nav-dropdown.open .dropdown-menu{display:block;}
+    .nav-dropdown .dropdown-menu button, .nav-dropdown .dropdown-menu a{
+      padding:8px 10px; font-size:13px;
+    }
   }
 
   .subtle-form summary{cursor:pointer; color:var(--green); font-size:13px; font-weight:600; padding:4px 0;}
