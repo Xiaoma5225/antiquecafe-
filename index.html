@@ -306,9 +306,9 @@
   nav.bottom{
     position:fixed; top:0; left:0; bottom:0; right:auto; z-index:32;
     background:var(--paper); border-top:none; border-right:1px solid var(--border);
-    display:flex; flex-direction:column; align-items:stretch; gap:2px;
+    display:flex; flex-direction:column; align-items:stretch; gap:6px;
     width:230px; max-width:80vw;
-    padding:calc(16px + env(safe-area-inset-top)) 10px calc(16px + env(safe-area-inset-bottom));
+    padding:calc(20px + env(safe-area-inset-top)) 12px calc(16px + env(safe-area-inset-bottom));
     box-shadow:2px 0 16px rgba(0,0,0,0.14);
     transform:translateX(-100%);
     transition:transform .22s ease;
@@ -317,7 +317,7 @@
   nav.bottom.open{transform:translateX(0);}
   nav.bottom button{
     flex:0 0 auto; background:none; display:flex; flex-direction:row; align-items:center; gap:10px; width:100%;
-    color:var(--muted); font-size:14px; font-weight:600; padding:11px 10px; border-radius:10px; justify-content:flex-start;
+    color:var(--ink); font-size:15px; font-weight:500; padding:12px 14px; border-radius:8px; justify-content:flex-start;
   }
   nav.bottom button .ic{
     font-size:15px; width:28px; height:28px; border-radius:50%; flex:0 0 28px;
@@ -333,7 +333,7 @@
   nav.bottom button[data-tab="overview"] .ic{background:var(--green-dim);}
   nav.bottom button[data-tab="pos"] .ic{background:var(--gold-dim);}
   nav.bottom button[data-tab="ingredients"] .ic{background:var(--sky-dim);}
-  nav.bottom button.active{color:var(--sky); background:var(--sky-dim);}
+  nav.bottom button.active{color:var(--sky); background:var(--sky-dim); font-weight:600;}
   nav.bottom button.active .ic{transform:scale(1.1);}
   /* 点餐已经搬去首页当入口卡片，全权限帐号的导航不再占位置显示；只有"点餐限定权限"帐号
      （applyRolePermissions 判定 currentUserRole!=='full'）才会把这颗按钮显示回来，
