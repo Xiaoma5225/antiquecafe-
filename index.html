@@ -4699,8 +4699,48 @@ let draftProductOptionGroupId = '';
 let draftProductAddonGroupId = '';
 let tempMergeVariantRows = [{id:uid(), sourceName:'', label:''}];
 let prodSubView = 'product'; // 'product' = 名称/售价/分类等基本资料的新增编辑，'cost' = 食材成本/毛利细项，'recipe' = 半成品配方，'options' = 选项组
-let productSubView = 'form'; // "产品"这个子分页底下自己的第三层分页：'form' = 新增/编辑产品表单，'mergeNames' = 合并重复产品，'mergeVariants' = 合并成同一产品的不同规格
+let productSubView = 'form'; // "产品"这个子分页底下自己的第三层分页：'form' = 新增/编辑产品表单，'existingList' = 现有产品列表（可以直接点进去编辑），'mergeNames' = 合并重复产品，'mergeVariants' = 合并成同一产品的不同规格
+let existingProdSearchQuery = '';
 function setProductSubView(val){ productSubView = val; renderCost(); }
+/* "现有产品"：给"产品"页一个直接的入口，不用绕去"成本"页才能找到编辑按钮——
+   这里只列基本信息（名称/售价/分类/公司），点"编辑"跳到"新增产品"表单（同一个 startEditProduct，
+   跟"成本"页的编辑是同一套逻辑，食材成本项等资料照样带得进去）。 */
+function renderExistingProductsSectionHtml(){
+  const categoryOptions = Array.from(new Set(state.products.map(p=>p.category).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'zh'));
+  const rows = state.products.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh'));
+  return `
+    <div class="card">
+      <h3>现有产品 <span class="n">${rows.length} 项</span></h3>
+      ${rows.length? `<input autocomplete="off" id="existingProdSearchInput" placeholder="搜索产品名称..." value="${existingProdSearchQuery.replace(/"/g,'&quot;')}" oninput="filterExistingProductList(this.value)" style="margin-bottom:10px;">
+      <div id="existingProdSearchEmpty" class="empty" style="display:none;">没有找到符合的产品</div>` : ''}
+      ${rows.length? rows.map(p=>`
+        <div class="supplier-card" data-pname="${p.name.toLowerCase().replace(/"/g,'&quot;')}">
+          <div class="row">
+            <div style="min-width:0;">
+              <b>${p.name}</b>
+              <div class="muted" style="font-size:11px; margin-top:2px;">RM ${fmtPlain(p.price)}${p.category?` · ${p.category}`:''}${p.company?` · ${p.company}`:''}</div>
+            </div>
+            <div style="display:flex; gap:6px; flex:0 0 auto;">
+              <button class="btn-ghost btn-small" onclick="startEditProduct('${p.id}')">编辑</button>
+              <button class="btn-danger-text" onclick="deleteProduct('${p.id}')">删除</button>
+            </div>
+          </div>
+        </div>`).join('') : `<div class="empty">还没有产品，先去"新增产品"加一个</div>`}
+    </div>
+  `;
+}
+function filterExistingProductList(q){
+  existingProdSearchQuery = q||'';
+  const query = existingProdSearchQuery.trim().toLowerCase();
+  let anyVisible = false;
+  document.querySelectorAll('#tab-cost .supplier-card[data-pname]').forEach(card=>{
+    const match = !query || (card.dataset.pname||'').includes(query);
+    card.style.display = match ? '' : 'none';
+    if(match) anyVisible = true;
+  });
+  const emptyEl = document.getElementById('existingProdSearchEmpty');
+  if(emptyEl) emptyEl.style.display = (query && !anyVisible) ? '' : 'none';
+}
 let ingSubView = 'list'; // 食材页（独立顶层tab）自己的子分页：'list' = 食材列表，'merge' = 合并采购品项名称，'addon' = Addon消耗对照，'unit' = 单位换算
 let ingredientLinkSearchQuery = '';
 /* 食材关联页要把"半成品配方本身用到的食材"排除掉——那些原料/用料的成本已经透过配方自动流进
@@ -5431,9 +5471,16 @@ function renderCost(){
   const productSubTabHtml = `
     <div class="btn-group" style="margin-bottom:14px;">
       <button type="button" class="btn-toggle ${productSubView==='form'?'active':''}" onclick="setProductSubView('form')">${editingProduct?'编辑产品':'新增产品'}</button>
+      <button type="button" class="btn-toggle ${productSubView==='existingList'?'active':''}" onclick="setProductSubView('existingList')">现有产品</button>
       <button type="button" class="btn-toggle ${productSubView==='mergeNames'?'active':''}" onclick="setProductSubView('mergeNames')">合并重复产品</button>
       <button type="button" class="btn-toggle ${productSubView==='mergeVariants'?'active':''}" onclick="setProductSubView('mergeVariants')">合并成规格</button>
     </div>`;
+  if(productSubView==='existingList'){
+    el.innerHTML = productSubTabHtml + renderExistingProductsSectionHtml();
+    if(existingProdSearchQuery) filterExistingProductList(existingProdSearchQuery);
+    wireSuggest('existingProdSearchInput', state.products.map(p=>p.name).sort((a,b)=>a.localeCompare(b,'zh')));
+    return;
+  }
   if(productSubView==='mergeNames'){
     el.innerHTML = productSubTabHtml + `
     <div class="card">
