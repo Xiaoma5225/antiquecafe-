@@ -2518,6 +2518,8 @@ let payPayMethod = PAY_METHODS[0];
 let payPurchaseIds = [];
 let payHistoryFilterFrom = todayStr();
 let payHistoryFilterTo = todayStr();
+let payHistoryExpanded = false; // 付款记录那个<details>目前是不是展开的——存档/改筛选后台自动重画一次，
+  // 靠自己记着这个状态才不会每次重画都被打回收起来（浏览器原生<details>不会自己记）
 
 /* ---- 供应商欠款明细页：从首页"供应商欠款"卡片点进来，按字母顺序列出每一家供应商，
    点开可以看是哪几张发票还没付清。 ---- */
@@ -3994,7 +3996,7 @@ function renderPaymentSectionHtml(){
     </div>
 
     <div class="card">
-      <details>
+      <details ${payHistoryExpanded?'open':''} ontoggle="payHistoryExpanded=this.open;">
         <summary style="cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center;">
           <h3 style="margin:0;">付款记录</h3>
           <span class="muted" style="font-size:12px;">共 ${state.payments.length} 笔 ▾</span>
@@ -6046,6 +6048,7 @@ function mergeProductsIntoVariants(){
 /* ================= 销售 Tab ================= */
 let saleCompany = COMPANIES[0];
 let saleHistoryFilterCompany = '';
+let saleHistoryExpanded = false;
 let saleHistoryFilterFrom = todayStr();
 let saleHistoryFilterTo = todayStr();
 function renderSales(){
@@ -6178,7 +6181,7 @@ function renderSales(){
     </div>
 
     <div class="card">
-      <details>
+      <details ${saleHistoryExpanded?'open':''} ontoggle="saleHistoryExpanded=this.open;">
         <summary style="cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center;">
           <h3 style="margin:0;">销售记录</h3>
           <span class="muted" style="font-size:12px;">共 ${salesInScope.length} 笔 ▾</span>
@@ -6744,6 +6747,8 @@ let cfCategory = EXPENSE_CATEGORIES[0];
 let cfPayMethod = PAY_METHODS[0];
 let cfCompany = COMPANIES[0];
 let cfHistoryFilterCompany = '';
+let cfIncomeExpanded = false;
+let cfExpenseExpanded = false;
 let cfHistoryFilterFromIn = todayStr();
 let cfHistoryFilterToIn = todayStr();
 let cfHistoryFilterFromOut = todayStr();
@@ -6945,7 +6950,7 @@ function renderCash(){
     </div>
 
     <div class="card">
-      <details>
+      <details ${cfIncomeExpanded?'open':''} ontoggle="cfIncomeExpanded=this.open;">
         <summary style="cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center;">
           <h3 style="margin:0; color:var(--green);">收入流水</h3>
           <span class="muted" style="font-size:12px;">共 ${state.cashflow.filter(c=>c.type==='in' && (!cfHistoryFilterCompany || cashflowCompany(c)===cfHistoryFilterCompany)).length} 笔 ▾</span>
@@ -7000,7 +7005,7 @@ function renderCash(){
     </div>
 
     <div class="card">
-      <details>
+      <details ${cfExpenseExpanded?'open':''} ontoggle="cfExpenseExpanded=this.open;">
         <summary style="cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center;">
           <h3 style="margin:0; color:var(--rust);">支出流水</h3>
           <span class="muted" style="font-size:12px;">共 ${state.cashflow.filter(c=>c.type==='out' && (!cfHistoryFilterCompany || cashflowCompany(c)===cfHistoryFilterCompany)).length} 笔 ▾</span>
@@ -7356,6 +7361,7 @@ let invFilterCompany = '';
 let invSearchText = '';
 let stockAdjHistFrom = todayStr();
 let stockAdjHistTo = todayStr();
+let stockAdjHistExpanded = false;
 let stockAdjCompany = '';
 let stockAdjType = 'out';
 
@@ -7440,7 +7446,7 @@ function renderInventory(){
     </div>
 
     <div class="card">
-      <details>
+      <details ${stockAdjHistExpanded?'open':''} ontoggle="stockAdjHistExpanded=this.open;">
         <summary style="cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center;">
           <h3 style="margin:0;">出入库调整记录</h3>
           <span class="muted" style="font-size:12px;">共 ${(state.stockAdjustments||[]).length} 笔 ▾</span>
