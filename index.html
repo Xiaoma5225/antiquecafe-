@@ -2381,11 +2381,13 @@ function renderOverview(){
 
     <div class="card">
       <h3>经营概况 <span class="n">${periodLabel} · 按公司</span></h3>
+      <div class="muted" style="font-size:11px; margin-bottom:6px;">销售额取自"收支"页手动记的收入（不是销售/POS导入的金额）</div>
       <table>
         <tr><th>公司</th><th class="num">销售额</th><th class="num">成本</th><th class="num">毛利</th></tr>
         ${COMPANIES.map(c=>{
           const cs = monthSales.filter(s=>s.company===c);
-          const rev = cs.reduce((a,s)=>a+Number(s.amount||0),0);
+          const incomeEntries = (isDayMode ? state.cashflow.filter(cf=>cf.type==='in' && cf.date===selDate) : state.cashflow.filter(cf=>cf.type==='in' && monthKey(cf.date)===mk)).filter(cf=>cashflowCompany(cf)===c);
+          const rev = incomeEntries.reduce((a,cf)=>a+Number(cf.amount||0),0);
           const cost = cs.reduce((a,s)=>a+Number(s.cost||0),0) + (isDayMode ? dayTotalMethodPurchaseCost(selDate, c) : monthTotalMethodPurchaseCost(mk, c));
           return `<tr><td>${c}</td><td class="num">${fmtPlain(rev)}</td><td class="num">${fmtPlain(cost)}</td><td class="num">${fmtPlain(rev-cost)}</td></tr>`;
         }).join('')}
