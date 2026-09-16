@@ -304,17 +304,23 @@
   .receipt-divider{border:none; border-top:1px dashed var(--border); margin:10px 0;}
 
   nav.bottom{
-    position:fixed; bottom:0; left:0; right:0; z-index:30;
-    background:var(--paper); border-top:1px solid var(--border);
-    display:flex; padding:6px 4px calc(6px + env(safe-area-inset-bottom));
-    box-shadow:0 -2px 10px rgba(0,0,0,0.05);
+    position:fixed; top:0; left:0; bottom:0; right:auto; z-index:32;
+    background:var(--paper); border-top:none; border-right:1px solid var(--border);
+    display:flex; flex-direction:column; align-items:stretch; gap:2px;
+    width:230px; max-width:80vw;
+    padding:calc(16px + env(safe-area-inset-top)) 10px calc(16px + env(safe-area-inset-bottom));
+    box-shadow:2px 0 16px rgba(0,0,0,0.14);
+    transform:translateX(-100%);
+    transition:transform .22s ease;
+    overflow-y:auto;
   }
+  nav.bottom.open{transform:translateX(0);}
   nav.bottom button{
-    flex:1; background:none; display:flex; flex-direction:column; align-items:center; gap:2px;
-    color:var(--muted); font-size:12px; font-weight:600; padding:8px 2px; border-radius:10px;
+    flex:0 0 auto; background:none; display:flex; flex-direction:row; align-items:center; gap:10px; width:100%;
+    color:var(--muted); font-size:14px; font-weight:600; padding:11px 10px; border-radius:10px; justify-content:flex-start;
   }
   nav.bottom button .ic{
-    font-size:15px; width:26px; height:26px; border-radius:50%;
+    font-size:15px; width:28px; height:28px; border-radius:50%; flex:0 0 28px;
     display:flex; align-items:center; justify-content:center;
     background:var(--border); transition:transform .15s ease;
   }
@@ -333,6 +339,33 @@
      （applyRolePermissions 判定 currentUserRole!=='full'）才会把这颗按钮显示回来，
      当作那种帐号唯一能看到的入口。本机存储模式（未登录、不受权限限制）也维持隐藏。 */
   nav.bottom button[data-tab="pos"]{display:none;}
+
+  /* 手机/iPad：导航收进左侧抽屉，预设隐藏，点左上角按钮才滑出来；遮罩点一下关闭。
+     桌面版（下面 @media min-width:820px）会把这些通通盖掉，恢复原本置顶横向导航。 */
+  #navToggleBtn{
+    position:absolute; top:14px; left:18px; z-index:5;
+    width:30px; height:30px; border-radius:8px; border:none;
+    background:rgba(255,255,255,0.12); color:#F5EFE2; font-size:16px; padding:0;
+    display:flex; align-items:center; justify-content:center;
+  }
+  header.top .row{padding-left:40px;}
+  #navOverlay{display:none; position:fixed; inset:0; z-index:31; background:rgba(43,38,32,0.45);}
+  #navOverlay.show{display:block;}
+  @media (min-width:820px){
+    #navToggleBtn{display:none;}
+  }
+  @media (max-width:819.98px){
+    .nav-dropdown{flex:none; width:100%; display:block;}
+    .nav-dropdown > button{width:100%;}
+    .nav-dropdown .dropdown-menu{
+      position:static; display:none; box-shadow:none; border:none; background:none;
+      margin-top:2px; padding:2px 0 4px 30px; min-width:0;
+    }
+    .nav-dropdown.open .dropdown-menu{display:block;}
+    .nav-dropdown .dropdown-menu button, .nav-dropdown .dropdown-menu a{
+      padding:8px 10px; font-size:13px;
+    }
+  }
 
   /* 顶部导航"产品"按钮的下拉——桌面版鼠标移过去就展开（见下面 hover 那条 media query），
      iPad/手机没有"悬停"这回事，改成点一下展开/收起（由 handleProductNavClick 控制 .open class）。
@@ -393,12 +426,13 @@
     body{padding-bottom:0;}
     .layout{display:flex; flex-direction:column; max-width:1080px; margin:0 auto;}
     nav.bottom{
-      position:sticky; top:0; z-index:25; height:auto; width:100%; flex-direction:row; justify-content:center;
+      position:sticky; top:0; z-index:25; height:auto; width:100%; max-width:none; flex-direction:row; justify-content:center;
       border-top:none; border-right:none; border-bottom:1px solid var(--border);
       padding:10px 16px; box-shadow:var(--shadow); gap:6px;
+      transform:none; left:auto; bottom:auto; right:auto; overflow:visible;
     }
     nav.bottom button{
-      flex:0 0 auto; flex-direction:row; justify-content:center; gap:9px;
+      flex:0 0 auto; flex-direction:row; justify-content:center; gap:9px; width:auto;
       padding:12px 22px; margin-bottom:0; font-size:15.5px;
     }
     nav.bottom button .ic{font-size:18px; width:32px; height:32px;}
@@ -533,6 +567,7 @@
 <div id="receiptPrintArea"></div>
 
 <header class="top">
+  <button id="navToggleBtn" onclick="toggleMobileNav()" title="菜单">☰</button>
   <div class="row">
     <h1>掌柜账本</h1>
     <span class="tag">餐厅进销存</span>
@@ -552,6 +587,7 @@
 </div>
 
 <div id="appBody" style="display:none;">
+<div id="navOverlay" onclick="closeMobileNav()"></div>
 <div class="layout">
 <nav class="bottom" id="bottomNav">
   <button data-tab="home" class="active">首页</button>
@@ -8004,7 +8040,20 @@ function switchToTab(tabName){
   if(panel) panel.classList.add('active');
   activeTab = tabName;
   if(TAB_RENDERERS[activeTab]) TAB_RENDERERS[activeTab]();
+  if(window.matchMedia('(max-width: 819.98px)').matches) closeMobileNav();
 }
+/* 手机/iPad版导航现在收在左侧抽屉，预设隐藏，点header左上角的☰按钮才滑出来；
+   桌面版（>=820px）导航一直是置顶横向显示，不受这两个函数影响（.open这个class在
+   桌面版的CSS里被 transform:none 盖掉，不会有任何视觉效果）。 */
+function toggleMobileNav(forceOpen){
+  const nav = document.getElementById('bottomNav');
+  const overlay = document.getElementById('navOverlay');
+  if(!nav) return;
+  const opening = forceOpen!=null ? forceOpen : !nav.classList.contains('open');
+  nav.classList.toggle('open', opening);
+  if(overlay) overlay.classList.toggle('show', opening);
+}
+function closeMobileNav(){ toggleMobileNav(false); }
 /* 首页"快捷操作"按钮用：切到指定分页之后，把画面卷到最上面、
    聚焦到那一页第一个要填的输入框，方便直接开始打字记账。 */
 const TAB_QUICK_FOCUS = { purchase:'purSupplier', sales:'saleProduct' };
