@@ -340,7 +340,8 @@
   nav.bottom button[data-tab="pos"]{display:none;}
 
   /* 手机/iPad：导航收进左侧抽屉，预设隐藏，点左上角按钮才滑出来；遮罩点一下关闭。
-     桌面版（下面 @media min-width:820px）会把这些通通盖掉，恢复原本置顶横向导航。 */
+     判断依据是"这台设备主要靠手指戳还是靠鼠标/触控板"（hover+pointer:fine），不是看窗口宽度——
+     这样 Mac 上把 Safari 窗口缩小也不会跳成抽屉，真正的触屏设备（手机、没接触控板的iPad）才会用抽屉。 */
   #navToggleBtn{
     position:absolute; top:14px; left:18px; z-index:5;
     width:30px; height:30px; border-radius:8px; border:none;
@@ -350,10 +351,10 @@
   header.top .row{padding-left:40px;}
   #navOverlay{display:none; position:fixed; inset:0; z-index:31; background:rgba(43,38,32,0.45);}
   #navOverlay.show{display:block;}
-  @media (min-width:820px){
+  @media (hover:hover) and (pointer:fine){
     #navToggleBtn{display:none;}
   }
-  @media (max-width:819.98px){
+  @media (hover:none), (pointer:coarse){
     .nav-dropdown{flex:none; width:100%; display:block;}
     .nav-dropdown > button{width:100%;}
     .nav-dropdown .dropdown-menu{
@@ -421,7 +422,7 @@
   .picker-grid.day-grid button{padding:6px 0; font-size:12.5px; border:none; background:none; border-radius:6px; cursor:pointer; color:var(--ink);}
   .picker-grid.day-grid button.active{background:var(--green); color:#fff; font-weight:600;}
 
-  @media (min-width:820px){
+  @media (hover:hover) and (pointer:fine){
     body{padding-bottom:0;}
     .layout{display:flex; flex-direction:column; max-width:1080px; margin:0 auto;}
     nav.bottom{
