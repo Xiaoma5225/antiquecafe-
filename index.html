@@ -1886,6 +1886,65 @@ function monthlyProductProfitReport(monthSales, mk, company){
     ...r, profit: r.revenue - r.cost, pct: r.revenue>0 ? ((r.revenue-r.cost)/r.revenue*100) : 0
   })).sort((a,b)=>b.revenue-a.revenue);
 }
+/* 「成本」页效能优化：这个页面本来是每个产品各自呼叫 productIngredientSpend / productQtySold /
+   productUnitCost / productTotalMethodBreakdown，而这几个函数每次都会重新把「全部」采购单、
+   销售记录、食材字典从头扫一遍——162个产品 × 每个都重新扫一次几百笔采购、几千笔销售、
+   四百多个食材，等于把同一批数据反复扫了162次，这就是进「成本」页会卡住的原因。
+   改成这个函数：所有产品要用到的中间结果，各自只完整扫一遍全部数据、一次算好存进表里，
+   每个产品要用的时候直接查表，不用再重新扫一次。renderCost 的"成本"子分页在画产品列表前
+   呼叫一次这个函数，取代掉每个产品各自呼叫那4个函数。 */
+function computeAllProductsCostSummary(){
+  const totalIds = new Set(state.products.map(p=>p.id));
+  const nameMap = totalMethodNameToProductIds();
+
+  const qtySoldMap = {}, revenueMap = {};
+  state.sales.forEach(s=>{
+    if(!s.productId) return;
+    qtySoldMap[s.productId] = (qtySoldMap[s.productId]||0) + Number(s.qty||0);
+    revenueMap[s.productId] = (revenueMap[s.productId]||0) + Number(s.amount||0);
+  });
+
+  const spendMap = {};
+  state.purchases.forEach(pu=>{
+    (pu.items||[]).forEach(i=>{
+      purchaseItemProductIds(i).forEach(id=>{ spendMap[id] = (spendMap[id]||0) + Number(i.totalCost||0); });
+    });
+  });
+
+  const qtyLinkCostMap = {};
+  (state.ingredients||[]).forEach(ing=>{
+    if(!ing.qtyLinks) return;
+    Object.keys(ing.qtyLinks).forEach(pid=>{
+      const link = ing.qtyLinks[pid];
+      if(link && Number(link.qty)>0){
+        const converted = ingredientPriceInUnit(ing.name, link.unit);
+        const unitPrice = (converted!=null) ? converted : Number(ing.unitPrice||0);
+        qtyLinkCostMap[pid] = (qtyLinkCostMap[pid]||0) + Number(link.qty) * unitPrice;
+      }
+    });
+  });
+
+  const allocatedCostMap = {}, itemsMap = {};
+  state.purchases.forEach(pu=>{
+    (pu.items||[]).forEach(item=>{
+      const linkedIds = purchaseItemProductIdsForTotal(item, nameMap).filter(id=>totalIds.has(id));
+      if(!linkedIds.length) return;
+      const revenues = linkedIds.map(id=>revenueMap[id]||0);
+      const totalRev = revenues.reduce((a,b)=>a+b,0);
+      linkedIds.forEach((id, idx)=>{
+        const share = totalRev>0.001 ? (revenues[idx]/totalRev) : (1/linkedIds.length);
+        const allocated = Number(item.totalCost||0) * share;
+        allocatedCostMap[id] = (allocatedCostMap[id]||0) + allocated;
+        if(!itemsMap[id]) itemsMap[id] = [];
+        const coSharers = linkedIds.filter(x=>x!==id).map(x=>{ const gp=state.products.find(p=>p.id===x); return gp?gp.name:''; }).filter(Boolean);
+        itemsMap[id].push({name:item.name||'(未命名)', itemCost:Number(item.totalCost||0), share, allocated, coSharers});
+      });
+    });
+  });
+  Object.keys(itemsMap).forEach(id=>itemsMap[id].sort((a,b)=>b.allocated-a.allocated));
+
+  return {qtySoldMap, revenueMap, spendMap, qtyLinkCostMap, allocatedCostMap, itemsMap};
+}
 /* 总额法产品的成本在"采购发生时"就认列（而不是按销售分摊），
    用于总览/销售页统计某月食材成本时补回这部分金额，company 可选，用来按公司过滤。
    这是一个粗略的整体统计（这个月总共有多少采购金额是跟总额法产品有关），不是逐产品分摊，
@@ -2214,10 +2273,6 @@ function supplierCardHtml(s,t){
       </div>
       <button class="btn-danger-text" onclick="deleteSupplier('${s.id}')">删除</button>
     </div>
-    <label style="display:flex; align-items:center; gap:6px; font-size:12px; margin-top:6px; cursor:pointer;">
-      <input type="checkbox" ${s.roundOff?'checked':''} onchange="toggleSupplierRoundOff('${s.id}', this.checked)">
-      现金 round off（总额自动凑整到最近0.05）
-    </label>
     ${t.bought>0 ? vizBar([{value:t.paid,color:'var(--green)'},{value:Math.max(t.owe,0),color:'var(--rust)'}], t.bought) : ''}
     <div class="row" style="font-size:12px">
       <span class="muted">已购 ${fmtPlain(t.bought)} · 已付 ${fmtPlain(t.paid)}</span>
@@ -2667,7 +2722,7 @@ function renderPurchase(){
       </div>
       <div class="grid2" style="margin-top:10px">
         <div><label>供应商</label>
-          <input id="purSupplier" placeholder="输入或选择供应商" autocomplete="off" value="${supplierInputVal}" oninput="updatePurTotalPreview()">
+          <input id="purSupplier" placeholder="输入或选择供应商" autocomplete="off" value="${supplierInputVal}">
         </div>
         <div><label>采购日期</label><input type="date" id="purDate" value="${editingPurchase? editingPurchase.date : (draft.purDate||todayStr())}" onchange="this.blur()"></div>
       </div>
@@ -2676,8 +2731,7 @@ function renderPurchase(){
       <div id="purItemsWrap"></div>
       <button class="btn-line" onclick="addPurchaseItemRow()">+ 添加一项</button>
       <label style="margin-top:8px;">本单总金额（默认是各项目加总，如果发票上实际数字不一样，可以直接改这里）</label>
-      <input type="text" inputmode="decimal" step="0.01" id="purTotalPreview" oninput="purTotalManuallyEdited=true; const n=document.getElementById('purRoundOffNote'); if(n) n.style.display='none';">
-      <div id="purRoundOffNote" class="muted" style="font-size:11px; margin-top:2px; display:none;">这家供应商设定了现金 round off，总额已凑整到最近的 0.05</div>
+      <input type="text" inputmode="decimal" step="0.01" id="purTotalPreview" oninput="purTotalManuallyEdited=true;">
       ${purTotalManuallyEdited? `<div class="muted" style="font-size:11px; margin-top:2px;">已手动改过，不会再跟着品项自动重算——想改回自动加总，把这格清空或按"取消"重来。</div>` : ''}
       <button class="btn-main" onclick="submitPurchase()">${editingPurchase?'保存修改':'保存采购单'}</button>
       ${editingPurchase?`<button class="btn-ghost" style="margin-top:8px; width:100%" onclick="cancelEditPurchase()">取消编辑</button>`:''}
@@ -4146,23 +4200,12 @@ function refreshPurItemInfo(rowId){
    （比如现金交易、供应商发票本身抓了零头），这时候尊重使用者打的数字，不再自动覆盖回去，
    直到清空那格或取消整张单重来。这样"要不要抓零头"完全由使用者自己判断，系统不用猜、
    也不会因为猜错了把不该抓零头的正式发票金额悄悄改掉。 */
-/* 马来西亚现金付款「round off」：1分、2分硬币已经停用，现金总额习惯上会凑整到
-   最近的0.05（比如 35.62 → 35.60，35.63 → 35.65）。不是每家供应商都要这样算——
-   有些是转账付款，尾数照实收，所以做成每个供应商自己设定（见"供应商"页那个勾选框），
-   不是整个App统一开关。 */
-function roundToNearestFiveSen(n){ return Math.round(n*20)/20; }
 function updatePurTotalPreview(){
   const el = document.getElementById('purTotalPreview');
   if(!el) return;
-  const noteEl = document.getElementById('purRoundOffNote');
-  if(purTotalManuallyEdited){ if(noteEl) noteEl.style.display='none'; return; }
+  if(purTotalManuallyEdited) return;
   const total = tempPurchaseItems.reduce((a,r)=>a+Number(r.total||0),0);
-  const supplierInput = document.getElementById('purSupplier');
-  const typedName = supplierInput ? supplierInput.value.trim().toLowerCase() : '';
-  const sup = typedName ? state.suppliers.find(s=>s.name.trim().toLowerCase()===typedName) : null;
-  const useRoundOff = !!(sup && sup.roundOff);
-  el.value = total ? String(useRoundOff ? roundToNearestFiveSen(total) : Math.round(total*100)/100) : '';
-  if(noteEl) noteEl.style.display = (total && useRoundOff) ? '' : 'none';
+  el.value = total ? String(Math.round(total*100)/100) : '';
 }
 function renderPurchaseItemRows(){
   const wrap = document.getElementById('purItemsWrap');
@@ -4324,12 +4367,6 @@ function deleteSupplier(id){
   const t = supplierTotals(id);
   if(!confirm(`确定删除该供应商吗？相关采购与付款记录不会自动删除。`)) return;
   mutate(()=>{ state.suppliers = state.suppliers.filter(s=>s.id!==id); });
-}
-function toggleSupplierRoundOff(id, checked){
-  mutate(()=>{
-    const s = state.suppliers.find(x=>x.id===id);
-    if(s) s.roundOff = checked;
-  });
 }
 function submitPurchase(){
   const typedName = document.getElementById('purSupplier').value;
@@ -5328,16 +5365,13 @@ function jumpIngSubView(view){
   // 看到的分页对得上，之后如果书签/分享这个网址，也能直接定位过来。
   if(window.history && history.replaceState) history.replaceState(null, '', '#/ingredients/'+view);
 }
-/* 点导航「产品/采购/食材」这三颗按钮一律先展开下拉选单，不直接跳分页——选到下拉里
-   具体哪一项才真的过去。桌面版另外还有 CSS :hover 规则，鼠标移过去也会自动展开
-   （见上面 .nav-dropdown:hover .dropdown-menu），点击这条逻辑跟它是各自独立、互不影响的，
-   两边同时生效也没关系。
-   原本这里靠 JS 的 matchMedia('(hover:hover) and (pointer:fine)') 判断"这是不是鼠标设备"，
-   是鼠标就直接放行让按钮正常导航、不拦截；结果 iPad（甚至部分 iPhone，只要曾经配对过
-   蓝牙鼠标/触控板）的 Safari 经常把这个媒体查询误判成"true"，即使当下只是用手指点，
-   照样被当成鼠标设备放行，下拉选单永远不会展开、点了就直接跳走。改成不管什么设备，
-   点这三颗按钮永远都先展开下拉，不会出现"点了却看不到下拉选单"的情况。 */
+/* 桌面版靠 CSS :hover 展开下拉，不需要点击也能看到选单，所以这里点击导航按钮本身
+   就正常导航过去（不拦截）。iPad/手机没有 hover，点一下要先展开下拉选单本身，
+   不直接跳分页，选到下拉里具体哪一项才真的过去。三个下拉（产品/采购/食材）共用同一套判断，
+   只是各自锁定的下拉容器id不一样。 */
 function handleNavDropdownClick(e, wrapId){
+  const hasHover = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  if(hasHover) return;
   e.preventDefault();
   e.stopPropagation();
   const wrap = document.getElementById(wrapId);
@@ -5388,6 +5422,7 @@ function renderCost(){
   let displayProducts = state.products.slice().sort((a,b)=> a.name.localeCompare(b.name,'zh'));
   if(costCategoryFilter) displayProducts = displayProducts.filter(p=>(p.category||'')===costCategoryFilter);
   if(prodSubView==='cost'){
+    const costSummary = computeAllProductsCostSummary();
     el.innerHTML = `
     <div class="card">
       <h3>产品成本一览 <span class="n">${state.products.length} 项</span></h3>
@@ -5401,11 +5436,11 @@ function renderCost(){
       <div id="costSearchEmpty" class="empty" style="display:none;">没有找到符合的产品</div>` : ''}
       ${displayProducts.length? displayProducts.map(p=>{
         const tagsLine = (p.category||p.code||p.company) ? `<div class="muted" style="font-size:11px; margin:2px 0 6px;">${p.category?`${p.category}`:''}${p.code?`　#${p.code}`:''}${p.company?`　${p.company}`:''}</div>` : '';
-        const spend = productIngredientSpend(p.id);
-        const qtySold = productQtySold(p.id);
+        const spend = costSummary.spendMap[p.id] || 0;
+        const qtySold = costSummary.qtySoldMap[p.id] || 0;
         const usingRealData = spend>0 && qtySold>0;
-        const fixedUnitCost = productUnitCost(p);
-        const b = productTotalMethodBreakdown(p.id);
+        const fixedUnitCost = (usingRealData ? spend/qtySold : productCost(p)) + (costSummary.qtyLinkCostMap[p.id]||0);
+        const b = {productRevenue: costSummary.revenueMap[p.id]||0, allocatedCost: costSummary.allocatedCostMap[p.id]||0, items: costSummary.itemsMap[p.id]||[]};
         const totalCost = fixedUnitCost*qtySold + b.allocatedCost;
         const totalRevenue = b.productRevenue;
         const totalProfit = totalRevenue - totalCost;
