@@ -1745,10 +1745,19 @@ function productCost(p){ return (p.costItems||[]).reduce((a,c)=>a+Number(c.cost|
    有些关联设了固定用量（ing.qtyLinks[productId]），代表那个产品这个食材的成本已经改成
    「用量 × 参考单价」的固定算法（见 productIngredientQtyLinkCost），不再走这里的营业额比例分摊，
    所以要从这个函数排除掉，不然同一个食材的钱会被算两次。 */
-function purchaseItemProductIds(item){
+function purchaseItemCheckedProductIds(item){
   const ing = findIngredient(item && item.name);
   if(!ing || !Array.isArray(ing.productIds)) return [];
   return ing.productIds.filter(pid=> pid && !(ing.qtyLinks && ing.qtyLinks[pid] && Number(ing.qtyLinks[pid].qty)>0));
+}
+/* 单位成本法(spendMap/productIngredientSpend)专用：只有"刚好勾选1个产品"的采购品项才走这条路。
+   如果同一个食材同时勾选了2个或以上的产品，代表这个食材是好几个产品共用的，应该完全交给下面
+   的"总额法"(purchaseItemProductIdsForTotal / allocatedCostMap)按营业额比例分摊——
+   以前这里不管勾了几个都全部回传，导致这一笔采购金额同时被单位成本法跟总额法各自完整地
+   分摊了一次，等于同一笔钱在总账上被算了两次，是成本严重偏高（甚至倒算出亏损）的主因之一。 */
+function purchaseItemProductIds(item){
+  const ids = purchaseItemCheckedProductIds(item);
+  return ids.length===1 ? ids : [];
 }
 /* 「食材管理」页可以直接给某个关联的产品填"用量"，变成固定成本算法（用量 × 这个食材的参考单价），
    不再看实际采购总额、也不参与跟其他产品的营业额比例分摊——比较接近"食材成本项"，
@@ -1837,7 +1846,10 @@ function totalMethodNameToProductIds(){
 /* 给总额法用的"扩充版"关联产品清单：除了采购单手动勾的，再加上"共同食材名字"匹配到的产品。
    只在总额法的分摊计算里用，不影响单位成本法原本的采购关联逻辑。 */
 function purchaseItemProductIdsForTotal(item, nameMap){
-  const ids = new Set(purchaseItemProductIds(item));
+  // checkbox 勾了2个以上产品的，全部交给这里（只勾1个的已经交给单位成本法处理，见 purchaseItemProductIds，
+  // 不在这里重复收，不然同一笔钱会被两边各自分摊一次）；再加上用"共同食材名字"匹配到的产品。
+  const checked = purchaseItemCheckedProductIds(item);
+  const ids = new Set(checked.length>1 ? checked : []);
   if(item.name){
     const key = item.name.trim().toLowerCase();
     (nameMap[key]||[]).forEach(id=>ids.add(id));
@@ -1981,6 +1993,37 @@ function computeAllProductsCostSummary(){
   Object.keys(itemsMap).forEach(id=>itemsMap[id].sort((a,b)=>b.allocated-a.allocated));
 
   return {qtySoldMap, revenueMap, spendMap, qtyLinkCostMap, allocatedCostMap, itemsMap};
+}
+/* 每一笔销售记录的 cost 是"记录那一刻"存下来的快照（见 submitSale / CSV导入），不会因为之后
+   改了成本算法、修了算法bug、或改了食材单价而自动跟着变——这是刻意设计的（不然改一次单价，
+   几个月前的历史毛利报表也会跟着变来变去），但也代表如果发现成本算法本身算错了（比如之前
+   同一个食材同时勾多个产品时，单位成本法跟总额法各自完整分摊一次、被重复算了两次钱那个bug），
+   已经存进旧销售记录里的 cost 不会自动被修正，"总览"页看到的还是旧的（错的）数字。
+   这个函数把所有销售记录的 cost，用"现在"最新的 productUnitCost 算法重新算一次并存回去——
+   用同一份预先算好的 qtySoldMap，让保底算法（食材同时勾多个产品时按卖出比例分摊）的分摊比例
+   在这一整批重算里保持一致。总额法(共同食材)那部分成本本来就是即时算的，不存在销售记录里，
+   不用重算。 */
+function recalcAllSalesCost(){
+  if(!confirm(`确定要用现在最新的成本算法，重新计算全部 ${state.sales.length} 笔销售记录的成本吗？\n\n这不会改动销售数量/金额/日期，只会更新每笔记录背后存的"成本"数字，让"总览"「成本」等页面的毛利统计更准确。此操作无法撤销。`)) return;
+  const qtySoldMap = {};
+  state.sales.forEach(s=>{ if(s.productId) qtySoldMap[s.productId] = (qtySoldMap[s.productId]||0) + Number(s.qty||0); });
+  const unitCostCache = {};
+  let changed = 0;
+  mutate(()=>{
+    state.sales.forEach(s=>{
+      if(!s.productId) return;
+      if(!(s.productId in unitCostCache)){
+        const p = state.products.find(x=>x.id===s.productId);
+        unitCostCache[s.productId] = p ? productUnitCost(p, qtySoldMap) : null;
+      }
+      const uc = unitCostCache[s.productId];
+      if(uc==null) return;
+      const newCost = uc * Number(s.qty||0);
+      if(Math.abs(newCost - Number(s.cost||0)) > 0.001){ s.cost = newCost; changed++; }
+    });
+  });
+  renderOverview(); renderCost();
+  alert(`重算完成：${state.sales.length} 笔销售记录里，有 ${changed} 笔的成本数字被更新了。`);
 }
 /* 总额法产品的成本在"采购发生时"就认列（而不是按销售分摊），
    用于总览/销售页统计某月食材成本时补回这部分金额，company 可选，用来按公司过滤。
@@ -5465,6 +5508,8 @@ function renderCost(){
       <h3>产品成本一览 <span class="n">${state.products.length} 项</span></h3>
       <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">下面这颗按钮会拿 POS 系统导出的官方菜单（共 ${POS_MENU.length} 项）去补现有产品的分类/编号/所属公司，不会动已经填好的食材成本和售价，也不会删掉任何产品；菜单里有、但这里还没建档的产品会自动新增（售价照抄 POS，食材成本留空待填）。</div>
       <button class="btn-line" onclick="syncPosMenu()">从 POS 官方菜单同步餐品</button>
+      <div class="muted" style="font-size:12px; line-height:1.5; margin-top:10px; margin-bottom:8px;">每一笔销售记录的成本，是"记录那一刻"当下算好存起来的快照，之后就算改了成本算法或食材单价也不会自动跟着变。如果你刚调整过成本算法或食材单价，想让所有历史销售记录（含"总览"页看到的成本/毛利）都用最新的算法重新算一次，按下面这颗按钮。</div>
+      <button class="btn-line" onclick="recalcAllSalesCost()">用最新成本算法重算所有历史销售记录</button>
       ${state.products.length? `<input autocomplete="off" id="costSearchInput" placeholder="搜索产品名称..." value="${costSearchQuery.replace(/"/g,'&quot;')}" oninput="filterCostProducts(this.value)" style="margin-top:10px; margin-bottom:10px;">
       <select id="costCategoryFilterSelect" onchange="setCostCategoryFilter(this.value)" style="margin-bottom:10px;">
         <option value="">全部分类（${state.products.length}）</option>
