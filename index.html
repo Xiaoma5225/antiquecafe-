@@ -1766,25 +1766,52 @@ function productIngredientQtyLinkCost(productId){
   });
   return total;
 }
-/* 算法一：单位成本法——把同一个产品关联的采购金额加总，除以这个产品已经卖出的总数量，得到平均单位成本。
-   如果还没有关联采购或还没卖出过，就退回手动填的"食材成本项"当保底。
-   食材管理页设了固定用量的食材，成本另外用 productIngredientQtyLinkCost 算，这里一律加总进来。 */
-function productIngredientSpend(productId){
+/* 算法一(保底用)：单位成本法——把同一个产品关联的采购金额加总，除以这个产品已经卖出的总数量，得到平均单位成本。
+   只在这个产品完全没有"食谱资料"（下面 productUnitCost 里说的食材成本项/固定用量都是0）时才会用到，
+   因为这个算法拿"历史采购总额"除"历史销量"，采购和销售的时间点常常对不上（比如这个月囤货、下个月才慢慢卖完），
+   算出来的数字会忽高忽低，只能当没有更好数据时的粗略估算。
+   如果一个食材同时勾选关联到好几个产品（食材管理页可以勾多个），这里会按这几个产品"各自的卖出数量"比例，
+   把这一笔采购金额分摊开——不会让每个关联的产品都各自拿到全额（那样同一笔钱会被算好几次，成本被灌爆）。
+   qtySoldMap 是"成本"页批次算好的卖出数量表，传进来就按比例精算；没传（比如单笔提交销售时）就退回平均分摊，
+   避免为了这里又整批重新扫一次销售记录。
+   食材管理页设了固定用量的食材，成本另外用 productIngredientQtyLinkCost 算，不会跑进这个函数（见 purchaseItemProductIds 的排除逻辑）。 */
+function productIngredientSpend(productId, qtySoldMap){
   if(!productId) return 0;
   let total = 0;
   state.purchases.forEach(pu=>{
-    (pu.items||[]).forEach(i=>{ if(purchaseItemProductIds(i).includes(productId)) total += Number(i.totalCost||0); });
+    (pu.items||[]).forEach(i=>{
+      const linkedIds = purchaseItemProductIds(i);
+      if(!linkedIds.includes(productId)) return;
+      if(linkedIds.length<=1){ total += Number(i.totalCost||0); return; }
+      const idx = linkedIds.indexOf(productId);
+      let share;
+      if(qtySoldMap){
+        const qtys = linkedIds.map(id=>qtySoldMap[id]||0);
+        const totalQty = qtys.reduce((a,b)=>a+b,0);
+        share = totalQty>0 ? (qtys[idx]/totalQty) : (1/linkedIds.length);
+      } else {
+        share = 1/linkedIds.length;
+      }
+      total += Number(i.totalCost||0) * share;
+    });
   });
   return total;
 }
 function productQtySold(productId){
   return state.sales.filter(s=>s.productId===productId).reduce((a,s)=>a+Number(s.qty||0),0);
 }
-function productUnitCost(p){
-  const spend = productIngredientSpend(p.id);
+/* 每份固定成本：现在以"食谱资料"为主——食材成本项(productCost，手动填的固定用量) + 食材管理页设的
+   固定用量(productIngredientQtyLinkCost)，两者都是"理论成本法"(用量 × 单价)，数字稳定、不受采购/
+   销售时间点影响，是餐饮业算菜单毛利常用的算法。
+   只有这个产品完全没设过食谱资料时，才退回"历史采购总额 ÷ 历史销量"这个粗估算法当保底（且已修正
+   多产品共用同一食材时的重复计费问题，见 productIngredientSpend）。
+   qtySoldMap 可选，"成本"页批次算好后传进来让保底算法的分摊更精准；其他地方单笔调用可以不传。 */
+function productUnitCost(p, qtySoldMap){
+  const recipeCost = productCost(p) + productIngredientQtyLinkCost(p.id);
+  if(recipeCost>0) return recipeCost;
+  const spend = productIngredientSpend(p.id, qtySoldMap);
   const qtySold = productQtySold(p.id);
-  const base = (spend>0 && qtySold>0) ? spend/qtySold : productCost(p);
-  return base + productIngredientQtyLinkCost(p.id);
+  return (spend>0 && qtySold>0) ? spend/qtySold : 0;
 }
 /* 算法二：总额法——不用"传递性分组"（那样A跟B同一个采购品项、B又跟C同一个采购品项，
    A跟C也会被拖进同一个大群组一起分摊，很容易滚雪球式地把互不相干的产品扯在一起，比如虾肉明明只该算给虾面，
@@ -1904,10 +1931,20 @@ function computeAllProductsCostSummary(){
     revenueMap[s.productId] = (revenueMap[s.productId]||0) + Number(s.amount||0);
   });
 
+  // 同一个食材如果同时勾选关联到好几个产品，按这几个产品各自的卖出数量比例分摊这笔采购金额，
+  // 不会让每个关联产品都各自拿到全额（不然同一笔钱会被重复算进好几个产品的成本里）。
   const spendMap = {};
   state.purchases.forEach(pu=>{
     (pu.items||[]).forEach(i=>{
-      purchaseItemProductIds(i).forEach(id=>{ spendMap[id] = (spendMap[id]||0) + Number(i.totalCost||0); });
+      const linkedIds = purchaseItemProductIds(i);
+      if(!linkedIds.length) return;
+      if(linkedIds.length===1){ const id=linkedIds[0]; spendMap[id] = (spendMap[id]||0) + Number(i.totalCost||0); return; }
+      const qtys = linkedIds.map(id=>qtySoldMap[id]||0);
+      const totalQty = qtys.reduce((a,b)=>a+b,0);
+      linkedIds.forEach((id, idx)=>{
+        const share = totalQty>0 ? (qtys[idx]/totalQty) : (1/linkedIds.length);
+        spendMap[id] = (spendMap[id]||0) + Number(i.totalCost||0) * share;
+      });
     });
   });
 
@@ -5438,8 +5475,11 @@ function renderCost(){
         const tagsLine = (p.category||p.code||p.company) ? `<div class="muted" style="font-size:11px; margin:2px 0 6px;">${p.category?`${p.category}`:''}${p.code?`　#${p.code}`:''}${p.company?`　${p.company}`:''}</div>` : '';
         const spend = costSummary.spendMap[p.id] || 0;
         const qtySold = costSummary.qtySoldMap[p.id] || 0;
-        const usingRealData = spend>0 && qtySold>0;
-        const fixedUnitCost = (usingRealData ? spend/qtySold : productCost(p)) + (costSummary.qtyLinkCostMap[p.id]||0);
+        const qtyLinkCost = costSummary.qtyLinkCostMap[p.id] || 0;
+        const recipeCost = productCost(p) + qtyLinkCost;
+        const usingRecipeData = recipeCost>0;
+        const usingRealData = !usingRecipeData && spend>0 && qtySold>0;
+        const fixedUnitCost = usingRecipeData ? recipeCost : (usingRealData ? spend/qtySold : 0);
         const b = {productRevenue: costSummary.revenueMap[p.id]||0, allocatedCost: costSummary.allocatedCostMap[p.id]||0, items: costSummary.itemsMap[p.id]||[]};
         const totalCost = fixedUnitCost*qtySold + b.allocatedCost;
         const totalRevenue = b.productRevenue;
@@ -5496,7 +5536,7 @@ function renderCost(){
             <input placeholder="金额" type="text" inputmode="decimal" step="0.01" id="addCi_${p.id}_cost">
           </div>
           <button class="btn-line" onclick="appendCostItem('${p.id}')">+ 追加食材成本</button>
-          ${usingRealData? `<div class="muted" style="font-size:11px; margin-top:4px;">按实际数据算每份成本：关联采购总额 ${fmtPlain(spend)} ÷ 已售出 ${qtySold} 份 = ${fmtPlain(fixedUnitCost)}</div>` : ''}
+          ${usingRecipeData? `<div class="muted" style="font-size:11px; margin-top:4px;">按食谱固定用量计算每份成本（不受采购/销售时间点影响）</div>` : (usingRealData? `<div class="muted" style="font-size:11px; margin-top:4px;">还没设食谱用量，暂时按实际数据估算：关联采购总额 ${fmtPlain(spend)} ÷ 已售出 ${qtySold} 份 = ${fmtPlain(fixedUnitCost)}（食材同时关联多个产品时已按各产品卖出比例分摊，避免重复计费）</div>` : '')}
           <hr class="receipt-divider">
           <label style="font-size:11.5px; color:var(--muted);">共同食材（份量抓不准、按采购分摊的）</label>
           ${(p.sharedIngredients&&p.sharedIngredients.length)?`<div class="muted" style="font-size:11px; margin:2px 0;">${p.sharedIngredients.join('、')}</div>`:`<div class="muted" style="font-size:11px; margin:2px 0;">还没设，点上面「编辑」可以加</div>`}
