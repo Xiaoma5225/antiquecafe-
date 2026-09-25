@@ -5445,13 +5445,17 @@ function jumpIngSubView(view){
   // 看到的分页对得上，之后如果书签/分享这个网址，也能直接定位过来。
   if(window.history && history.replaceState) history.replaceState(null, '', '#/ingredients/'+view);
 }
-/* 桌面版靠 CSS :hover 展开下拉，不需要点击也能看到选单，所以这里点击导航按钮本身
-   就正常导航过去（不拦截）。iPad/手机没有 hover，点一下要先展开下拉选单本身，
-   不直接跳分页，选到下拉里具体哪一项才真的过去。三个下拉（产品/采购/食材）共用同一套判断，
-   只是各自锁定的下拉容器id不一样。 */
+/* 之前这里想用 window.matchMedia('(hover:hover) and (pointer:fine)') 判断"是不是touch设备"，
+   是的话才拦截点击、改成先展开下拉选单；不是的话（真的有滑鼠）就让点击正常导航过去，
+   桌面版靠 CSS :hover 已经能展开选单看到里面的项目，直接点主按钮才符合"桌面点了就走"的习惯。
+   但这个判断在很多平板上不准——不只iPad/iPhone Safari会誤报，一些Android平板（尤其带
+   S Pen或翻盖式的机型，比如Samsung Galaxy Tab/Fold系列）也常常把 hover:hover 报成true，
+   即使当下只是用手指点，害这个函数直接return，点击就照桌面版逻辑直接冒泡跳分页，选单本身
+   永远没机会展开，使用者点了「采购」这种有下拉的按钮却什么反应都没有（或者被别的判断打断，
+   看起来像"按了没有东西"）。改成不管什么设备，点击一律先拦截、展开/收起下拉选单，
+   桌面版本来滑鼠移过去就会用 CSS :hover 看到选单，不靠这里的点击拦不拦，所以这样改
+   对桌面版没有任何影响，只是让触控设备不再被误判。 */
 function handleNavDropdownClick(e, wrapId){
-  const hasHover = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
-  if(hasHover) return;
   e.preventDefault();
   e.stopPropagation();
   const wrap = document.getElementById(wrapId);
@@ -6483,13 +6487,20 @@ function updateSalePreview(){
    现在每个产品都可能有食材成本项(不再分单位法/总额法)，只要有填数量就会扣；没填的（比如份量抓不准、
    只填了"共同食材名称"的那些）本来就没有固定数量可以扣，自然会跳过。
    tagFields 用来在扣减记录上打标记，方便之后删销售记录/删批量导入时能对应找回并撤销这些扣减。 */
+/* 比对产品名字用的"宽松版"标准化：先trim+转小写，再把连续空格压成一个，最后把括号（半形/全形）
+   前后多余的空格都拿掉——像"Pot (大/BIG)"跟"Pot(大/BIG)"、"Pot  (大/BIG)"这种纯粹因为打字/
+   不同批次POS报表汇出时空格打法不一样的，会被当成同一个名字，不会因为差一个空格就被判定
+   "找不到对应产品"，然后自动新建一个重复产品出来。 */
+function looseNormName(s){
+  return (s||'').trim().toLowerCase().replace(/\s+/g,' ').replace(/\s*([(（])\s*/g,'$1').replace(/\s*([)）])\s*/g,'$1');
+}
 /* ---- 产品名字符串 → 产品(+可能的规格) ----
    1) 先看是不是直接对上某个产品本身的名字（没规格的产品，或规格产品的主名字）
    2) 再看是不是对上某个产品底下某个规格：可能是"产品名 - 规格名"这种现在用的格式，
       也可能是合并规格时留下的旧产品原始名字(legacyNames)——这样以前汇出、名字还是旧写法的
       CSV报表拿来重新导入，也还是能对上正确的规格，不会变成"找不到产品"。找不到就回传 null。 */
 function resolveProductSaleTarget(rawName){
-  const norm = s=>(s||'').trim().toLowerCase();
+  const norm = looseNormName;
   const n = norm(rawName);
   if(!n) return null;
   const exact = state.products.find(p=>norm(p.name)===n);
