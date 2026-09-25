@@ -5336,7 +5336,7 @@ function renderIngredientLinkSectionHtml(){
     <div class="card">
       <h3>食材管理 <span class="n">${(state.ingredients||[]).length} 个食材</span></h3>
       <div class="muted" style="font-size:12px; line-height:1.5; margin-bottom:8px;">这里统一管理所有食材——每个食材右上角有个"编辑"，可以直接改名称、单位、参考单价，不用跑去改某一张采购单（改名称会连着采购记录、库存记录、半成品配方、Addon消耗对照、选项组、单位换算这些一起更新，不是只改这里）。也可以在这里管理"哪个食材算给哪个产品的成本"：关联好产品之后，每个产品可以选填"用量"——填了就变成固定成本（用量×这个食材的参考单价，参考单价会跟着最新采购自动更新）；不填的话，这个食材的采购花费会照关联产品各自的营业额比例自动分摊，改一次所有历史采购单都会一起用新的设定重新算成本，不用回去一张一张改旧单据。半成品配方本身用到的原料/用料不会出现在这里（它们的成本走配方那边自动算），但配方做出来、还没被任何产品用到的半成品会出现在下面提醒你。</div>
-      <input id="ingredientLinkSearchInput" placeholder="搜索食材名称..." value="${ingredientLinkSearchQuery.replace(/"/g,'&quot;')}" oninput="filterIngredientLinkList(this.value)">
+      <input autocomplete="off" id="ingredientLinkSearchInput" placeholder="搜索食材名称..." value="${ingredientLinkSearchQuery.replace(/"/g,'&quot;')}" oninput="filterIngredientLinkList(this.value)">
     </div>
     <div id="ingredientLinkListWrap">${ingredientLinkListHtml()}</div>
   `;
