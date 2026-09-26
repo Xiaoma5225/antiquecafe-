@@ -356,56 +356,50 @@
     #navToggleBtn{display:none;}
   }
 
-  /* 顶部导航"产品"按钮的下拉——桌面版鼠标移过去就展开（见下面 hover 那条 media query），
-     iPad/手机没有"悬停"这回事，改成点一下展开/收起（由 handleProductNavClick 控制 .open class）。
-     下拉框跟按钮之间以前留了4px的margin当间距，结果鼠标从按钮往下移到下拉选单的路上，
-     会先经过这4px"两边都不算"的空隙——一离开按钮的hover范围、还没进到下拉选单，
-     :hover就先断了，选单就在鼠标移下去的半路上消失。改成用padding-top留间距
-     （撑在选单自己的方框里面，不是靠外面的margin），方框本身紧贴着按钮、中间没有缝，
-     鼠标全程都踩在"算数"的范围内，不会半路断开。 */
-  .nav-dropdown{position:relative; display:flex; flex:1;}
-  .nav-dropdown > button{flex:1; width:100%;}
+  /* 之前这里用 @media (hover:none),(pointer:coarse) 去猜"这是不是触屏设备"，猜对了才用
+     "手风琴式、往下展开成一排清单"这种安全的排版；猜不出来/猜错的话（不只iPad/某些安卓平板，
+     现在连iPhone上都实测出现过），就会掉回桌面版那套"绝对定位悬浮方框、left:50%+置中"的排版——
+     但JS那边点击展开选单是靠 .open 这个class（不靠hover），如果套用到的是悬浮方框排版，
+     方框的宽度/定位是抓桌面版「照按钮本身悬停」那一套算法，套在手机窄的抽屉式导航栏里，
+     常常整个位置算歪、文字被切得只剩最后几个字，看起来像"点了但看不到完整选项"。
+     现在反过来：不管什么设备，预设(不靠media query判断)一律先用"往下展开成一排清单"这个
+     保证不会跑版的安全排版；只有非常确定是"真的有鼠标/触控板会hover"的情况（@media hover:hover
+     and pointer:fine），才叠加桌面版悬浮方框那一套。这样就算某个设备的hover判断不准，
+     最差情况也只是同时多显示了桌面那个悬浮框，绝对不会出现"该有的清单排版整个不出现/被切字"
+     这种情况。 */
+  .nav-dropdown{position:relative;}
+  .nav-dropdown > button{width:100%;}
   .nav-dropdown .dropdown-menu{
-    display:none; position:absolute; top:100%; left:50%; transform:translateX(-50%);
-    background:var(--paper); border:1px solid var(--border); border-radius:12px;
-    box-shadow:0 6px 20px rgba(43,38,32,0.18); min-width:170px; z-index:40; padding:6px;
-    margin-top:0; padding-top:10px;
+    display:none; position:static; box-shadow:none; border:none; background:none;
+    margin-top:2px; padding:2px 0 4px 30px; min-width:0;
   }
   .nav-dropdown.open .dropdown-menu{display:block;}
-  /* 用两层 class 选择器（.nav-dropdown .dropdown-menu button）故意让specificity高过
-     前面的「nav.bottom button」那条通用规则，不然 flex:1/纵向排列那些手机版底部导航的
-     样式会盖过来，下拉选单里的字会变成直向、置中、超小字。 */
   /* 用两层 class 选择器（.nav-dropdown .dropdown-menu button/a）故意让specificity高过
      前面的「nav.bottom button」那条通用规则，不然 flex:1/纵向排列那些手机版底部导航的
      样式会盖过来，下拉选单里的字会变成直向、置中、超小字。
      食材那4个改成真的<a href="#/...">了（右键才有"在新分页开启"可以选），所以选择器
      也要一并涵盖 a 标签，不然连结会没有按钮的样子（padding/字体/hover背景都吃不到）。 */
   .nav-dropdown .dropdown-menu button, .nav-dropdown .dropdown-menu a{
-    width:100%; flex:none; display:block; text-align:left; padding:9px 12px; font-size:13.5px;
+    width:100%; flex:none; display:block; text-align:left; padding:8px 10px; font-size:13px;
     background:none; border:none; border-radius:8px; color:var(--ink); font-weight:500;
     text-decoration:none; cursor:pointer; box-sizing:border-box;
     -webkit-touch-callout:none; -webkit-user-select:none; user-select:none;
   }
   .nav-dropdown .dropdown-menu button:hover, .nav-dropdown .dropdown-menu a:hover{background:var(--sky-dim);}
+  /* 下面这整块只在"确定有鼠标/触控板可以hover"的时候才生效——把上面那套安全的清单排版，
+     换成桌面版惯用的"鼠标移过去就浮现一个悬浮方框"。 */
   @media (hover:hover) and (pointer:fine){
-    .nav-dropdown:hover .dropdown-menu{display:block;}
-  }
-  /* 上面那条 .nav-dropdown{display:flex; flex:1;} 是桌面横向导航用的通用规则；触屏设备
-     （手机、没接触控板的iPad）要改成抽屉里的手风琴样式（整块占满宽度、下拉选单变成
-     往下展开的清单，不是悬浮方框）。这条必须写在上面那条通用规则"之后"——CSS选择器
-     specificity一样时，写在后面的赢，之前不小心把这段写在通用规则前面，结果这几个
-     下拉容器在手机上还是吃到 flex:1，在纵向排列的导航抽屉里被拉伸去撑满剩下的高度，
-     变成"采购/产品/食材"这三项之间空出一大截、跟其他项目高度对不齐。 */
-  @media (hover:none), (pointer:coarse){
-    .nav-dropdown{flex:none; width:100%; display:block;}
-    .nav-dropdown > button{width:100%;}
+    .nav-dropdown{display:flex; flex:1;}
+    .nav-dropdown > button{flex:1;}
     .nav-dropdown .dropdown-menu{
-      position:static; display:none; box-shadow:none; border:none; background:none;
-      margin-top:2px; padding:2px 0 4px 30px; min-width:0;
+      position:absolute; top:100%; left:50%; transform:translateX(-50%);
+      background:var(--paper); border:1px solid var(--border); border-radius:12px;
+      box-shadow:0 6px 20px rgba(43,38,32,0.18); min-width:170px; z-index:40; padding:6px;
+      margin-top:0; padding-top:10px;
     }
-    .nav-dropdown.open .dropdown-menu{display:block;}
+    .nav-dropdown:hover .dropdown-menu{display:block;}
     .nav-dropdown .dropdown-menu button, .nav-dropdown .dropdown-menu a{
-      padding:8px 10px; font-size:13px;
+      padding:9px 12px; font-size:13.5px;
     }
   }
 
