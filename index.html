@@ -356,50 +356,56 @@
     #navToggleBtn{display:none;}
   }
 
-  /* 之前这里用 @media (hover:none),(pointer:coarse) 去猜"这是不是触屏设备"，猜对了才用
-     "手风琴式、往下展开成一排清单"这种安全的排版；猜不出来/猜错的话（不只iPad/某些安卓平板，
-     现在连iPhone上都实测出现过），就会掉回桌面版那套"绝对定位悬浮方框、left:50%+置中"的排版——
-     但JS那边点击展开选单是靠 .open 这个class（不靠hover），如果套用到的是悬浮方框排版，
-     方框的宽度/定位是抓桌面版「照按钮本身悬停」那一套算法，套在手机窄的抽屉式导航栏里，
-     常常整个位置算歪、文字被切得只剩最后几个字，看起来像"点了但看不到完整选项"。
-     现在反过来：不管什么设备，预设(不靠media query判断)一律先用"往下展开成一排清单"这个
-     保证不会跑版的安全排版；只有非常确定是"真的有鼠标/触控板会hover"的情况（@media hover:hover
-     and pointer:fine），才叠加桌面版悬浮方框那一套。这样就算某个设备的hover判断不准，
-     最差情况也只是同时多显示了桌面那个悬浮框，绝对不会出现"该有的清单排版整个不出现/被切字"
-     这种情况。 */
-  .nav-dropdown{position:relative;}
-  .nav-dropdown > button{width:100%;}
+  /* 顶部导航"产品"按钮的下拉——桌面版鼠标移过去就展开（见下面 hover 那条 media query），
+     iPad/手机没有"悬停"这回事，改成点一下展开/收起（由 handleProductNavClick 控制 .open class）。
+     下拉框跟按钮之间以前留了4px的margin当间距，结果鼠标从按钮往下移到下拉选单的路上，
+     会先经过这4px"两边都不算"的空隙——一离开按钮的hover范围、还没进到下拉选单，
+     :hover就先断了，选单就在鼠标移下去的半路上消失。改成用padding-top留间距
+     （撑在选单自己的方框里面，不是靠外面的margin），方框本身紧贴着按钮、中间没有缝，
+     鼠标全程都踩在"算数"的范围内，不会半路断开。 */
+  .nav-dropdown{position:relative; display:flex; flex:1;}
+  .nav-dropdown > button{flex:1; width:100%;}
   .nav-dropdown .dropdown-menu{
-    display:none; position:static; box-shadow:none; border:none; background:none;
-    margin-top:2px; padding:2px 0 4px 30px; min-width:0;
+    display:none; position:absolute; top:100%; left:50%; transform:translateX(-50%);
+    background:var(--paper); border:1px solid var(--border); border-radius:12px;
+    box-shadow:0 6px 20px rgba(43,38,32,0.18); min-width:170px; z-index:40; padding:6px;
+    margin-top:0; padding-top:10px;
   }
   .nav-dropdown.open .dropdown-menu{display:block;}
+  /* 用两层 class 选择器（.nav-dropdown .dropdown-menu button）故意让specificity高过
+     前面的「nav.bottom button」那条通用规则，不然 flex:1/纵向排列那些手机版底部导航的
+     样式会盖过来，下拉选单里的字会变成直向、置中、超小字。 */
   /* 用两层 class 选择器（.nav-dropdown .dropdown-menu button/a）故意让specificity高过
      前面的「nav.bottom button」那条通用规则，不然 flex:1/纵向排列那些手机版底部导航的
      样式会盖过来，下拉选单里的字会变成直向、置中、超小字。
      食材那4个改成真的<a href="#/...">了（右键才有"在新分页开启"可以选），所以选择器
      也要一并涵盖 a 标签，不然连结会没有按钮的样子（padding/字体/hover背景都吃不到）。 */
   .nav-dropdown .dropdown-menu button, .nav-dropdown .dropdown-menu a{
-    width:100%; flex:none; display:block; text-align:left; padding:8px 10px; font-size:13px;
+    width:100%; flex:none; display:block; text-align:left; padding:9px 12px; font-size:13.5px;
     background:none; border:none; border-radius:8px; color:var(--ink); font-weight:500;
     text-decoration:none; cursor:pointer; box-sizing:border-box;
     -webkit-touch-callout:none; -webkit-user-select:none; user-select:none;
   }
   .nav-dropdown .dropdown-menu button:hover, .nav-dropdown .dropdown-menu a:hover{background:var(--sky-dim);}
-  /* 下面这整块只在"确定有鼠标/触控板可以hover"的时候才生效——把上面那套安全的清单排版，
-     换成桌面版惯用的"鼠标移过去就浮现一个悬浮方框"。 */
   @media (hover:hover) and (pointer:fine){
-    .nav-dropdown{display:flex; flex:1;}
-    .nav-dropdown > button{flex:1;}
-    .nav-dropdown .dropdown-menu{
-      position:absolute; top:100%; left:50%; transform:translateX(-50%);
-      background:var(--paper); border:1px solid var(--border); border-radius:12px;
-      box-shadow:0 6px 20px rgba(43,38,32,0.18); min-width:170px; z-index:40; padding:6px;
-      margin-top:0; padding-top:10px;
-    }
     .nav-dropdown:hover .dropdown-menu{display:block;}
+  }
+  /* 上面那条 .nav-dropdown{display:flex; flex:1;} 是桌面横向导航用的通用规则；触屏设备
+     （手机、没接触控板的iPad）要改成抽屉里的手风琴样式（整块占满宽度、下拉选单变成
+     往下展开的清单，不是悬浮方框）。这条必须写在上面那条通用规则"之后"——CSS选择器
+     specificity一样时，写在后面的赢，之前不小心把这段写在通用规则前面，结果这几个
+     下拉容器在手机上还是吃到 flex:1，在纵向排列的导航抽屉里被拉伸去撑满剩下的高度，
+     变成"采购/产品/食材"这三项之间空出一大截、跟其他项目高度对不齐。 */
+  @media (hover:none), (pointer:coarse){
+    .nav-dropdown{flex:none; width:100%; display:block;}
+    .nav-dropdown > button{width:100%;}
+    .nav-dropdown .dropdown-menu{
+      position:static; display:none; box-shadow:none; border:none; background:none;
+      margin-top:2px; padding:2px 0 4px 30px; min-width:0;
+    }
+    .nav-dropdown.open .dropdown-menu{display:block;}
     .nav-dropdown .dropdown-menu button, .nav-dropdown .dropdown-menu a{
-      padding:9px 12px; font-size:13.5px;
+      padding:8px 10px; font-size:13px;
     }
   }
 
@@ -1043,6 +1049,30 @@ let firestoreDb = null;
 const SUBCOLLECTIONS = ['suppliers','purchases','payments','products','sales','cashflow','ingredients','importBatches','stockAdjustments','recipes','recipeBatchLogs','addonMappings','unitConversions','posTables','posOrders','optionGroups'];
 let lastSynced = {};
 SUBCOLLECTIONS.forEach(k=>{ lastSynced[k] = new Map(); });
+/* 防「删掉的记录又复活」：
+   ・firstSnapshotDone[key]：这台设备还没收到该集合的第一次云端快照之前，不准往云端写（否则本机旧缓存会把别处已删掉的记录整批写回去）。
+   ・syncedIds[key]：这台设备「曾经跟云端同步过」的记录 id，存在本机 localStorage。
+     第一次快照到齐后，本机有、云端没有、而且曾经同步过 → 代表是别的设备删掉的 → 本机也删掉；
+     本机有、云端没有、从没同步过 → 才是离线新增的 → 保留并上传。 */
+let firstSnapshotDone = {};
+const SYNCED_IDS_KEY = 'ledger_syncedIds_v1';
+let syncedIds = {};
+let syncedIdsFirstEver = false; // 这台设备第一次跑这个新版本：本机旧缓存里云端没有的记录，视为别处已删除（一次性清理）
+try{ syncedIdsFirstEver = localStorage.getItem(SYNCED_IDS_KEY)===null; }catch(e){}
+try{ const raw = JSON.parse(localStorage.getItem(SYNCED_IDS_KEY)||'{}'); Object.keys(raw).forEach(k=>{ syncedIds[k] = new Set(raw[k]); }); }catch(e){}
+SUBCOLLECTIONS.forEach(k=>{ if(!syncedIds[k]) syncedIds[k] = new Set(); });
+let syncedIdsTimer = null;
+function persistSyncedIds(){
+  if(syncedIdsTimer) return;
+  syncedIdsTimer = setTimeout(()=>{
+    syncedIdsTimer = null;
+    try{
+      const out = {};
+      Object.keys(syncedIds).forEach(k=>{ out[k] = Array.from(syncedIds[k]); });
+      localStorage.setItem(SYNCED_IDS_KEY, JSON.stringify(out));
+    }catch(e){}
+  }, 500);
+}
 
 /* ---------------- 账号权限 ----------------
    固定写死的超级管理员：一定是「全部权限」，而且只有这个邮箱能在"设置"页看到/管理权限名单。
@@ -1250,15 +1280,32 @@ function attachSubcollectionListeners(){
         if(ch.type==='removed'){
           if(byId.has(id)){ byId.delete(id); changed = true; }
           lastSynced[key].delete(id);
+          syncedIds[key].delete(id);
         }else{
           const rec = ch.doc.data();
           byId.set(id, rec);
           lastSynced[key].set(id, JSON.stringify(rec));
+          syncedIds[key].add(id);
           changed = true;
         }
       });
+      let needPush = false;
+      if(!firstSnapshotDone[key]){
+        firstSnapshotDone[key] = true;
+        const cloudIds = new Set(snap.docs.map(d=>d.id));
+        Array.from(byId.keys()).forEach(id=>{
+          if(cloudIds.has(id)) return;
+          if(syncedIds[key].has(id) || syncedIdsFirstEver){ byId.delete(id); syncedIds[key].delete(id); changed = true; } // 别处已删除 → 本机同步删除
+          else needPush = true; // 离线新增，稍后上传
+        });
+      }
       state[key] = Array.from(byId.values());
-      if(changed) scheduleRenderAfterSync();
+      persistSyncedIds();
+      if(changed){
+        try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){}
+        scheduleRenderAfterSync();
+      }
+      if(needPush) syncCollectionDiff(key);
     }, (err)=>{ console.error(key+' 同步失败', err); });
   });
 }
@@ -1336,6 +1383,7 @@ function pushToCloud(){
 /* 拿现在的 state[key] 跟"上次已知已经跟云端一致"的样子（lastSynced）比对，
    只把真的新增/改过的记录 set()、真的被删掉的记录 delete()，不动完全没变的那些。 */
 function syncCollectionDiff(key){
+  if(!firstSnapshotDone[key]) return; // 还没收到云端第一次快照，先不写，避免旧缓存把已删除的记录写回去
   const arr = state[key] || [];
   const map = lastSynced[key] || (lastSynced[key] = new Map());
   const seen = new Set();
@@ -1358,9 +1406,10 @@ function syncCollectionDiff(key){
     });
     batch.commit().then(()=>{
       chunk.forEach(op=>{
-        if(op.type==='set') map.set(op.id, op.json);
-        else map.delete(op.id);
+        if(op.type==='set'){ map.set(op.id, op.json); syncedIds[key].add(op.id); }
+        else { map.delete(op.id); syncedIds[key].delete(op.id); }
       });
+      persistSyncedIds();
     }).catch(err=>console.error(key+' 同步写入失败', err));
   }
 }
