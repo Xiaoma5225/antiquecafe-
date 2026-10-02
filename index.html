@@ -1529,11 +1529,32 @@ function importData(fileInput){
 /* 每笔销售会自动生成一条对应的收支流水（auto:true, type:'in', _saleId 指向那笔销售）。
    如果销售记录被删掉了（或者是旧数据里没连上 _saleId 的），这条流水就会变成孤儿，
    这里统一清掉：只保留那些还能对应到目前还存在的销售的自动流水。 */
+/* 付款如果有对上某一张采购单（pay.purchaseId），对应自动生成的「供应商付款」支出流水，
+   日期一律跟那张采购单的日期走（不是付款当天）——这样支出会记在进货那天，跟采购成本同一天对得上。
+   付款记录本身（state.payments 里的 pay.date）还是保留真正转账/付钱的那天，不会被改掉。
+   没对上采购单的（笼统还款、超额付款）流水日期照旧用付款日期。
+   每次 mutate / 载入 / 云同步都会跑一次，所以：新记的付款、旧数据、之后改了采购单日期，都会自动对齐。 */
+function linkedPurchaseDateForCashflow(c){
+  if(!c || !c.auto || c.type!=='out' || !c._paymentId) return null;
+  const pay = state.payments.find(p=>p.id===c._paymentId);
+  if(!pay || !pay.purchaseId) return null;
+  const pu = state.purchases.find(x=>x.id===pay.purchaseId);
+  return (pu && pu.date) ? pu.date : null;
+}
+function alignPaymentCashflowDates(){
+  let changed = false;
+  state.cashflow.forEach(c=>{
+    const d = linkedPurchaseDateForCashflow(c);
+    if(d && c.date!==d){ c.date = d; changed = true; }
+  });
+  return changed;
+}
 function reconcileCashflow(){
   const saleIds = new Set(state.sales.map(s=>s.id));
   const before = state.cashflow.length;
   state.cashflow = state.cashflow.filter(c=> !(c.auto && c.type==='in' && !saleIds.has(c._saleId)) );
-  return state.cashflow.length !== before;
+  const datesChanged = alignPaymentCashflowDates();
+  return state.cashflow.length !== before || datesChanged;
 }
 /* 食材字典有可能漏掉"这个功能上线之前"就已经存在的历史数据（比如老的采购单、老的产品食材成本项）。
    这里每次都用现有的产品成本项 + 采购记录里的关联，重新补一遍字典，确保老数据也能被记住，不用重新输入一次。 */
@@ -2330,7 +2351,7 @@ function confirmPurchasePayPopup(){
     const pid = uid();
     state.payments.push({id:pid, date, supplierId:pu.supplierId, amount, note:'', payMethod:method, purchaseId:pu.id});
     const invoiceNote = pu.invoiceNumber ? ` · Invoice ${pu.invoiceNumber}` : '';
-    state.cashflow.push({id:uid(), date, type:'out', category:'供应商付款', amount, payMethod:method, note:`${supplierName(pu.supplierId)}${invoiceNote}`, auto:true, _paymentId:pid});
+    state.cashflow.push({id:uid(), date: pu.date || date, type:'out', category:'供应商付款', amount, payMethod:method, note:`${supplierName(pu.supplierId)}${invoiceNote}`, auto:true, _paymentId:pid});
   });
   payPopupState = null;
   renderPayPopup();
@@ -4199,7 +4220,7 @@ function renderPaymentSectionHtml(){
 
     <div class="card">
       <h3>批量导入付款记录（CSV）</h3>
-      <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">格式跟"导出付款记录"一样：日期,供应商,Invoice号,金额,付款方式,备注。供应商没有会自动新建。Invoice号支持正式发票号，也支持"29/7"这种日期式参考（没有正式发票号、用送货日期对同供应商的采购单）；一行可以填多个参考用"、"分开（这时金额要填这笔转账的总额），系统会依序分给对上的采购单，分不完或对不到的部分不会被丢掉，会在这个供应商名下多开一笔"超额付款"记录，备注会写清楚哪些参考没对上。只填一个参考时，金额可以留空，自动抓那张采购单还欠多少。每笔付款都会自动生成一笔对应的"供应商付款"收支流水。</div>
+      <div class="muted" style="font-size:12px; margin-bottom:10px; line-height:1.5;">格式跟"导出付款记录"一样：日期,供应商,Invoice号,金额,付款方式,备注。供应商没有会自动新建。Invoice号支持正式发票号，也支持"29/7"这种日期式参考（没有正式发票号、用送货日期对同供应商的采购单）；一行可以填多个参考用"、"分开（这时金额要填这笔转账的总额），系统会依序分给对上的采购单，分不完或对不到的部分不会被丢掉，会在这个供应商名下多开一笔"超额付款"记录，备注会写清楚哪些参考没对上。只填一个参考时，金额可以留空，自动抓那张采购单还欠多少。每笔付款都会自动生成一笔对应的"供应商付款"收支流水；对上采购单的，流水日期记在采购单那天（付款记录本身还是保留实际付款日），对不上的才用付款日期。</div>
       <div style="display:flex; flex-direction:column; align-items:stretch; gap:8px; margin-left:auto; max-width:240px;">
         <button class="btn-ghost" onclick="downloadPaymentImportTemplate()">下载CSV模板</button>
         <label class="btn-ghost" style="text-align:center; margin:0; cursor:pointer;">
@@ -4717,7 +4738,7 @@ function submitPayment(){
       const invoicePur = a.purchaseId ? state.purchases.find(p=>p.id===a.purchaseId) : null;
       state.payments.push({id:pid, date, supplierId, amount:a.amount, note, payMethod, purchaseId:a.purchaseId});
       const invoiceNote = invoicePur ? ` · Invoice ${invoicePur.invoiceNumber||'(无号)'}` : '';
-      state.cashflow.push({id:uid(), date, type:'out', category:'供应商付款', amount:a.amount, payMethod, note:`${supplierName(supplierId)}${invoiceNote}${note?' · '+note:''}`, auto:true, _paymentId:pid});
+      state.cashflow.push({id:uid(), date: (invoicePur && invoicePur.date) || date, type:'out', category:'供应商付款', amount:a.amount, payMethod, note:`${supplierName(supplierId)}${invoiceNote}${note?' · '+note:''}`, auto:true, _paymentId:pid});
     });
   });
   payPayMethod = PAY_METHODS[0];
@@ -4858,7 +4879,7 @@ function importPaymentsReport(fileInput){
           const invoicePur = item.purchaseId ? state.purchases.find(p=>p.id===item.purchaseId) : null;
           state.payments.push({id:pid, date:item.date, supplierId, amount:item.amount, note:item.note, payMethod:item.payMethod, purchaseId:item.purchaseId, importBatch:batchId});
           const invoiceNote = invoicePur ? ` · Invoice ${invoicePur.invoiceNumber||'(无号，按日期'+invoicePur.date+'匹配)'}` : '';
-          state.cashflow.push({id:uid(), date:item.date, type:'out', category:'供应商付款', amount:item.amount, payMethod:item.payMethod, note:`${supplierName(supplierId)}${invoiceNote}${item.note?' · '+item.note:''}`, auto:true, _paymentId:pid});
+          state.cashflow.push({id:uid(), date:(invoicePur && invoicePur.date) || item.date, type:'out', category:'供应商付款', amount:item.amount, payMethod:item.payMethod, note:`${supplierName(supplierId)}${invoiceNote}${item.note?' · '+item.note:''}`, auto:true, _paymentId:pid});
           batchAmount += item.amount;
           dates.push(item.date);
         });
@@ -7079,11 +7100,14 @@ function saveEditAutoCashflow(ids){
   if(amount<=0){ alert('请输入金额'); return; }
   const payMethod = editCashflowPayMethod;
   editingCashflowIds = null;
+  const lockedToPurchase = !!linkedPurchaseDateForCashflow(rec);
   mutate(()=>{
-    rec.date = date; rec.amount = amount; rec.payMethod = payMethod; rec.note = note;
+    if(!lockedToPurchase) rec.date = date;
+    rec.amount = amount; rec.payMethod = payMethod; rec.note = note;
     if(rec._paymentId){
       const pay = state.payments.find(p=>p.id===rec._paymentId);
-      if(pay){ pay.date = date; pay.amount = amount; pay.payMethod = payMethod; pay.note = note; }
+      // 日期跟采购单走的流水，不能把采购单日期反写成付款日期（付款记录要保留真正付钱那天）
+      if(pay){ if(!lockedToPurchase) pay.date = date; pay.amount = amount; pay.payMethod = payMethod; pay.note = note; }
     }
   });
 }
@@ -7128,9 +7152,15 @@ function cashflowEditRowHtml(ids, group){
   const first = group[0];
   const noteVal = (first.note||'').replace(/"/g,'&quot;');
   if(first.auto){
+    const lockedDate = linkedPurchaseDateForCashflow(first);
+    const linkedPay = lockedDate ? state.payments.find(p=>p.id===first._paymentId) : null;
+    const dateField = lockedDate
+      ? `<div><label>日期（跟采购单日期）</label><input type="date" id="cfEditDate" value="${first.date}" disabled>
+           <div class="muted" style="font-size:11px; margin-top:2px;">实际付款日：${linkedPay ? linkedPay.date : '-'}。要改日期请去改采购单的日期，这里会自动跟着变</div></div>`
+      : `<div><label>日期</label><input type="date" id="cfEditDate" value="${first.date}"></div>`;
     return `<tr><td colspan="4"><div style="padding:10px 0;">
       <div class="grid2">
-        <div><label>日期</label><input type="date" id="cfEditDate" value="${first.date}"></div>
+        ${dateField}
         <div><label>金额</label><input type="text" inputmode="decimal" step="0.01" id="cfEditAmount" value="${first.amount}"></div>
       </div>
       <label>付款方式</label>
