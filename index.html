@@ -2143,6 +2143,30 @@ function findIngredient(name){
 function getIngredientNames(){
   return (state.ingredients||[]).map(i=>i.name).sort((a,b)=>a.localeCompare(b,'zh'));
 }
+/* 采购单「品名」建议清单专用：食材字典只收「食材」类别，厨房消耗品/厨房固定用品/修理/水电费
+   这些以前买过的品项不会进字典，打字的时候就搜不到。这里另外从所有历史采购单收集品名，
+   每个名字记住「最近一次」采购用的类别/单位/单价，选了之后可以自动带出来。 */
+function purchaseItemHistoryIndex(){
+  const idx = new Map();
+  (state.purchases||[]).forEach(pu=>{
+    (pu.items||[]).forEach(item=>{
+      const name = (item.name||'').trim();
+      if(!name) return;
+      const key = name.toLowerCase();
+      const prev = idx.get(key);
+      const d = pu.date || '';
+      if(!prev || d >= prev.date){
+        idx.set(key, {name, category: item.category||'食材', unit: item.unit||'', unitPrice: Number(item.unitPrice)||0, date: d});
+      }
+    });
+  });
+  return idx;
+}
+function getPurchaseItemNameSuggestions(){
+  const names = new Set(getIngredientNames().map(n=>n.trim()));
+  purchaseItemHistoryIndex().forEach(v=>names.add(v.name));
+  return Array.from(names).filter(Boolean).sort((a,b)=>a.localeCompare(b,'zh'));
+}
 /* ---- 单位换算：解决"采购用的单位"跟"实际用的单位"不一样的问题 ----
    比如酱油进货是按"桶"算价钱，但炒菜配方里是按"ml"算用量。食材字典里的unit/unitPrice
    记的是"最近一次采购"的单位价钱（比如1桶RM80），这里让使用者额外设一条"1桶=多少ml"的换算，
@@ -4358,7 +4382,7 @@ function renderPurchaseItemRows(){
     <div class="pi-card">
       <div class="pi-top">
         <input autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="pi_title_${row.id}" id="purItemTitle_${row.id}" placeholder="品名" value="${row.name}" oninput="updatePurItem('${row.id}','name',this.value)" onchange="autoLinkPurItemIngredient('${row.id}')">
-        <select style="flex:0 0 108px" onchange="updatePurItem('${row.id}','category',this.value)">
+        <select id="pi_cat_${row.id}" style="flex:0 0 108px" onchange="updatePurItem('${row.id}','category',this.value)">
           ${PURCHASE_CATEGORIES.map(c=>`<option value="${c}" ${row.category===c?'selected':''}>${c}</option>`).join('')}
         </select>
         <select style="flex:0 0 88px" onchange="updatePurItem('${row.id}','company',this.value)" title="这一项所属公司（不填=跟随整单选的公司，一张单里有不同公司的东西时才需要个别设）">
@@ -4378,10 +4402,10 @@ function renderPurchaseItemRows(){
     </div>
   `).join('');
   updatePurTotalPreview();
-  const ingredientNames = getIngredientNames();
+  const purItemNameSuggestions = getPurchaseItemNameSuggestions();
   const unitSuggestions = getUnitSuggestions();
   tempPurchaseItems.forEach(row=>{
-    wireSuggest('purItemTitle_'+row.id, ingredientNames);
+    wireSuggest('purItemTitle_'+row.id, purItemNameSuggestions);
     wireSuggest('pi_unit_'+row.id, unitSuggestions);
     if(document.getElementById('purProdPicks_'+row.id)){
       mpInit('purProdPicks_'+row.id, ()=>state.products.slice().sort((a,b)=>a.name.localeCompare(b.name,'zh')), ()=> row.productIds||[], (id,checked)=>togglePurItemProductPick(row.id, id, checked));
@@ -4451,7 +4475,19 @@ function togglePurItemProductPick(rowId, productId, checked){
 function autoLinkPurItemIngredient(rowId){
   const row = tempPurchaseItems.find(r=>r.id===rowId);
   if(!row) return;
-  const ing = findIngredient(row.name);
+  let ing = findIngredient(row.name);
+  // 不是食材字典里的名字，但以前采购过（厨房消耗品、修理、水电费…）：自动带出上次的类别/单位/单价
+  if(!ing && (row.name||'').trim()){
+    const hist = purchaseItemHistoryIndex().get(row.name.trim().toLowerCase());
+    if(hist){
+      if(hist.category && hist.category!==row.category && (row.category||'食材')==='食材'){
+        row.category = hist.category;
+        const catSel = document.getElementById('pi_cat_'+rowId);
+        if(catSel) catSel.value = row.category;
+      }
+      ing = {unit: hist.unit, unitPrice: hist.unitPrice};
+    }
+  }
   if(ing){
     if(ing.unit && !row.unit){
       row.unit = ing.unit;
