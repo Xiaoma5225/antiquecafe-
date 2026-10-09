@@ -6692,6 +6692,12 @@ function deleteImportBatch(batchId){
       const removedIds = state.purchases.filter(p=>p.importBatch===batchId).map(p=>p.id);
       state.purchases = state.purchases.filter(p=>p.importBatch!==batchId);
       removedIds.forEach(rid=>removeRecipeBatchLogsForPurchase(rid));
+      // 导入时标了"已付款"自动生成的付款记录（跟采购单同一个importBatch）也一起删掉，连同收支里的那笔
+      const removedPayIds = new Set(state.payments.filter(p=>p.importBatch===batchId).map(p=>p.id));
+      if(removedPayIds.size){
+        state.payments = state.payments.filter(p=>p.importBatch!==batchId);
+        state.cashflow = state.cashflow.filter(c=>!(c.auto && c._paymentId && removedPayIds.has(c._paymentId)));
+      }
     } else if(type==='payment'){
       const removedIds = new Set(state.payments.filter(p=>p.importBatch===batchId).map(p=>p.id));
       state.payments = state.payments.filter(p=>p.importBatch!==batchId);
@@ -6964,8 +6970,8 @@ function importAddonReport(fileInput){
    方便直接拿收据/发票整理成这个格式导入。同一张单（公司+供应商+Invoice号+日期都一样）的多个品项会自动合并成一张采购单，
    供应商找不到会自动新建（跟手动填采购单一样），关联产品要跟"成本"页产品名一模一样，可以填多个、用"、"分开。 */
 function downloadPurchaseImportTemplate(){
-  const header = ['日期','公司','供应商','Invoice号','品名','类别(选填，默认食材)','数量','单位(选填)','单价(选填)','总价','关联产品(选填，可填多个用、分开)'];
-  const example = ['2026-08-03', COMPANIES[0], 'BILLION SHOPPING CENTRE', 'BLCH2621514007111', 'OLD GINGER (BENTONG)', '食材', '1.892', 'KG', '7.99', '15.12', ''];
+  const header = ['日期','公司','供应商','Invoice号','品名','类别(选填，默认食材)','数量','单位(选填)','单价(选填)','总价','关联产品(选填，可填多个用、分开)','付款状态(选填：已付款/未付款，默认未付款)','付款日期(选填，默认采购日期)','付款方式(选填：'+PAY_METHODS.join('/')+')'];
+  const example = ['2026-08-03', COMPANIES[0], 'BILLION SHOPPING CENTRE', 'BLCH2621514007111', 'OLD GINGER (BENTONG)', '食材', '1.892', 'KG', '7.99', '15.12', '', '已付款', '2026-08-03', PAY_METHODS[0]];
   downloadCSV('采购单导入模板.csv', header, [example]);
 }
 function importPurchasesReport(fileInput){
@@ -7000,7 +7006,20 @@ function importPurchasesReport(fileInput){
         const unitPriceRaw = (r[8]||'').trim();
         const totalRaw = (r[9]||'').trim();
         const linkedRaw = (r[10]||'').trim();
+        /* 第12~14栏（选填）：付款状态/付款日期/付款方式。填"已付款"的采购单，导入时会自动生成一笔全额付款记录（跟在采购页按"付款"一样，会进收支） */
+        const payStatusRaw = (r[11]||'').trim().toLowerCase();
+        const isPaid = ['已付款','已付','付了','paid','yes','y','是'].includes(payStatusRaw);
+        if(payStatusRaw && !isPaid && !['未付款','未付','没付','unpaid','no','n','否'].includes(payStatusRaw)) errors.push(`${loc}：付款状态"${r[11]}"看不懂（可填：已付款/未付款），先当未付款处理`);
+        const payDateRaw = (r[12]||'').trim();
+        const payDate = payDateRaw ? normalizeDateStr(payDateRaw) : '';
+        const payMethodRaw = (r[13]||'').trim();
+        let payMethod = '';
+        if(payMethodRaw){
+          payMethod = PAY_METHODS.find(m=>m.toLowerCase()===payMethodRaw.toLowerCase()) || '';
+          if(!payMethod) errors.push(`${loc}：付款方式"${payMethodRaw}"不认得（可选：${PAY_METHODS.join('、')}），先当${PAY_METHODS[0]}处理`);
+        }
         if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ errors.push(`${loc}：日期"${r[0]||''}"看不懂，请用 2026-08-01 这种格式`); return; }
+        if(isPaid && payDateRaw && !/^\d{4}-\d{2}-\d{2}$/.test(payDate)) errors.push(`${loc}：付款日期"${payDateRaw}"看不懂，先用采购日期`);
         if(!supplierNameRaw){ errors.push(`${loc}：缺少供应商名称`); return; }
         if(!itemName){ errors.push(`${loc}：缺少品名`); return; }
         if(!qty || qty<=0 || isNaN(qty)){ errors.push(`${loc}：数量不对`); return; }
@@ -7037,8 +7056,13 @@ function importPurchasesReport(fileInput){
         });
         const key = [supplierNameRaw.toLowerCase(), invoiceNumber.toLowerCase(), date].join('|');
         if(!groups[key]){
-          groups[key] = {date, supplierNameRaw, invoiceNumber, items:[]};
+          groups[key] = {date, supplierNameRaw, invoiceNumber, items:[], paid:false, payDate:'', payMethod:''};
           groupOrder.push(key);
+        }
+        if(isPaid){
+          groups[key].paid = true;
+          if(!groups[key].payDate && /^\d{4}-\d{2}-\d{2}$/.test(payDate)) groups[key].payDate = payDate;
+          if(!groups[key].payMethod && payMethod) groups[key].payMethod = payMethod;
         }
         groups[key].items.push({id:uid(), name:itemName, category, qty, unit, unitPrice: isNaN(unitPrice)?0:unitPrice, totalCost, productIds, company});
       });
@@ -7046,6 +7070,8 @@ function importPurchasesReport(fileInput){
       if(purchaseGroups.length===0){ alert('没有成功解析到任何一笔采购：\n\n' + errors.join('\n')); fileInput.value=''; return; }
       const totalItems = purchaseGroups.reduce((a,g)=>a+g.items.length,0);
       let msg = multi ? `准备从 ${fileTexts.length} 个文件里导入 ${purchaseGroups.length} 张采购单（共 ${totalItems} 项品项）` : `准备导入 ${purchaseGroups.length} 张采购单（共 ${totalItems} 项品项）`;
+      const paidCount = purchaseGroups.filter(g=>g.paid).length;
+      msg += `\n其中 ${paidCount} 张标了"已付款"（会自动记一笔全额付款+收支支出），${purchaseGroups.length-paidCount} 张算未付款。`;
       if(newProducts.length) msg += `\n\n其中 ${newProducts.length} 个关联产品在"成本"页找不到，会自动新增（暂无成本项/售价0，之后请自己去"成本"页补充）：\n` + newProducts.map(p=>p.name).join('、');
       if(errors.length) msg += `\n\n另外有 ${errors.length} 处问题：\n\n` + errors.join('\n');
       msg += '\n\n确定继续导入吗？';
@@ -7068,6 +7094,14 @@ function importPurchasesReport(fileInput){
           const newPur = {id:uid(), date:g.date, supplierId, items:g.items, totalAmount, invoiceNumber:g.invoiceNumber, company:groupCompany, importBatch:batchId};
           state.purchases.push(newPur);
           pushedPurchases.push(newPur);
+          if(g.paid && totalAmount>0){
+            const pid = uid();
+            const method = g.payMethod || PAY_METHODS[0];
+            const payDate = g.payDate || g.date;
+            state.payments.push({id:pid, date:payDate, supplierId, amount:totalAmount, note:'', payMethod:method, purchaseId:newPur.id, importBatch:batchId});
+            const invoiceNote = newPur.invoiceNumber ? ` · Invoice ${newPur.invoiceNumber}` : '';
+            state.cashflow.push({id:uid(), date:newPur.date || payDate, type:'out', category:'供应商付款', amount:totalAmount, payMethod:method, note:`${supplierName(supplierId)}${invoiceNote}`, auto:true, _paymentId:pid});
+          }
           g.items.forEach(i=>learnIngredientLink(i.name, i.productIds, {unit:i.unit, unitPrice:i.unitPrice}));
           batchAmount += totalAmount;
           dates.push(g.date);
