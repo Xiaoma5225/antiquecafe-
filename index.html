@@ -199,6 +199,40 @@
   .pi-top input{flex:1; padding:8px;}
   .pi-bottom{display:grid; grid-template-columns:repeat(4,1fr); gap:6px;}
   .pi-bottom input{padding:8px; font-size:13px;}
+  /* ---- 采购单品项：一项一行（横列式）----
+     同一份HTML，手机（窄屏）排成跟以前差不多的卡片：品名/类别/公司一行、数量/单位/单价/总价一行；
+     宽屏（≥760px，电脑/iPad）变成表格式，一项一行，上面一行栏位标题。
+     DOM 顺序 = Tab 顺序：品名→类别→公司→数量→单位→单价→总价→×，然后到下一行。 */
+  .pt{border:1px solid var(--border); border-radius:10px; background:#F9FAFB; padding:6px 10px 2px;}
+  .pt-head{display:none;}
+  .pr{position:relative; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; align-items:center;
+      grid-template-areas:"name name name name" "cat cat co co" "info info info info" "qty unit price total";
+      padding:8px 26px 8px 0; border-bottom:1px dashed var(--border);}
+  .pr:last-child{border-bottom:none;}
+  .pr input,.pr select{padding:8px 6px; font-size:13px; background:#fff; margin:0; min-width:0;}
+  .pr .suggest-wrap{min-width:0;}
+  .pr .c-no{display:none;}
+  .pr .c-name{grid-area:name;} .pr .c-cat{grid-area:cat;} .pr .c-co{grid-area:co;}
+  .pr .c-qty{grid-area:qty;} .pr .c-unit{grid-area:unit;} .pr .c-price{grid-area:price;} .pr .c-total{grid-area:total;}
+  .pr .c-info{grid-area:info; font-size:11px; line-height:1.4;}
+  .pr .c-info:empty{display:none;}
+  .pr .c-info .muted{margin-bottom:0 !important;}
+  .pr .rm{position:absolute; right:0; top:12px; background:none; border:none; color:var(--muted); font-size:16px; padding:0 2px; width:22px;}
+  .pr .rm:focus-visible{outline:2px solid var(--green); border-radius:4px;}
+  .pr input.num{text-align:right;}
+  .pr .c-total input{font-weight:600;}
+  .pt-foot{display:flex; justify-content:space-between; align-items:center; padding:8px 0 6px; border-top:1px solid var(--border); margin-top:2px;}
+  .pt-foot .sum{font-size:13px; color:var(--muted);} .pt-foot .sum b{font-size:15px; color:var(--ink); margin-left:6px;}
+  @media (min-width:760px){
+    .pt-head,.pr{grid-template-columns:20px minmax(110px,1fr) 92px 100px 66px 62px 74px 86px 22px;}
+    .pt-head{display:grid; gap:6px; font-size:11.5px; color:var(--muted); padding:4px 0 6px; border-bottom:1px solid var(--border);}
+    .pt-head .r{text-align:right;}
+    .pr{grid-template-areas:"no name cat co qty unit price total rm" ". info info info info info info info info"; padding:6px 0;}
+    .pr input,.pr select{padding:8px; font-size:13.5px;}
+    .pr .c-no{display:block; grid-area:no; font-size:11px; color:var(--muted); text-align:center;}
+    .pr .rm{position:static; grid-area:rm;}
+    .pr .c-info:empty{display:none;}
+  }
 
   .viz-bar{height:9px; border-radius:5px; background:var(--border); overflow:hidden; display:flex; margin:6px 0;}
   .viz-bar .seg{height:100%; transition:width .2s ease;}
@@ -943,6 +977,7 @@ function wireSuggest(inputId, options){
   if(!dropdown){
     dropdown = document.createElement('div');
     dropdown.className = 'suggest-dropdown';
+    dropdown.tabIndex = -1; // 可以滚动的下拉框在 Chrome 里会被 Tab 选到，变成多停一格，这里排除掉
     wrap.appendChild(dropdown);
   }
   let matches = [];
@@ -986,6 +1021,7 @@ function wireSuggest(inputId, options){
     if(e.key==='ArrowDown'){ e.preventDefault(); setActive(activeIndex<matches.length-1 ? activeIndex+1 : 0); }
     else if(e.key==='ArrowUp'){ e.preventDefault(); setActive(activeIndex>0 ? activeIndex-1 : matches.length-1); }
     else if(e.key==='Enter'){ if(activeIndex>=0){ e.preventDefault(); pick(activeIndex); } }
+    else if(e.key==='Tab'){ if(activeIndex>=0) pick(activeIndex); } // 有用方向键选中的建议项，按Tab就选它再跳下一格（不拦截Tab本身）
     else if(e.key==='Escape'){ dropdown.classList.remove('show'); }
   });
   inputEl.addEventListener('blur', ()=>{ setTimeout(()=>dropdown.classList.remove('show'), 150); });
@@ -2897,7 +2933,6 @@ function renderPurchase(){
       <label>Invoice 号码</label><input id="purInvoiceNumber" placeholder="例：INV-00123" autocomplete="off" style="text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()" value="${editingPurchase? (editingPurchase.invoiceNumber||'') : (draft.purInvoiceNumber||'')}">
       <label style="margin-top:14px">品项明细（同一供应商可一次拿多个不同产品）</label>
       <div id="purItemsWrap"></div>
-      <button class="btn-line" onclick="addPurchaseItemRow()">+ 添加一项</button>
       <label style="margin-top:8px;">本单总金额（默认是各项目加总，如果发票上实际数字不一样，可以直接改这里）</label>
       <input type="text" inputmode="decimal" step="0.01" id="purTotalPreview" oninput="purTotalManuallyEdited=true;">
       ${purTotalManuallyEdited? `<div class="muted" style="font-size:11px; margin-top:2px;">已手动改过，不会再跟着品项自动重算——想改回自动加总，把这格清空或按"取消"重来。</div>` : ''}
@@ -4333,7 +4368,7 @@ function purItemInfoHtml(row){
     const linkedIds = ing && ing.productIds ? ing.productIds.filter(Boolean) : [];
     if(linkedIds.length){
       const names = linkedIds.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean);
-      return `<div class="muted" style="font-size:11px; margin-bottom:6px;">关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="goToIngredientLinkTab('${row.name.replace(/'/g,"\\'")}')">改关联</a></div>`;
+      return `<div class="muted" style="font-size:11px; margin-bottom:6px;">关联到：${names.join('、')}　<a href="javascript:void(0)" tabindex="-1" onclick="goToIngredientLinkTab('${row.name.replace(/'/g,"\\'")}')">改关联</a></div>`;
     }
     const picked = row.productIds||[];
     const newFlag = ing ? '' : '🆕 新食材，';
@@ -4341,7 +4376,7 @@ function purItemInfoHtml(row){
     // 不用整块打勾清单一直占着地方——点"改选"才会再打开。
     if(picked.length && !row.pickerOpen){
       const names = picked.map(pid=>{ const pr=state.products.find(x=>x.id===pid); return pr?pr.name:''; }).filter(Boolean);
-      return `<div class="muted" style="font-size:11px; margin-bottom:6px; color:var(--green);">🆕 将关联到：${names.join('、')}　<a href="javascript:void(0)" onclick="setPurItemPickerOpen('${row.id}',true)">改选</a></div>`;
+      return `<div class="muted" style="font-size:11px; margin-bottom:6px; color:var(--green);">🆕 将关联到：${names.join('、')}　<a href="javascript:void(0)" tabindex="-1" onclick="setPurItemPickerOpen('${row.id}',true)">改选</a></div>`;
     }
     return `
       <div class="muted" style="font-size:11px; margin-bottom:4px; color:var(--rust);">${newFlag}还没关联产品，勾选这个算给哪个产品的成本（保存这张单会一起生效）：</div>
@@ -4369,39 +4404,80 @@ function refreshPurItemInfo(rowId){
    直到清空那格或取消整张单重来。这样"要不要抓零头"完全由使用者自己判断，系统不用猜、
    也不会因为猜错了把不该抓零头的正式发票金额悄悄改掉。 */
 function updatePurTotalPreview(){
+  updatePurItemsSum();
   const el = document.getElementById('purTotalPreview');
   if(!el) return;
   if(purTotalManuallyEdited) return;
   const total = tempPurchaseItems.reduce((a,r)=>a+Number(r.total||0),0);
   el.value = total ? String(Math.round(total*100)/100) : '';
 }
+/* 品项表底部那行"共 N 项 RM xx"——跟着各项总价即时更新（不管本单总金额有没有被手动改过，这里都是品项加总） */
+function updatePurItemsSum(){
+  const el = document.getElementById('purItemsSum');
+  if(!el) return;
+  const filled = tempPurchaseItems.filter(r=>(r.name||'').trim() || r.total!=='');
+  const total = tempPurchaseItems.reduce((a,r)=>a+(Number(r.total)||0),0);
+  el.innerHTML = filled.length ? `共 ${filled.length} 项<b>RM ${fmtPlain(total)}</b>` : '';
+}
+/* 品项表的键盘操作（电脑/iPad接键盘）：
+   - Tab / Shift+Tab 照浏览器原本的顺序走（品名→类别→公司→数量→单位→单价→总价→×→下一行）
+   - 在最后一行的最后一格按 Tab：自动多开一行，光标停在新一行的品名
+   - 在输入框按 Enter：跳到下一格（不会送出整张单）；品名/单位的建议清单开着而且有选中项时，Enter 是选那一项（wireSuggest 先处理） */
+function purItemFocusables(container){
+  return Array.from(container.querySelectorAll('input,select,button,a[href]')).filter(el=>!el.disabled && el.tabIndex>=0 && el.offsetParent!==null);
+}
+function onPurItemsKeydown(e){
+  if(e.defaultPrevented) return;
+  const rowsEl = document.getElementById('purItemRows');
+  if(!rowsEl || !rowsEl.contains(e.target)) return;
+  const all = purItemFocusables(rowsEl);
+  const idx = all.indexOf(e.target);
+  if(idx<0) return;
+  if(e.key==='Tab' && !e.shiftKey && idx===all.length-1){
+    e.preventDefault();
+    addPurchaseItemRow(true);
+    return;
+  }
+  if(e.key==='Enter' && e.target.tagName==='INPUT' && !e.isComposing){
+    e.preventDefault();
+    if(idx===all.length-1){ addPurchaseItemRow(true); return; }
+    all[idx+1].focus();
+    if(all[idx+1].select && all[idx+1].tagName==='INPUT') all[idx+1].select();
+  }
+}
 function renderPurchaseItemRows(){
   const wrap = document.getElementById('purItemsWrap');
   wrap.innerHTML = `
+    <div class="pt">
+      <div class="pt-head"><span></span><span>品名</span><span>类别</span><span>公司</span><span class="r">数量</span><span>单位</span><span class="r">单价</span><span class="r">总价 RM</span><span></span></div>
+      <div id="purItemRows">
   ` + tempPurchaseItems.map((row,idx)=>`
-    <div class="pi-card">
-      <div class="pi-top">
-        <input autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="pi_title_${row.id}" id="purItemTitle_${row.id}" placeholder="品名" value="${row.name}" oninput="updatePurItem('${row.id}','name',this.value)" onchange="autoLinkPurItemIngredient('${row.id}')">
-        <select id="pi_cat_${row.id}" style="flex:0 0 108px" onchange="updatePurItem('${row.id}','category',this.value)">
-          ${PURCHASE_CATEGORIES.map(c=>`<option value="${c}" ${row.category===c?'selected':''}>${c}</option>`).join('')}
-        </select>
-        <select style="flex:0 0 88px" onchange="updatePurItem('${row.id}','company',this.value)" title="这一项所属公司（不填=跟随整单选的公司，一张单里有不同公司的东西时才需要个别设）">
-          <option value="" ${!row.company?'selected':''}>跟随整单</option>
-          ${COMPANIES.map(c=>`<option value="${c}" ${row.company===c?'selected':''}>${companyShort(c)}</option>`).join('')}
-        </select>
-        ${tempPurchaseItems.length>1?`<button class="rm" onclick="removePurItem('${row.id}')">×</button>`:'<span style="width:20px"></span>'}
-      </div>
-      <div id="purItemInfo_${row.id}">${purItemInfoHtml(row)}</div>
-      <div class="pi-bottom">
-        <input id="pi_qty_${row.id}" placeholder="数量" type="text" inputmode="decimal" value="${row.qty}" oninput="updatePurItem('${row.id}','qty',this.value)">
-        <input autocomplete="off" id="pi_unit_${row.id}" placeholder="单位" value="${row.unit}" oninput="updatePurItem('${row.id}','unit',this.value)">
-        <input placeholder="单价(选填)" type="text" inputmode="decimal" step="0.01" id="pi_price_${row.id}" value="${row.unitPrice}" oninput="updatePurItem('${row.id}','unitPrice',this.value)">
-        <input id="pi_total_${row.id}" placeholder="总价RM" type="text" inputmode="decimal" step="0.01" value="${row.total}" oninput="updatePurItem('${row.id}','total',this.value)">
-      </div>
-      <div class="muted" style="font-size:11px; margin-top:3px;">填了"数量"和"单价"会自动算出总价；不想算就直接填"总价"就好</div>
+    <div class="pr" data-row="${row.id}">
+      <span class="c-no">${idx+1}</span>
+      <div class="c-name"><input autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="pi_title_${row.id}" id="purItemTitle_${row.id}" placeholder="品名" value="${row.name}" oninput="updatePurItem('${row.id}','name',this.value)" onchange="autoLinkPurItemIngredient('${row.id}')"></div>
+      <select class="c-cat" id="pi_cat_${row.id}" onchange="updatePurItem('${row.id}','category',this.value)">
+        ${PURCHASE_CATEGORIES.map(c=>`<option value="${c}" ${row.category===c?'selected':''}>${c}</option>`).join('')}
+      </select>
+      <select class="c-co" onchange="updatePurItem('${row.id}','company',this.value)" title="这一项所属公司（不填=跟随整单选的公司，一张单里有不同公司的东西时才需要个别设）">
+        <option value="" ${!row.company?'selected':''}>跟随整单</option>
+        ${COMPANIES.map(c=>`<option value="${c}" ${row.company===c?'selected':''}>${companyShort(c)}</option>`).join('')}
+      </select>
+      <div class="c-qty"><input class="num" id="pi_qty_${row.id}" placeholder="数量" type="text" inputmode="decimal" value="${row.qty}" oninput="updatePurItem('${row.id}','qty',this.value)"></div>
+      <div class="c-unit"><input autocomplete="off" id="pi_unit_${row.id}" placeholder="单位" value="${row.unit}" oninput="updatePurItem('${row.id}','unit',this.value)"></div>
+      <div class="c-price"><input class="num" placeholder="单价" type="text" inputmode="decimal" step="0.01" id="pi_price_${row.id}" value="${row.unitPrice}" oninput="updatePurItem('${row.id}','unitPrice',this.value)"></div>
+      <div class="c-total"><input class="num" id="pi_total_${row.id}" placeholder="总价" type="text" inputmode="decimal" step="0.01" value="${row.total}" oninput="updatePurItem('${row.id}','total',this.value)"></div>
+      ${tempPurchaseItems.length>1?`<button type="button" class="rm" title="删除这一项" onclick="removePurItem('${row.id}')">×</button>`:'<span class="rm"></span>'}
+      <div class="c-info" id="purItemInfo_${row.id}">${purItemInfoHtml(row)}</div>
     </div>
-  `).join('');
+  `).join('') + `
+      </div>
+      <div class="pt-foot"><button type="button" class="btn-line" onclick="addPurchaseItemRow(true)">+ 添加一项</button><span class="sum" id="purItemsSum"></span></div>
+    </div>
+    <div class="muted" style="font-size:11px; margin-top:4px;">填了"数量"和"单价"会自动算出总价；不想算就直接填"总价"。电脑/iPad键盘：Tab 跳下一格、Shift+Tab 回上一格、Enter 也是跳下一格；在最后一行的最后一格按 Tab 会自动多开一行。</div>
+  `;
   updatePurTotalPreview();
+  updatePurItemsSum();
+  if(!wrap._kbWired){ wrap.addEventListener('keydown', onPurItemsKeydown); wrap._kbWired = true; }
   const purItemNameSuggestions = getPurchaseItemNameSuggestions();
   const unitSuggestions = getUnitSuggestions();
   tempPurchaseItems.forEach(row=>{
@@ -4438,10 +4514,13 @@ function updatePurItem(id, field, val){
     refreshPurItemInfo(id);
   }
   updatePurTotalPreview();
+  updatePurItemsSum();
 }
-function addPurchaseItemRow(){
-  tempPurchaseItems.push({id:uid(), name:'', category:'食材', company:'', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''});
+function addPurchaseItemRow(focusNew){
+  const newRow = {id:uid(), name:'', category:'食材', company:'', productIds:[], productInput:'', qty:'', unit:'', unitPrice:'', total:''};
+  tempPurchaseItems.push(newRow);
   renderPurchaseItemRows();
+  if(focusNew){ const el = document.getElementById('purItemTitle_'+newRow.id); if(el) el.focus(); }
 }
 function removePurItem(id){
   tempPurchaseItems = tempPurchaseItems.filter(r=>r.id!==id);
